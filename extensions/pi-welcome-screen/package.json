@@ -1,0 +1,58 @@
+{
+  "name": "@pi-kaush/pi-welcome-screen",
+  "version": "0.1.0",
+  "description": "Replace Pi's startup header with centered branding and a compact resource summary.",
+  "license": "MIT",
+  "author": "Kaushik Gopal",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "types": "./src/index.ts",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "welcome-screen",
+    "terminal-ui"
+  ],
+  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-welcome-screen#readme",
+  "bugs": {
+    "url": "https://github.com/kaushikgopal/pi-kaush/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaushikgopal/pi-kaush.git",
+    "directory": "extensions/pi-welcome-screen"
+  },
+  "files": [
+    "src",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.6",
+    "@earendil-works/pi-tui": ">=0.80.6"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "package:check": "node ./scripts/check-package.mjs"
+  },
+  "sideEffects": false
+}
