@@ -1,0 +1,29 @@
+{
+  "name": "pi-kaush",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Composable extensions for the Pi coding agent",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "npm@11.17.0",
+  "workspaces": [
+    "extensions/*"
+  ],
+  "scripts": {
+    "check": "npm run format:check && npm run typecheck && npm test && npm run package:check --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@types/node": "26.1.1",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
