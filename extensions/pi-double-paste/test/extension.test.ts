@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import piExpandDoublePaste from "../src/index.ts";
+import { BRACKETED_PASTE_END, BRACKETED_PASTE_START } from "../src/paste.ts";
 
 type Handler = (event: unknown, context: any) => void;
 
@@ -54,5 +55,38 @@ describe("extension lifecycle", () => {
 
     handlers.get("session_shutdown")?.({}, { mode: "tui", ui });
     expect(secondUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  test("notifies after expanding a matching second paste", async () => {
+    const { handlers } = setup();
+    let terminalInput:
+      | ((data: string) => { consume?: boolean } | undefined)
+      | undefined;
+    let editorText = "";
+    const notify = vi.fn();
+    const ui = {
+      onTerminalInput: vi.fn((handler) => {
+        terminalInput = handler;
+        return vi.fn();
+      }),
+      getEditorText: vi.fn(() => editorText),
+      setEditorText: vi.fn((text: string) => {
+        editorText = text;
+      }),
+      notify,
+    };
+    const content = Array.from(
+      { length: 11 },
+      (_, index) => `line ${index + 1}`,
+    ).join("\n");
+    const paste = `${BRACKETED_PASTE_START}${content}${BRACKETED_PASTE_END}`;
+
+    handlers.get("session_start")?.({}, { mode: "tui", ui });
+    expect(terminalInput?.(paste)).toBeUndefined();
+    editorText = content;
+    await Promise.resolve();
+
+    expect(terminalInput?.(paste)).toEqual({ consume: true });
+    expect(notify).toHaveBeenCalledWith("Paste expanded.", "info");
   });
 });

@@ -8,10 +8,22 @@ export default function piExpandDoublePaste(pi: ExtensionAPI): void {
     if (ctx.mode !== "tui") return;
 
     unsubscribe?.();
-    const handler = createDoublePasteHandler(ctx.ui, {
+    const handleDoublePaste = createDoublePasteHandler(ctx.ui, {
       warn: (message) => ctx.ui.notify(message, "warning"),
     });
-    unsubscribe = ctx.ui.onTerminalInput(handler);
+    unsubscribe = ctx.ui.onTerminalInput((data) => {
+      const result = handleDoublePaste(data);
+      if (result?.consume) {
+        // TODO: Remove this notification after Pi repaints setEditorText()
+        // calls from consumed terminal input: https://github.com/earendil-works/pi/issues/5620
+        try {
+          ctx.ui.notify("Paste expanded.", "info");
+        } catch {
+          // Notification delivery must never interfere with input.
+        }
+      }
+      return result;
+    });
   });
 
   pi.on("session_shutdown", () => {

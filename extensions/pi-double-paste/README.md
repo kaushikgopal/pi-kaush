@@ -32,6 +32,7 @@ pi -e ./extensions/pi-double-paste/src/index.ts
 2. Pi displays its normal compact marker.
 3. Paste the same block again within three seconds.
 4. The second paste is not duplicated; all current markers become editable text.
+5. Pi briefly confirms the expansion with a “Paste expanded.” notification.
 
 Short pastes and non-matching long pastes retain Pi's normal behavior.
 
