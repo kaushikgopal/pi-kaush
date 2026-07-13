@@ -15,7 +15,7 @@ export default function piExpandDoublePaste(pi: ExtensionAPI): void {
       const result = handleDoublePaste(data);
       if (result?.consume) {
         // TODO: Remove this notification after Pi repaints setEditorText()
-        // calls from consumed terminal input: https://github.com/earendil-works/pi/issues/5620
+        // calls from consumed terminal input: https://github.com/earendil-works/pi/issues/5620#issuecomment-4963678354
         try {
           ctx.ui.notify("Paste expanded.", "info");
         } catch {

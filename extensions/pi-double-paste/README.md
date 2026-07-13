@@ -12,6 +12,8 @@ Paste the same large block twice to expand Pi's compact paste markers into ordin
 
 That is useful until you need to edit the pasted text. This extension keeps Pi's normal first-paste behavior and treats an identical second paste as a request to expand every current marker.
 
+> **Lightweight by design:** This extension uses only Pi's native, public extension APIs. It does not replace, wrap, or rebuild the input editor.
+
 ## Install
 
 After the first npm release:
