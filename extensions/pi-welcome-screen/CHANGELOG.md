@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Add the welcome-screen screenshot to the GitHub and npm package pages.
+
 ## 0.1.0
 
 - Add a responsive custom Pi startup header.

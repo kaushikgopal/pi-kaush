@@ -11,6 +11,7 @@ const output = execFileSync(
 const [pack] = JSON.parse(output);
 const files = pack.files.map(({ path }) => path).sort();
 const expected = [
+  "assets/pi-welcome.webp",
   "CHANGELOG.md",
   "LICENSE",
   "README.md",

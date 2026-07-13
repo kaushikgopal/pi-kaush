@@ -2,6 +2,8 @@
 
 A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It keeps Pi's loaded context, skills, prompts, and extensions visible while replacing the stock header with a responsive branded layout.
 
+![Pi welcome screen showing context, skills, prompts, and extensions](https://raw.githubusercontent.com/kaushikgopal/pi-kaush/main/extensions/pi-welcome-screen/assets/pi-welcome.webp)
+
 ## Features
 
 - Responsive stacked and wide terminal layouts
@@ -14,7 +16,7 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 ## Install
 
 ```sh
-pi install npm:@pi-kaush/pi-welcome-screen@0.1.0
+pi install npm:@pi-kaush/pi-welcome-screen@0.1.1
 ```
 
 Restart Pi or run `/reload`.
