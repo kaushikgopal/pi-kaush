@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-openai-text-verbosity-v') || startsWith(github.event.release.tag_name, 'pi-split-session-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
+    if: startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-text-verbosity-v') || startsWith(github.event.release.tag_name, 'pi-split-session-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -32,6 +32,11 @@ jobs:
               workspace="@pi-kaush/pi-double-paste"
               directory="extensions/pi-double-paste"
               prefix="pi-double-paste-v"
+              ;;
+            pi-inline-skill-identifier-v*)
+              workspace="@pi-kaush/pi-inline-skill-identifier"
+              directory="extensions/pi-inline-skill-identifier"
+              prefix="pi-inline-skill-identifier-v"
               ;;
             pi-openai-text-verbosity-v*)
               workspace="@pi-kaush/pi-openai-text-verbosity"
