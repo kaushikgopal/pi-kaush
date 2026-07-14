@@ -40,5 +40,7 @@ While typing, Pi's native autocomplete suggests loaded skills after `$`. For exa
 - A prompt referencing exactly one known skill is transformed. Repeating that same skill still counts as one skill.
 - Prompts referencing multiple different skills are left unchanged because Pi does not expose a native skill-composition command.
 - Slash commands, unknown `$tokens`, and extension-generated input are left unchanged.
+- Skill names must match the complete `$token`; a loaded skill is not matched as a prefix of a longer token.
 - Autocomplete uses Pi's existing provider and only filters loaded skill names in memory.
-- The extension does not replace the editor. It installs one guarded render wrapper on Pi's existing editor so loaded skill aliases can be colored.
+- Autocomplete and highlighting only run in TUI mode. Input transformation remains available in print, JSON, and RPC modes.
+- The extension does not replace the editor. It installs one guarded, lifecycle-scoped render wrapper so loaded skill aliases can be colored.

@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Suggest loaded skills through Pi's native autocomplete while typing `$skill-name` aliases.
+- Require complete skill-token matches instead of matching known skill prefixes.
+- Scope editor decoration state to active TUI sessions and refresh discovered skills during rendering.
 
 ## 0.1.0
 

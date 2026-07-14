@@ -15,17 +15,24 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 
-const SKILL_ALIAS_RE = /\$([a-z0-9][a-z0-9-]{0,63})\b/g;
+const SKILL_TOKEN_END = "(?![a-z0-9-])";
+const SKILL_ALIAS_RE = new RegExp(
+  `\\$([a-z0-9][a-z0-9-]{0,63})${SKILL_TOKEN_END}`,
+  "g",
+);
 const SKILL_AUTOCOMPLETE_RE = /(?:^|[ \t])(\$[a-z0-9-]*)$/;
 const SKILL_AUTOCOMPLETE_STOP_RE = /(?:^|[ \t])\$[a-z0-9-]*[ \t]$/;
 const MAX_AUTOCOMPLETE_ITEMS = 20;
-// Keep the original keys so reloading from the former local extension to this
-// package reuses the same process-wide patch and active-skill state.
+// Process-wide keys keep the wrapper reload-safe. The legacy key lets this
+// version neutralize the previous wrapper during a hot reload.
 const EDITOR_PATCH_FLAG = Symbol.for(
   "kg.pi.inlineSkillAliases.editorRenderPatch",
 );
-const ACTIVE_SKILLS_KEY = Symbol.for(
+const LEGACY_ACTIVE_SKILLS_KEY = Symbol.for(
   "kg.pi.inlineSkillAliases.activeSkillNames",
+);
+const DECORATION_STATE_KEY = Symbol.for(
+  "kg.pi.inlineSkillAliases.decorationState",
 );
 const PURPLE = "\x1b[38;2;251;148;255m";
 const FG_RESET = "\x1b[39m";
@@ -160,7 +167,7 @@ export function colorizeSkillAliases(
     .sort((a, b) => b.length - a.length)
     .map(escapeRegex)
     .join("|");
-  const pattern = new RegExp(`\\$(${alternatives})\\b`, "g");
+  const pattern = new RegExp(`\\$(${alternatives})${SKILL_TOKEN_END}`, "g");
   const colored = line.replace(
     pattern,
     (match) => `${PURPLE}${match}${FG_RESET}`,
@@ -168,42 +175,73 @@ export function colorizeSkillAliases(
   return visibleWidth(colored) === visibleWidth(line) ? colored : line;
 }
 
-function activeSkills(): Set<string> {
-  return (
-    ((globalThis as Record<symbol, unknown>)[ACTIVE_SKILLS_KEY] as
-      | Set<string>
-      | undefined) ?? new Set()
-  );
+type DecorationState = {
+  getSkillNames?: () => string[];
+  owner?: object;
+  patchedPrototype?: Editor;
+};
+
+function decorationState(): DecorationState {
+  const globals = globalThis as Record<symbol, unknown>;
+  const existing = globals[DECORATION_STATE_KEY];
+  if (existing) return existing as DecorationState;
+
+  const state: DecorationState = {};
+  globals[DECORATION_STATE_KEY] = state;
+  return state;
 }
 
 function installEditorRenderPatch(): void {
+  const state = decorationState();
   const prototype = Editor.prototype as Editor & Record<symbol, unknown>;
-  if (prototype[EDITOR_PATCH_FLAG]) return;
+  if (state.patchedPrototype === prototype) return;
+
+  const legacySkills = (globalThis as Record<symbol, unknown>)[
+    LEGACY_ACTIVE_SKILLS_KEY
+  ];
+  if (legacySkills instanceof Set) legacySkills.clear();
 
   const originalRender = prototype.render;
   prototype.render = function renderWithInlineSkillIdentifiers(
     width: number,
   ): string[] {
     const lines = originalRender.call(this, width);
-    return lines.map((line) =>
-      colorizeSkillAliases(line, Array.from(activeSkills())),
-    );
+    if (!lines.some((line) => line.includes("$"))) {
+      return lines;
+    }
+
+    const skillNames = decorationState().getSkillNames?.() ?? [];
+    return lines.map((line) => colorizeSkillAliases(line, skillNames));
   };
 
-  Object.defineProperty(prototype, EDITOR_PATCH_FLAG, { value: true });
+  state.patchedPrototype = prototype;
+  if (!prototype[EDITOR_PATCH_FLAG]) {
+    Object.defineProperty(prototype, EDITOR_PATCH_FLAG, { value: true });
+  }
 }
 
 export default function inlineSkillIdentifier(pi: ExtensionAPI): void {
-  installEditorRenderPatch();
+  const decorationOwner = {};
 
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
-    (globalThis as Record<symbol, unknown>)[ACTIVE_SKILLS_KEY] = new Set(
-      getSkillNames(pi),
-    );
+
+    const state = decorationState();
+    state.getSkillNames = () => getSkillNames(pi);
+    state.owner = decorationOwner;
+    installEditorRenderPatch();
+
     ctx.ui.addAutocompleteProvider((current) =>
       createSkillAutocompleteProvider(pi, current),
     );
+  });
+
+  pi.on("session_shutdown", () => {
+    const state = decorationState();
+    if (state.owner !== decorationOwner) return;
+
+    delete state.getSkillNames;
+    delete state.owner;
   });
 
   pi.on("input", (event) => {

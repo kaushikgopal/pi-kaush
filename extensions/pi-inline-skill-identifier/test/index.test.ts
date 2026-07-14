@@ -90,6 +90,9 @@ function createHarness(
         },
       );
     },
+    shutdown() {
+      handlers.get("session_shutdown")?.({}, {});
+    },
     autocompleteProvider: () => autocompleteProvider,
     currentAutocomplete,
     fallbackSuggestions,
@@ -127,6 +130,20 @@ describe("inline skill discovery", () => {
       ),
     ).toEqual(["review"]);
   });
+
+  test("requires the complete skill token", () => {
+    const longestName = "a".repeat(64);
+
+    expect(referencedSkills("Skip $review-my.", new Set(["review"]))).toEqual(
+      [],
+    );
+    expect(
+      referencedSkills(`Use $${longestName}.`, new Set([longestName])),
+    ).toEqual([longestName]);
+    expect(
+      referencedSkills(`Skip $${longestName}x.`, new Set([longestName])),
+    ).toEqual([]);
+  });
 });
 
 describe("inline skill input", () => {
@@ -154,6 +171,23 @@ describe("inline skill input", () => {
     expect(harness.input("Use $review.", "extension")).toEqual({
       action: "continue",
     });
+  });
+
+  test("does not route a known skill that only prefixes a longer token", () => {
+    const harness = createHarness([{ name: "skill:review", source: "skill" }]);
+
+    expect(harness.input("Use $review-my.")).toEqual({ action: "continue" });
+  });
+
+  test("keeps input routing active outside TUI mode", () => {
+    const harness = createHarness(commands);
+    harness.start("json");
+
+    expect(harness.input("Use $review.")).toEqual({
+      action: "transform",
+      text: "/skill:review Use $review.",
+    });
+    harness.shutdown();
   });
 });
 
@@ -191,6 +225,7 @@ describe("inline skill autocomplete", () => {
         },
       ],
     });
+    harness.shutdown();
   });
 
   test("closes after a space following an empty or partial alias", async () => {
@@ -259,20 +294,54 @@ describe("inline skill highlighting", () => {
     expect(colored).toContain("$unknown");
   });
 
-  test("patches the editor once and ignores non-TUI session discovery", () => {
+  test("does not color a known skill that only prefixes a longer token", () => {
+    const original = "Use $review-my and $reviewing.";
+    expect(colorizeSkillAliases(original, ["review"])).toBe(original);
+  });
+
+  test("patches the editor once across session reloads", () => {
     const first = createHarness(commands);
-    createHarness(commands);
     first.start("tui");
 
-    const line = new tuiMock.FakeEditor(["Use $review-my."]).render(80)[0]!;
-    expect(line.match(/\x1b\[38;2;251;148;255m/g)).toHaveLength(1);
+    const firstLine = new tuiMock.FakeEditor(["Use $review-my."]).render(
+      80,
+    )[0]!;
+    expect(firstLine.match(/\x1b\[38;2;251;148;255m/g)).toHaveLength(1);
+    first.shutdown();
+
+    const second = createHarness(commands);
+    second.start("tui");
+    const secondLine = new tuiMock.FakeEditor(["Use $review-my."]).render(
+      80,
+    )[0]!;
+    expect(secondLine.match(/\x1b\[38;2;251;148;255m/g)).toHaveLength(1);
+    second.shutdown();
+  });
+
+  test("refreshes discovered skills and deactivates outside TUI lifecycle", () => {
+    const discoveredCommands = [{ name: "skill:review", source: "skill" }];
+    const tui = createHarness(discoveredCommands);
+    tui.start("tui");
+
+    const beforeDiscovery = new tuiMock.FakeEditor([
+      "Use $review and $deploy.",
+    ]).render(80)[0]!;
+    expect(beforeDiscovery).toContain("\x1b[38;2;251;148;255m$review\x1b[39m");
+    expect(beforeDiscovery).not.toContain("\x1b[38;2;251;148;255m$deploy");
+
+    discoveredCommands.push({ name: "skill:deploy", source: "skill" });
+    const afterDiscovery = new tuiMock.FakeEditor(["Use $deploy."]).render(
+      80,
+    )[0]!;
+    expect(afterDiscovery).toContain("\x1b[38;2;251;148;255m$deploy\x1b[39m");
+    tui.shutdown();
 
     const headless = createHarness([{ name: "skill:deploy", source: "skill" }]);
     headless.start("json");
     const headlessLine = new tuiMock.FakeEditor([
       "Use $review and $deploy.",
     ]).render(80)[0]!;
-    expect(headlessLine).toContain("\x1b[38;2;251;148;255m$review\x1b[39m");
-    expect(headlessLine).not.toContain("\x1b[38;2;251;148;255m$deploy");
+    expect(headlessLine).toBe("Use $review and $deploy.");
+    headless.shutdown();
   });
 });
