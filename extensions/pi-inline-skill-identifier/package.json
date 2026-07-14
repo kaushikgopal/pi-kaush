@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-inline-skill-identifier",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Highlight $skill aliases and route one inline skill reference through Pi's native skill command.",
   "license": "MIT",
   "author": "Kaushik Gopal",
