@@ -1,0 +1,59 @@
+{
+  "name": "@pi-kaush/pi-tool-call-markers",
+  "version": "0.1.0",
+  "description": "Collapse adjacent successful tool calls into one compact, gear-headed block per tool type in Pi's transcript.",
+  "license": "MIT",
+  "author": "Kaushik Gopal",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "types": "./src/index.ts",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "tool-calls",
+    "transcript",
+    "terminal-ui"
+  ],
+  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-tool-call-markers#readme",
+  "bugs": {
+    "url": "https://github.com/kaushikgopal/pi-kaush/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaushikgopal/pi-kaush.git",
+    "directory": "extensions/pi-tool-call-markers"
+  },
+  "files": [
+    "src",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.6",
+    "@earendil-works/pi-tui": ">=0.80.6"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "package:check": "node ./scripts/check-package.mjs"
+  },
+  "sideEffects": false
+}

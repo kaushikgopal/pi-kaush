@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-text-verbosity-v') || startsWith(github.event.release.tag_name, 'pi-split-session-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
+    if: startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-text-verbosity-v') || startsWith(github.event.release.tag_name, 'pi-split-session-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -47,6 +47,11 @@ jobs:
               workspace="@pi-kaush/pi-split-session"
               directory="extensions/pi-split-session"
               prefix="pi-split-session-v"
+              ;;
+            pi-tool-call-markers-v*)
+              workspace="@pi-kaush/pi-tool-call-markers"
+              directory="extensions/pi-tool-call-markers"
+              prefix="pi-tool-call-markers-v"
               ;;
             pi-welcome-screen-v*)
               workspace="@pi-kaush/pi-welcome-screen"
