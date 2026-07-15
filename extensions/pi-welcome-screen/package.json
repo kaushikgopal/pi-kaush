@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-welcome-screen",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Replace Pi's startup header with centered branding and a compact resource summary.",
   "license": "MIT",
   "author": "Kaushik Gopal",
