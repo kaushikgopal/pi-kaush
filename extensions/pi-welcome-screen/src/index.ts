@@ -16,14 +16,9 @@ import {
 } from "@earendil-works/pi-tui";
 
 const MAX_STACKED_COLUMN_WIDTH = 80;
-const MAX_RESOURCE_COLUMN_WIDTH = 80;
-const BRAND_COLUMN_WIDTH = 40;
-const WIDE_COLUMN_GAP = 4;
-const MIN_WIDE_RESOURCE_COLUMN_WIDTH = 60;
-const MIN_WIDE_LAYOUT_WIDTH =
-  BRAND_COLUMN_WIDTH + WIDE_COLUMN_GAP + MIN_WIDE_RESOURCE_COLUMN_WIDTH;
-const MAX_WIDE_LAYOUT_WIDTH =
-  BRAND_COLUMN_WIDTH + WIDE_COLUMN_GAP + MAX_RESOURCE_COLUMN_WIDTH;
+const MIN_GRID_COLUMN_WIDTH = 40;
+const MAX_GRID_COLUMN_WIDTH = 60;
+const GRID_COLUMN_GAP = 4;
 const MAX_LIST_ROWS_PER_COLUMN = 6;
 const MIN_LIST_COLUMN_WIDTH = 22;
 const LIST_COLUMN_GAP = 2;
@@ -658,6 +653,101 @@ function renderResourceColumn(
   return lines;
 }
 
+type WelcomeGridItem = "Brand" | WelcomeSection;
+
+const GRID_COLUMNS: Record<2 | 3, readonly (readonly WelcomeGridItem[])[]> = {
+  2: [["Context", "Skills", "Prompts"], ["Extensions"]],
+  3: [["Brand"], ["Context", "Skills", "Prompts"], ["Extensions"]],
+};
+
+function renderGridItem(
+  item: WelcomeGridItem,
+  resources: WelcomeResources,
+  theme: Theme,
+  columnWidth: number,
+  sharedColumnCount: 2 | 3,
+): string[] {
+  if (item === "Brand") return renderBrandColumn(theme, columnWidth);
+
+  const lines: string[] = [];
+  if (item === "Extensions") {
+    appendExtensionsSection(
+      lines,
+      resources.extensions,
+      resources.packageExtensions ?? resources.vendoredExtensions,
+      resources.sourceExtensions,
+      theme,
+      columnWidth,
+      sharedColumnCount,
+    );
+    return lines;
+  }
+
+  const body =
+    item === "Context"
+      ? resources.context
+      : item === "Skills"
+        ? resources.skills
+        : resources.prompts;
+  appendSection(
+    lines,
+    item,
+    body,
+    theme,
+    columnWidth,
+    item === "Context",
+    sharedColumnCount,
+  );
+  return lines;
+}
+
+function renderGridWelcome(
+  resources: WelcomeResources,
+  theme: Theme,
+  columnWidth: number,
+  columnCount: 2 | 3,
+): string[] {
+  const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
+  const topAlignedColumns = GRID_COLUMNS[columnCount].map((items) =>
+    items.flatMap((item, index) => [
+      ...(index > 0 ? [""] : []),
+      ...renderGridItem(item, resources, theme, columnWidth, sharedColumnCount),
+    ]),
+  );
+  const rowCount = Math.max(
+    ...topAlignedColumns.map((column) => column.length),
+  );
+  if (columnCount === 2) {
+    const layoutWidth = columnWidth * 2 + GRID_COLUMN_GAP;
+    const resourceRows = Array.from({ length: rowCount }, (_, row) =>
+      topAlignedColumns
+        .map((column) => padToWidth(column[row] ?? "", columnWidth))
+        .join(" ".repeat(GRID_COLUMN_GAP))
+        .trimEnd(),
+    );
+    return ["", ...renderBrandColumn(theme, layoutWidth), "", ...resourceRows];
+  }
+
+  const columns = topAlignedColumns.map((column, index) =>
+    index === 0
+      ? [
+          ...Array.from(
+            { length: Math.floor((rowCount - column.length) / 2) },
+            () => "",
+          ),
+          ...column,
+        ]
+      : column,
+  );
+
+  return Array.from({ length: rowCount }, (_, row) =>
+    columns
+      .map((column) => padToWidth(column[row] ?? "", columnWidth))
+      .join(" ".repeat(GRID_COLUMN_GAP))
+      .trimEnd(),
+  );
+}
+
 function renderStackedWelcome(
   resources: WelcomeResources | undefined,
   theme: Theme,
@@ -675,32 +765,10 @@ function padToWidth(text: string, width: number): string {
   return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
 }
 
-function renderWideWelcome(
-  resources: WelcomeResources,
-  theme: Theme,
-  layoutWidth: number,
-): string[] {
-  const resourceColumnWidth =
-    layoutWidth - BRAND_COLUMN_WIDTH - WIDE_COLUMN_GAP;
-  const brandLines = renderBrandColumn(theme, BRAND_COLUMN_WIDTH);
-  const resourceLines = renderResourceColumn(
-    resources,
-    theme,
-    resourceColumnWidth,
-  );
-  const rowCount = Math.max(brandLines.length, resourceLines.length);
-  const brandTopPadding = Math.floor((rowCount - brandLines.length) / 2);
-
-  return Array.from({ length: rowCount }, (_, row) => {
-    const brandLine = brandLines[row - brandTopPadding] ?? "";
-    const resourceLine = resourceLines[row] ?? "";
-    const combined = [
-      padToWidth(brandLine, BRAND_COLUMN_WIDTH),
-      " ".repeat(WIDE_COLUMN_GAP),
-      truncateToWidth(resourceLine, resourceColumnWidth, ""),
-    ].join("");
-    return combined.trimEnd();
-  });
+function getGridColumnCount(width: number): 1 | 2 | 3 {
+  if (width >= MIN_GRID_COLUMN_WIDTH * 3 + GRID_COLUMN_GAP * 2) return 3;
+  if (width >= MIN_GRID_COLUMN_WIDTH * 2 + GRID_COLUMN_GAP) return 2;
+  return 1;
 }
 
 export function renderCenteredWelcome(
@@ -709,15 +777,22 @@ export function renderCenteredWelcome(
   width: number,
 ): string[] {
   if (width <= 0) return [];
-  const useWideLayout =
-    resources !== undefined && width >= MIN_WIDE_LAYOUT_WIDTH;
-  const layoutWidth = useWideLayout
-    ? Math.min(MAX_WIDE_LAYOUT_WIDTH, width)
-    : Math.min(MAX_STACKED_COLUMN_WIDTH, width);
+  const columnCount = resources ? getGridColumnCount(width) : 1;
+  const columnWidth =
+    columnCount === 1
+      ? Math.min(MAX_STACKED_COLUMN_WIDTH, width)
+      : Math.min(
+          MAX_GRID_COLUMN_WIDTH,
+          Math.floor(
+            (width - GRID_COLUMN_GAP * (columnCount - 1)) / columnCount,
+          ),
+        );
+  const layoutWidth =
+    columnWidth * columnCount + GRID_COLUMN_GAP * (columnCount - 1);
   const leftPadding = " ".repeat(Math.floor((width - layoutWidth) / 2));
   const lines =
-    useWideLayout && resources
-      ? renderWideWelcome(resources, theme, layoutWidth)
+    columnCount !== 1 && resources
+      ? renderGridWelcome(resources, theme, columnWidth, columnCount)
       : renderStackedWelcome(resources, theme, layoutWidth);
 
   return lines.map((line) =>

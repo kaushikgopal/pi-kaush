@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Arrange welcome sections in a responsive one-, two-, or three-column grid with the Pi logo centered in its own column.
+
 ## 0.1.2
 
 - Summarize the extension's main benefits at the top of the package README.

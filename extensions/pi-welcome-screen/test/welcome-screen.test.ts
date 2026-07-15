@@ -158,7 +158,7 @@ describe("welcome resource formatting", () => {
     const rendered = renderCenteredWelcome(
       resources,
       plainTheme as never,
-      100,
+      80,
     ).join("\n");
     expect(rendered).toContain("Local");
     expect(rendered).toContain("Packages");
@@ -182,7 +182,7 @@ describe("welcome resource formatting", () => {
     );
     expect(resources.context).toEqual(loadOrder);
 
-    const rendered = renderCenteredWelcome(resources, plainTheme as never, 100);
+    const rendered = renderCenteredWelcome(resources, plainTheme as never, 80);
     const contextRows = sectionRows(rendered, "Context", "Skills");
     expect(contextRows).toHaveLength(loadOrder.length);
     expect(
@@ -209,7 +209,7 @@ describe("welcome resource formatting", () => {
       ),
     };
 
-    const wide = renderCenteredWelcome(resources, plainTheme as never, 100);
+    const wide = renderCenteredWelcome(resources, plainTheme as never, 80);
     const skillRows = sectionRows(wide, "Skills", "Prompts");
     const extensionRows = bulletRows(
       sectionRows(wide, "Extensions", "missing"),
@@ -245,7 +245,7 @@ describe("welcome resource formatting", () => {
       extensions: ["welcome-screen"],
     };
 
-    const wide = renderCenteredWelcome(resources, plainTheme as never, 100);
+    const wide = renderCenteredWelcome(resources, plainTheme as never, 80);
     const versionSummaryIndex = wide.findIndex((line) =>
       line.includes("v0.80.6"),
     );
@@ -265,7 +265,7 @@ describe("welcome resource formatting", () => {
     expect(narrow.every((line) => line.length <= 24)).toBe(true);
   });
 
-  test("uses a vertically centered brand column only when the terminal is wide", () => {
+  test("uses one, two, or three equal-width grid columns as space allows", () => {
     const resources = {
       context: ["AGENTS.md"],
       skills: ["artifactor"],
@@ -273,32 +273,50 @@ describe("welcome resource formatting", () => {
       extensions: ["welcome-screen"],
     };
 
-    const wide = renderCenteredWelcome(resources, plainTheme as never, 124);
-    const firstResourceRow = wide.findIndex((line) =>
+    const stacked = renderCenteredWelcome(resources, plainTheme as never, 83);
+    expect(
+      stacked.findIndex((line) => line.includes("[Context]")),
+    ).toBeGreaterThan(stacked.findIndex((line) => line.includes("v0.80.6")));
+
+    const twoColumns = renderCenteredWelcome(
+      resources,
+      plainTheme as never,
+      84,
+    );
+    expect(
+      twoColumns
+        .find((line) => line.includes("[Context]"))
+        ?.indexOf("[Context]"),
+    ).toBe(0);
+    expect(
+      twoColumns
+        .find((line) => line.includes("[Extensions]"))
+        ?.indexOf("[Extensions]"),
+    ).toBe(44);
+
+    const firstLogoRow = twoColumns.findIndex((line) => line.includes("█"));
+    const versionRow = twoColumns.findIndex((line) => line.includes("v0.80.6"));
+    const firstResourceRow = twoColumns.findIndex((line) =>
       line.includes("[Context]"),
     );
-    const lastResourceRow = wide.findIndex((line) =>
-      line.includes("welcome-screen"),
-    );
-    const firstLogoRow = wide.findIndex((line) => line.includes("█"));
-    const versionRow = wide.findIndex((line) => line.includes("v0.80.6"));
-    const resourceColumn = wide[firstResourceRow]?.indexOf("[Context]");
+    expect(twoColumns[firstLogoRow]?.indexOf("█")).toBe(36);
+    expect(firstLogoRow).toBe(1);
+    expect(firstResourceRow - versionRow - 1).toBe(firstLogoRow);
 
-    expect(firstResourceRow).toBe(0);
-    expect(resourceColumn).toBe(44);
-    expect(firstLogoRow).toBeGreaterThan(firstResourceRow);
-    expect(versionRow).toBeLessThan(lastResourceRow);
-    const rowsAboveBrand = firstLogoRow - firstResourceRow;
-    const rowsBelowBrand = lastResourceRow - versionRow;
-    expect(Math.abs(rowsAboveBrand - rowsBelowBrand)).toBeLessThanOrEqual(1);
-    expect(wide.every((line) => line.length <= 124)).toBe(true);
-
-    const tight = renderCenteredWelcome(resources, plainTheme as never, 100);
-    const tightVersionRow = tight.findIndex((line) => line.includes("v0.80.6"));
-    const tightContextRow = tight.findIndex((line) =>
-      line.includes("[Context]"),
+    const threeColumns = renderCenteredWelcome(
+      resources,
+      plainTheme as never,
+      128,
     );
-    expect(tightContextRow).toBeGreaterThan(tightVersionRow);
+    const threeColumnTopRow = threeColumns.find(
+      (line) => line.includes("[Context]") && line.includes("[Extensions]"),
+    );
+    expect(threeColumnTopRow?.indexOf("[Context]")).toBe(44);
+    expect(threeColumnTopRow?.indexOf("[Extensions]")).toBe(88);
+    expect(threeColumns.every((line) => !/[\[•]/.test(line.slice(0, 40)))).toBe(
+      true,
+    );
+    expect(threeColumns.every((line) => line.length <= 128)).toBe(true);
   });
 
   test("columns local extensions and lists vendored packages separately", () => {
@@ -335,7 +353,7 @@ describe("welcome resource formatting", () => {
       ],
     };
 
-    const wide = renderCenteredWelcome(resources, plainTheme as never, 100);
+    const wide = renderCenteredWelcome(resources, plainTheme as never, 80);
     const skillRows = sectionRows(wide, "Skills", "Prompts");
     const extensionRows = sectionRows(wide, "Extensions", "missing");
     const firstPackageRow = extensionRows.findIndex((row) =>

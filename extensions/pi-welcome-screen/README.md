@@ -9,7 +9,7 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 - **Zero runtime dependencies** — installs as readable TypeScript without pulling additional packages into your Pi setup.
 - **Context files in load order** — shows exactly which instructions Pi loaded and the order in which they apply.
 - **Extensions grouped by source** — separates Pi-local extensions, installed packages, and linked source paths.
-- **Responsive layout** — switches between stacked and side-by-side views, with two- or three-column lists based on terminal width.
+- **Responsive layout** — flows sections through one, two, or three equal-width columns based on terminal width, with the Pi logo centered in its own column.
 - **Fail-safe behavior** — if the startup data or UI shape is unfamiliar, restores Pi's untouched native resource panel instead of hiding information.
 
 ## Install
