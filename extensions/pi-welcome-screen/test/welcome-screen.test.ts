@@ -255,7 +255,7 @@ describe("welcome resource formatting", () => {
     expect(wide[versionSummaryIndex]?.trim()).toBe("v0.80.6");
     expect(wide[lastLogoLineIndex + 1]).toBe("");
     expect(versionSummaryIndex).toBe(lastLogoLineIndex + 2);
-    expect(wide.every((line) => line.length <= 100)).toBe(true);
+    expect(wide.every((line) => line.length <= 80)).toBe(true);
     expect(wide.join("\n")).not.toContain("[Themes]");
     expect(wide.join("\n")).not.toContain("[Version]");
     expect(wide.filter((line) => line.includes("█"))).toHaveLength(4);
@@ -270,7 +270,10 @@ describe("welcome resource formatting", () => {
       context: ["AGENTS.md"],
       skills: ["artifactor"],
       prompts: ["/implement"],
-      extensions: ["welcome-screen"],
+      extensions: [
+        "welcome-screen",
+        ...Array.from({ length: 11 }, (_, index) => `extension-${index + 1}`),
+      ],
     };
 
     const stacked = renderCenteredWelcome(resources, plainTheme as never, 83);
@@ -302,6 +305,11 @@ describe("welcome resource formatting", () => {
     expect(twoColumns[firstLogoRow]?.indexOf("█")).toBe(36);
     expect(firstLogoRow).toBe(1);
     expect(firstResourceRow - versionRow - 1).toBe(firstLogoRow);
+    expect(
+      twoColumns.map((line) => line.includes("extension-11")).lastIndexOf(true),
+    ).toBeGreaterThan(
+      twoColumns.map((line) => line.includes("/implement")).lastIndexOf(true),
+    );
 
     const threeColumns = renderCenteredWelcome(
       resources,
@@ -316,6 +324,18 @@ describe("welcome resource formatting", () => {
     expect(threeColumns.every((line) => !/[\[•]/.test(line.slice(0, 40)))).toBe(
       true,
     );
+    const threeColumnFirstLogoRow = threeColumns.findIndex((line) =>
+      line.includes("█"),
+    );
+    const threeColumnVersionRow = threeColumns.findIndex((line) =>
+      line.includes("v0.80.6"),
+    );
+    expect(
+      Math.abs(
+        threeColumnFirstLogoRow -
+          (threeColumns.length - threeColumnVersionRow - 1),
+      ),
+    ).toBeLessThanOrEqual(1);
     expect(threeColumns.every((line) => line.length <= 128)).toBe(true);
   });
 

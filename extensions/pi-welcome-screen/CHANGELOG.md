@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
-- Arrange welcome sections in a responsive one-, two-, or three-column grid with the Pi logo centered in its own column.
+- Add responsive one-, two-, and three-column welcome layouts.
+- Center the Pi logo above two-column resources and in a dedicated column on wider terminals.
+- Consolidate section rendering and cover uneven grid content with regression tests.
+- Update the preview to show every responsive layout.
 
 ## 0.1.2
 

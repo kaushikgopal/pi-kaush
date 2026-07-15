@@ -623,6 +623,44 @@ function renderBrandColumn(theme: Theme, columnWidth: number): string[] {
   return lines;
 }
 
+function appendResourceSection(
+  lines: string[],
+  title: WelcomeSection,
+  resources: WelcomeResources,
+  theme: Theme,
+  columnWidth: number,
+  sharedColumnCount: 2 | 3,
+): void {
+  if (title === "Extensions") {
+    appendExtensionsSection(
+      lines,
+      resources.extensions,
+      resources.packageExtensions ?? resources.vendoredExtensions,
+      resources.sourceExtensions,
+      theme,
+      columnWidth,
+      sharedColumnCount,
+    );
+    return;
+  }
+
+  const body =
+    title === "Context"
+      ? resources.context
+      : title === "Skills"
+        ? resources.skills
+        : resources.prompts;
+  appendSection(
+    lines,
+    title,
+    body,
+    theme,
+    columnWidth,
+    title === "Context",
+    title === "Skills" ? sharedColumnCount : undefined,
+  );
+}
+
 function renderResourceColumn(
   resources: WelcomeResources,
   theme: Theme,
@@ -630,26 +668,15 @@ function renderResourceColumn(
 ): string[] {
   const lines: string[] = [];
   const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
-  appendSection(lines, "Context", resources.context, theme, columnWidth, true);
-  appendSection(
-    lines,
-    "Skills",
-    resources.skills,
-    theme,
-    columnWidth,
-    false,
-    sharedColumnCount,
-  );
-  appendSection(lines, "Prompts", resources.prompts, theme, columnWidth);
-  appendExtensionsSection(
-    lines,
-    resources.extensions,
-    resources.packageExtensions ?? resources.vendoredExtensions,
-    resources.sourceExtensions,
-    theme,
-    columnWidth,
-    sharedColumnCount,
-  );
+  for (const title of WELCOME_SECTIONS)
+    appendResourceSection(
+      lines,
+      title,
+      resources,
+      theme,
+      columnWidth,
+      sharedColumnCount,
+    );
   return lines;
 }
 
@@ -670,32 +697,12 @@ function renderGridItem(
   if (item === "Brand") return renderBrandColumn(theme, columnWidth);
 
   const lines: string[] = [];
-  if (item === "Extensions") {
-    appendExtensionsSection(
-      lines,
-      resources.extensions,
-      resources.packageExtensions ?? resources.vendoredExtensions,
-      resources.sourceExtensions,
-      theme,
-      columnWidth,
-      sharedColumnCount,
-    );
-    return lines;
-  }
-
-  const body =
-    item === "Context"
-      ? resources.context
-      : item === "Skills"
-        ? resources.skills
-        : resources.prompts;
-  appendSection(
+  appendResourceSection(
     lines,
     item,
-    body,
+    resources,
     theme,
     columnWidth,
-    item === "Context",
     sharedColumnCount,
   );
   return lines;
