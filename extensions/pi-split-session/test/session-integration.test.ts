@@ -51,12 +51,10 @@ function assistantMessage(text: string) {
 test("round-trips selectable side handoffs through real session files", async () => {
   const previousHerdr = {
     env: process.env.HERDR_ENV,
-    workspace: process.env.HERDR_WORKSPACE_ID,
-    tab: process.env.HERDR_TAB_ID,
+    pane: process.env.HERDR_PANE_ID,
   };
   process.env.HERDR_ENV = "1";
-  process.env.HERDR_WORKSPACE_ID = "integration-workspace";
-  process.env.HERDR_TAB_ID = "integration-tab";
+  process.env.HERDR_PANE_ID = "integration-pane";
 
   try {
     let activeSession = SessionManager.create(cwd, sessionDir);
@@ -97,13 +95,27 @@ test("round-trips selectable side handoffs through real session files", async ()
       sendUserMessage(content: string) {
         activeSession.appendMessage(userMessage(content));
       },
-      exec: async () => ({
-        code: 0,
-        stdout: JSON.stringify({
-          result: { agent: { pane_id: "integration-pane" } },
-        }),
-        stderr: "",
-      }),
+      exec: async (_command: string, args: string[]) => {
+        if (args[0] === "pane" && args[1] === "split") {
+          return {
+            code: 0,
+            stdout: JSON.stringify({
+              result: { pane: { pane_id: "integration-pane" } },
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "agent" && args[1] === "start") {
+          return {
+            code: 0,
+            stdout: JSON.stringify({
+              result: { agent: { pane_id: "integration-pane" } },
+            }),
+            stderr: "",
+          };
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      },
     };
     registerSplitSession(pi as any);
 
@@ -189,8 +201,7 @@ test("round-trips selectable side handoffs through real session files", async ()
   } finally {
     for (const [key, value] of [
       ["HERDR_ENV", previousHerdr.env],
-      ["HERDR_WORKSPACE_ID", previousHerdr.workspace],
-      ["HERDR_TAB_ID", previousHerdr.tab],
+      ["HERDR_PANE_ID", previousHerdr.pane],
     ] as const) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
