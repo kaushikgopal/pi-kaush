@@ -851,14 +851,11 @@ describe("split launch", () => {
         message: { role: "user", content: "Main task" },
       },
     ];
-    const harness = createSplitHarness(
-      successfulHerdrExec,
-      {
-        idle: false,
-        sourceBranch,
-        leafId: "in-flight",
-      },
-    );
+    const harness = createSplitHarness(successfulHerdrExec, {
+      idle: false,
+      sourceBranch,
+      leafId: "in-flight",
+    });
 
     try {
       await harness.split("Side task");
@@ -895,14 +892,11 @@ describe("split launch", () => {
         message: { role: "assistant", content: [], stopReason: "stop" },
       },
     ];
-    const harness = createSplitHarness(
-      successfulHerdrExec,
-      {
-        idle: false,
-        sourceBranch,
-        leafId: "latest-answer",
-      },
-    );
+    const harness = createSplitHarness(successfulHerdrExec, {
+      idle: false,
+      sourceBranch,
+      leafId: "latest-answer",
+    });
 
     try {
       await harness.split("Side task");
@@ -952,14 +946,11 @@ describe("split launch", () => {
         message: { role: "user", content: "Steer" },
       },
     ];
-    const harness = createSplitHarness(
-      successfulHerdrExec,
-      {
-        idle: false,
-        sourceBranch,
-        leafId: "steer",
-      },
-    );
+    const harness = createSplitHarness(successfulHerdrExec, {
+      idle: false,
+      sourceBranch,
+      leafId: "steer",
+    });
 
     try {
       await harness.split("Side task");
@@ -1209,17 +1200,18 @@ describe("split launch", () => {
           notification.message.startsWith(
             "Failed to launch split: Herdr agent start failed; copied session kept at",
           ) &&
-          notification.message.endsWith("an unconfirmed split record was added"),
+          notification.message.endsWith(
+            "an unconfirmed split record was added",
+          ),
       ),
     ).toBe(true);
   });
 
   test("reports an opened split separately when its tracking record cannot be saved", async () => {
     const restoreHerdrIdentity = setHerdrIdentity();
-    const harness = createSplitHarness(
-      successfulHerdrExec,
-      { appendError: new Error("record write failed") },
-    );
+    const harness = createSplitHarness(successfulHerdrExec, {
+      appendError: new Error("record write failed"),
+    });
 
     try {
       await harness.split();

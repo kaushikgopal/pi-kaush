@@ -140,9 +140,7 @@ function herdrPaneId(result: ExecResult): string | undefined {
       result?: { pane?: { pane_id?: unknown } };
     };
     const paneId = response.result?.pane?.pane_id;
-    return typeof paneId === "string" && paneId.length > 0
-      ? paneId
-      : undefined;
+    return typeof paneId === "string" && paneId.length > 0 ? paneId : undefined;
   } catch {
     return undefined;
   }
