@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1
+## 0.1.2
 
 - Support Herdr 0.7.5 by creating the pane with `herdr pane split` before starting the Pi agent with `herdr agent start --kind pi --pane <id>`.
 - Replace obsolete `--workspace`, `--tab`, and `--split` options that Herdr 0.7.5 removed.
