@@ -296,17 +296,14 @@ afterAll(() => {
 function setHerdrIdentity(): () => void {
   const previous = {
     herdr: process.env.HERDR_ENV,
-    workspace: process.env.HERDR_WORKSPACE_ID,
-    tab: process.env.HERDR_TAB_ID,
+    pane: process.env.HERDR_PANE_ID,
   };
   process.env.HERDR_ENV = "1";
-  process.env.HERDR_WORKSPACE_ID = "workspace-1";
-  process.env.HERDR_TAB_ID = "tab-1";
+  process.env.HERDR_PANE_ID = "pane-1";
   return () => {
     for (const [key, value] of [
       ["HERDR_ENV", previous.herdr],
-      ["HERDR_WORKSPACE_ID", previous.workspace],
-      ["HERDR_TAB_ID", previous.tab],
+      ["HERDR_PANE_ID", previous.pane],
     ] as const) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -317,22 +314,45 @@ function setHerdrIdentity(): () => void {
 function clearHerdrIdentity(): () => void {
   const previous = {
     herdr: process.env.HERDR_ENV,
-    workspace: process.env.HERDR_WORKSPACE_ID,
-    tab: process.env.HERDR_TAB_ID,
+    pane: process.env.HERDR_PANE_ID,
   };
   delete process.env.HERDR_ENV;
-  delete process.env.HERDR_WORKSPACE_ID;
-  delete process.env.HERDR_TAB_ID;
+  delete process.env.HERDR_PANE_ID;
   return () => {
     for (const [key, value] of [
       ["HERDR_ENV", previous.herdr],
-      ["HERDR_WORKSPACE_ID", previous.workspace],
-      ["HERDR_TAB_ID", previous.tab],
+      ["HERDR_PANE_ID", previous.pane],
     ] as const) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
   };
+}
+
+function herdrPaneSplitResponse(paneId: string) {
+  return {
+    code: 0,
+    stdout: JSON.stringify({ result: { pane: { pane_id: paneId } } }),
+    stderr: "",
+  };
+}
+
+function herdrAgentStartResponse() {
+  return {
+    code: 0,
+    stdout: JSON.stringify({ result: { agent: { pane_id: "split-pane-1" } } }),
+    stderr: "",
+  };
+}
+
+function successfulHerdrExec(_command: string, args: string[]) {
+  if (args[0] === "pane" && args[1] === "split") {
+    return Promise.resolve(herdrPaneSplitResponse("split-pane-1"));
+  }
+  if (args[0] === "agent" && args[1] === "start") {
+    return Promise.resolve(herdrAgentStartResponse());
+  }
+  throw new Error(`Unexpected Herdr command: ${args.join(" ")}`);
 }
 
 beforeEach(() => {
@@ -832,7 +852,7 @@ describe("split launch", () => {
       },
     ];
     const harness = createSplitHarness(
-      async () => ({ code: 0, stdout: "", stderr: "" }),
+      successfulHerdrExec,
       {
         idle: false,
         sourceBranch,
@@ -876,7 +896,7 @@ describe("split launch", () => {
       },
     ];
     const harness = createSplitHarness(
-      async () => ({ code: 0, stdout: "", stderr: "" }),
+      successfulHerdrExec,
       {
         idle: false,
         sourceBranch,
@@ -933,7 +953,7 @@ describe("split launch", () => {
       },
     ];
     const harness = createSplitHarness(
-      async () => ({ code: 0, stdout: "", stderr: "" }),
+      successfulHerdrExec,
       {
         idle: false,
         sourceBranch,
@@ -1006,12 +1026,12 @@ describe("split launch", () => {
     });
   });
 
-  test("removes the copied session when Herdr never starts", async () => {
+  test("removes the copied session when Herdr cannot create a pane", async () => {
     const restoreHerdrIdentity = setHerdrIdentity();
     const calls: Array<{ command: string; args: string[] }> = [];
     const harness = createSplitHarness(async (command, args) => {
       calls.push({ command, args });
-      return { code: 1, stdout: "", stderr: "Herdr start failed" };
+      return { code: 1, stdout: "", stderr: "Herdr pane split failed" };
     });
 
     try {
@@ -1021,19 +1041,32 @@ describe("split launch", () => {
     }
 
     expect(calls).toHaveLength(1);
+    expect(calls[0]!.args).toEqual([
+      "pane",
+      "split",
+      "--pane",
+      "pane-1",
+      "--direction",
+      "right",
+      "--cwd",
+      "/tmp",
+      "--env",
+      "HERDR_AGENT=pi",
+      "--focus",
+    ]);
     expect(existsSync(splitSessionFile)).toBe(false);
     expect(harness.appendedEntries).toHaveLength(0);
     expect(harness.notifications).toContainEqual({
-      message: "Failed to launch split: Herdr start failed",
+      message: "Failed to launch split: Herdr pane split failed",
       level: "error",
     });
   });
 
-  test("keeps the copied session when a killed Herdr start is ambiguous", async () => {
+  test("keeps the copied session when a killed Herdr pane split is ambiguous", async () => {
     const restoreHerdrIdentity = setHerdrIdentity();
     const harness = createSplitHarness(async () => ({
       code: 0,
-      stdout: JSON.stringify({ result: { agent: { pane_id: "pane-1" } } }),
+      stdout: JSON.stringify({ result: { pane: { pane_id: "split-pane-1" } } }),
       stderr: "",
       killed: true,
     }));
@@ -1080,20 +1113,13 @@ describe("split launch", () => {
     );
   });
 
-  test("auto-submits the selected prompt in one Herdr start call", async () => {
+  test("splits a Herdr pane and starts Pi with the selected prompt", async () => {
     const restoreHerdrIdentity = setHerdrIdentity();
     forkedLeafId = "copied-boundary";
     const calls: Array<{ command: string; args: string[] }> = [];
     const harness = createSplitHarness(async (command, args) => {
       calls.push({ command, args });
-      if (calls.length === 1) {
-        return {
-          code: 0,
-          stdout: JSON.stringify({ result: { agent: { pane_id: "pane-1" } } }),
-          stderr: "",
-        };
-      }
-      return { code: 0, stdout: "", stderr: "" };
+      return successfulHerdrExec(command, args);
     });
 
     try {
@@ -1102,21 +1128,35 @@ describe("split launch", () => {
       restoreHerdrIdentity();
     }
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.args.slice(3, 7)).toEqual([
-      "--workspace",
-      "workspace-1",
-      "--tab",
-      "tab-1",
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.args).toEqual([
+      "pane",
+      "split",
+      "--pane",
+      "pane-1",
+      "--direction",
+      "right",
+      "--cwd",
+      "/tmp",
+      "--env",
+      "HERDR_AGENT=pi",
+      "--focus",
     ]);
-    expect(calls[0]!.args.at(-1)).toBe("Selected prompt");
-    expect(
-      calls.some(
-        (call) =>
-          ["wait", "send", "close"].includes(call.args[1] ?? "") ||
-          call.args[0] === "pane",
-      ),
-    ).toBe(false);
+    expect(calls[1]!.args.slice(0, 10)).toEqual([
+      "agent",
+      "start",
+      expect.stringMatching(/^pi-split-/),
+      "--kind",
+      "pi",
+      "--pane",
+      "split-pane-1",
+      "--timeout",
+      "10000",
+      "--",
+    ]);
+    expect(calls[1]!.args.at(-1)).toBe("Selected prompt");
+    expect(calls[1]!.args).not.toContain("--workspace");
+    expect(calls[1]!.args).not.toContain("--tab");
     expect(harness.appendedEntries).toHaveLength(1);
     expect(harness.appendedEntries[0]!.data).toMatchObject({
       baseLeafId: "copied-boundary",
@@ -1135,19 +1175,49 @@ describe("split launch", () => {
     });
   });
 
+  test("keeps the copied session when Herdr agent start fails after pane split", async () => {
+    const restoreHerdrIdentity = setHerdrIdentity();
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const harness = createSplitHarness(async (command, args) => {
+      calls.push({ command, args });
+      if (args[0] === "pane" && args[1] === "split") {
+        return herdrPaneSplitResponse("split-pane-1");
+      }
+      return { code: 1, stdout: "", stderr: "Herdr agent start failed" };
+    });
+
+    try {
+      await harness.split();
+    } finally {
+      restoreHerdrIdentity();
+    }
+
+    expect(calls).toHaveLength(2);
+    expect(existsSync(splitSessionFile)).toBe(true);
+    expect(harness.appendedEntries).toHaveLength(1);
+    expect(harness.appendedEntries[0]).toMatchObject({
+      type: "split-fork-record",
+      data: {
+        sessionFile: splitSessionFile,
+        label: "[unconfirmed] Selected prompt",
+      },
+    });
+    expect(
+      harness.notifications.some(
+        (notification) =>
+          notification.level === "error" &&
+          notification.message.startsWith(
+            "Failed to launch split: Herdr agent start failed; copied session kept at",
+          ) &&
+          notification.message.endsWith("an unconfirmed split record was added"),
+      ),
+    ).toBe(true);
+  });
+
   test("reports an opened split separately when its tracking record cannot be saved", async () => {
     const restoreHerdrIdentity = setHerdrIdentity();
     const harness = createSplitHarness(
-      async (_command, args) =>
-        args[0] === "agent" && args[1] === "start"
-          ? {
-              code: 0,
-              stdout: JSON.stringify({
-                result: { agent: { pane_id: "pane-1" } },
-              }),
-              stderr: "",
-            }
-          : { code: 0, stdout: "", stderr: "" },
+      successfulHerdrExec,
       { appendError: new Error("record write failed") },
     );
 

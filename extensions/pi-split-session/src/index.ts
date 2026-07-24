@@ -113,8 +113,11 @@ function getPiInvocationParts(): string[] {
   return ["pi"];
 }
 
-function buildPiSessionCommandParts(sessionFile: string): string[] {
-  return [...getPiInvocationParts(), "--session", sessionFile];
+function buildPiSessionArgs(sessionFile: string, prompt: string): string[] {
+  // Args handed to `pi` itself. Herdr's `agent start --kind pi` invokes the
+  // executable, so these must not include the `pi`/node prefix. Ghostty
+  // reconstructs the full command by prepending the invocation parts.
+  return ["--session", sessionFile, prompt];
 }
 
 function buildStartupInput(commandParts: string[]): string {
@@ -129,6 +132,20 @@ function execFailure(result: ExecResult, fallback: string): string | undefined {
   if (result.killed) return result.stderr?.trim() || `${fallback} timed out`;
   if (result.code === 0) return undefined;
   return result.stderr?.trim() || result.stdout?.trim() || fallback;
+}
+
+function herdrPaneId(result: ExecResult): string | undefined {
+  try {
+    const response = JSON.parse(result.stdout) as {
+      result?: { pane?: { pane_id?: unknown } };
+    };
+    const paneId = response.result?.pane?.pane_id;
+    return typeof paneId === "string" && paneId.length > 0
+      ? paneId
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function extractMessageText(content: unknown): string {
@@ -304,41 +321,99 @@ function promptedForkLeaf(ctx: ExtensionContext): string | null {
 async function launchHerdrSplit(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
-  commandParts: string[],
+  piArgs: string[],
 ): Promise<LaunchResult> {
   const herdrBin = process.env.HERDR_BIN_PATH || "herdr";
-  const workspaceId = process.env.HERDR_WORKSPACE_ID;
-  const tabId = process.env.HERDR_TAB_ID;
-  if (!workspaceId || !tabId) {
+  const paneId = process.env.HERDR_PANE_ID;
+  if (!paneId) {
     return {
       ok: false,
       backend: "herdr",
-      reason: "missing Herdr workspace or tab identity",
+      reason: "missing Herdr pane identity",
       canDeleteSession: true,
     };
   }
   const agentName = `pi-split-${randomUUID().slice(0, 8)}`;
-  let result: ExecResult;
+
+  // Step 1: split the current pane to the right. A definite failure here
+  // happens before any child exists, so the copied session can be deleted.
+  let splitResult: ExecResult;
   try {
-    result = await pi.exec(
+    splitResult = await pi.exec(
       herdrBin,
       [
-        "agent",
-        "start",
-        agentName,
-        "--workspace",
-        workspaceId,
-        "--tab",
-        tabId,
-        "--split",
+        "pane",
+        "split",
+        "--pane",
+        paneId,
+        "--direction",
         "right",
         "--cwd",
         ctx.cwd,
         "--env",
         "HERDR_AGENT=pi",
         "--focus",
+      ],
+      { timeout: 10000 },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      backend: "herdr",
+      reason: errorMessage(error),
+      canDeleteSession: true,
+    };
+  }
+
+  const splitFailure = execFailure(splitResult, "Herdr pane split failed");
+  if (splitFailure) {
+    return {
+      ok: false,
+      backend: "herdr",
+      reason: splitFailure,
+      canDeleteSession: !splitResult.killed,
+    };
+  }
+
+  // Step 2: parse the new pane id. If the split returned but the id cannot be
+  // parsed, the pane may already exist, so retain the copied session.
+  let newPaneId: string;
+  try {
+    const parsed = JSON.parse(splitResult.stdout) as {
+      result?: { pane?: { pane_id?: unknown } };
+    };
+    const candidate = parsed?.result?.pane?.pane_id;
+    if (typeof candidate !== "string" || candidate.length === 0) {
+      throw new Error("missing .result.pane.pane_id");
+    }
+    newPaneId = candidate;
+  } catch (error) {
+    return {
+      ok: false,
+      backend: "herdr",
+      reason: `could not parse split pane id: ${errorMessage(error)}`,
+      canDeleteSession: false,
+    };
+  }
+
+  // Step 3: start the pi agent in the new pane. Any failure here happens after
+  // pane creation, so the child may exist and the copied session is retained.
+  let startResult: ExecResult;
+  try {
+    startResult = await pi.exec(
+      herdrBin,
+      [
+        "agent",
+        "start",
+        agentName,
+        "--kind",
+        "pi",
+        "--pane",
+        newPaneId,
+        "--timeout",
+        "10000",
         "--",
-        ...commandParts,
+        ...piArgs,
       ],
       { timeout: 10000 },
     );
@@ -351,13 +426,13 @@ async function launchHerdrSplit(
     };
   }
 
-  const startFailure = execFailure(result, "Herdr start failed");
+  const startFailure = execFailure(startResult, "Herdr agent start failed");
   if (startFailure) {
     return {
       ok: false,
       backend: "herdr",
       reason: startFailure,
-      canDeleteSession: !result.killed,
+      canDeleteSession: false,
     };
   }
 
@@ -367,7 +442,7 @@ async function launchHerdrSplit(
 async function launchGhosttySplit(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
-  commandParts: string[],
+  piArgs: string[],
 ): Promise<LaunchResult> {
   if (process.platform !== "darwin") {
     return {
@@ -378,7 +453,10 @@ async function launchGhosttySplit(
     };
   }
 
-  const startupInput = buildStartupInput(commandParts);
+  const startupInput = buildStartupInput([
+    ...getPiInvocationParts(),
+    ...piArgs,
+  ]);
   let result: ExecResult;
   try {
     result = await pi.exec(
@@ -410,10 +488,10 @@ async function launchGhosttySplit(
 
 async function resolveSplitHost(pi: ExtensionAPI): Promise<HostResolution> {
   if (process.env.HERDR_ENV === "1") {
-    if (!process.env.HERDR_WORKSPACE_ID || !process.env.HERDR_TAB_ID) {
+    if (!process.env.HERDR_PANE_ID) {
       return {
         ok: false,
-        reason: "Herdr is active but its workspace or tab identity is missing.",
+        reason: "Herdr is active but its pane identity is missing.",
       };
     }
     return { ok: true, backend: "herdr" };
@@ -444,10 +522,10 @@ async function launchSplit(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   backend: SplitBackend,
-  commandParts: string[],
+  piArgs: string[],
 ): Promise<LaunchResult> {
-  if (backend === "herdr") return launchHerdrSplit(pi, ctx, commandParts);
-  return launchGhosttySplit(pi, ctx, commandParts);
+  if (backend === "herdr") return launchHerdrSplit(pi, ctx, piArgs);
+  return launchGhosttySplit(pi, ctx, piArgs);
 }
 
 function isSplitRecord(
@@ -776,7 +854,7 @@ async function runSplit(
   let splitSessionFile: string | undefined;
   let launchAttempted = false;
   try {
-    let commandParts: string[];
+    let piArgs: string[];
     let baseLeafId: string | null;
     let recordLabel: string;
     let forkedBeforeInFlight = false;
@@ -788,7 +866,7 @@ async function runSplit(
         sourceSessionFile,
         forkLeafId!,
       ));
-      commandParts = [...buildPiSessionCommandParts(splitSessionFile), prompt];
+      piArgs = buildPiSessionArgs(splitSessionFile, prompt);
       recordLabel = prompt;
     } else {
       const messages = getForkMessages(ctx);
@@ -806,15 +884,12 @@ async function runSplit(
           selected.entryId,
         ));
       recordLabel = selected.text;
-      commandParts = [
-        ...buildPiSessionCommandParts(splitSessionFile),
-        selected.text,
-      ];
+      piArgs = buildPiSessionArgs(splitSessionFile, selected.text);
     }
 
     if (!splitSessionFile) throw new Error("Failed to create split session");
     launchAttempted = true;
-    const launch = await launchSplit(pi, ctx, host.backend, commandParts);
+    const launch = await launchSplit(pi, ctx, host.backend, piArgs);
     if (!launch.ok) {
       let reason = launch.reason;
       if (launch.canDeleteSession) {
