@@ -197,6 +197,79 @@ function normalizePackageSource(label: string): string {
   return label.replace(/^(?:npm|git):/, "");
 }
 
+interface GitPackageSource {
+  label: string;
+  revision: string | undefined;
+}
+
+function splitGitRevision(pathWithRevision: string): {
+  path: string;
+  revision: string | undefined;
+} {
+  const separator = pathWithRevision.indexOf("@");
+  if (separator === -1) return { path: pathWithRevision, revision: undefined };
+  return {
+    path: pathWithRevision.slice(0, separator),
+    revision: pathWithRevision.slice(separator + 1),
+  };
+}
+
+function parseGitPackageSource(source: string): GitPackageSource {
+  const value = source.replace(/^git:/, "");
+  const scpMatch = value.match(/^git@([^:]+):(.+)$/);
+  if (scpMatch) {
+    const { path, revision } = splitGitRevision(scpMatch[2] ?? "");
+    return {
+      label: `${scpMatch[1] ?? ""}/${path}`.replace(/\.git$/, ""),
+      revision,
+    };
+  }
+
+  if (value.includes("://")) {
+    try {
+      const url = new URL(value);
+      const { path, revision } = splitGitRevision(
+        url.pathname.replace(/^\/+/, ""),
+      );
+      return {
+        label: `${url.hostname}/${path}`.replace(/\.git$/, ""),
+        revision,
+      };
+    } catch {
+      return { label: value, revision: undefined };
+    }
+  }
+
+  const slash = value.indexOf("/");
+  if (slash === -1) return { label: value, revision: undefined };
+  const { path, revision } = splitGitRevision(value.slice(slash + 1));
+  return {
+    label: `${value.slice(0, slash)}/${path}`.replace(/\.git$/, ""),
+    revision,
+  };
+}
+
+function formatPackageExtensionLabel(
+  source: string,
+  extensionPaths: string[],
+): string {
+  const extensionNames = unique(
+    extensionPaths
+      .map((path) => path.replace(/\\/g, "/").split("/").pop() ?? "")
+      .filter((name) => /\.[cm]?[jt]s$/.test(name)),
+  );
+  if (!source.startsWith("git:")) {
+    return [normalizePackageSource(source), ...extensionNames].join(" ");
+  }
+
+  const { label, revision } = parseGitPackageSource(source);
+  return [
+    label,
+    ...extensionNames,
+    ...(revision ? [`@${revision.slice(0, 6)}`] : []),
+  ].join(" ");
+}
+
 function isExplicitSourcePath(label: string): boolean {
   const normalized = label.replace(/\\/g, "/");
   return (
@@ -219,16 +292,34 @@ function parseExpandedExtensionGroups(
   const packageExtensions: string[] = [];
   const sourceExtensions: string[] = [];
   let foundItem = false;
+  let currentPackageSource: string | undefined;
+  let currentPackagePaths: string[] = [];
+  const flushPackage = () => {
+    if (!currentPackageSource) return;
+    packageExtensions.push(
+      formatPackageExtensionLabel(currentPackageSource, currentPackagePaths),
+    );
+    currentPackageSource = undefined;
+    currentPackagePaths = [];
+  };
 
   for (const rawLine of text.split("\n").slice(1)) {
     const line = stripAnsi(rawLine).replace(/\s+$/, "");
     const packageSource = line.match(/^ {4}((?:npm|git):.+)$/)?.[1];
     if (packageSource) {
-      packageExtensions.push(normalizePackageSource(packageSource));
+      flushPackage();
+      currentPackageSource = packageSource;
       foundItem = true;
       continue;
     }
 
+    const packagePath = line.match(/^ {6}(\S.*)$/)?.[1];
+    if (packagePath && currentPackageSource) {
+      currentPackagePaths.push(packagePath);
+      continue;
+    }
+
+    flushPackage();
     const path = line.match(/^ {4}(\S.*)$/)?.[1];
     if (!path || /^(?:project|user|path)$/.test(path)) continue;
 
@@ -245,6 +336,8 @@ function parseExpandedExtensionGroups(
     }
     foundItem = true;
   }
+
+  flushPackage();
 
   if (!foundItem) return undefined;
   return {

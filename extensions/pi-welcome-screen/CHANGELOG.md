@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- Show extension filenames for package-backed sources on the welcome screen.
+- Shorten pinned Git revisions to six characters.
+
 ## 0.1.3
 
 - Add responsive one-, two-, and three-column welcome layouts.

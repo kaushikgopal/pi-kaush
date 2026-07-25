@@ -132,6 +132,44 @@ describe("welcome resource formatting", () => {
     ).toBe("pi-web-access");
   });
 
+  test("shows package extension filenames and abbreviates pinned git revisions", () => {
+    const resources = parseWelcomeResources(
+      `[Extensions]\n  unified-edit`,
+      new Set(),
+      [
+        "[Extensions]",
+        "  user",
+        "    git:github.com/mitsuhiko/agent-stuff@c77d49797ad3fb78888e5b002ae606a93777c6b1",
+        "      extensions/unified-edit.ts",
+      ].join("\n"),
+    );
+
+    expect(resources.packageExtensions).toEqual([
+      "github.com/mitsuhiko/agent-stuff unified-edit.ts @c77d49",
+    ]);
+    expect(resources.extensions.join("\n")).not.toContain(
+      "c77d49797ad3fb78888e5b002ae606a93777c6b1",
+    );
+  });
+
+  test("keeps all package extension filenames in expanded order", () => {
+    const resources = parseWelcomeResources(
+      `[Extensions]\n  zeta, alpha`,
+      new Set(),
+      [
+        "[Extensions]",
+        "  user",
+        "    git:github.com/example/extensions",
+        "      extensions/zeta.ts",
+        "      extensions/alpha.ts",
+      ].join("\n"),
+    );
+
+    expect(resources.packageExtensions).toEqual([
+      "github.com/example/extensions zeta.ts alpha.ts",
+    ]);
+  });
+
   test("uses expanded provenance to separate local, package, and source extensions", () => {
     const sourcePath = "~/dev/pi-kaush/extensions/pi-double-paste/src";
     const resources = parseWelcomeResources(
