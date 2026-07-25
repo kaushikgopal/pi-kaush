@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3
 
 - Submit Herdr split prompts through `herdr agent prompt` after startup so multiline prompts and tabs do not fail Herdr's shell-argument safety check.
 
