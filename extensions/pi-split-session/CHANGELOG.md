@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Submit Herdr split prompts through `herdr agent prompt` after startup so multiline prompts and tabs do not fail Herdr's shell-argument safety check.
+
 ## 0.1.2
 
 - Support Herdr 0.7.5 by creating the pane with `herdr pane split` before starting the Pi agent with `herdr agent start --kind pi --pane <id>`.

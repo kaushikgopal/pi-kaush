@@ -43,6 +43,11 @@ type LaunchResult =
 
 type SplitBackend = LaunchResult["backend"];
 
+type PiSessionLaunch = {
+  args: string[];
+  prompt: string;
+};
+
 type HostResolution =
   | { ok: true; backend: SplitBackend }
   | { ok: false; reason: string };
@@ -113,11 +118,15 @@ function getPiInvocationParts(): string[] {
   return ["pi"];
 }
 
-function buildPiSessionArgs(sessionFile: string, prompt: string): string[] {
+function buildPiSessionLaunch(
+  sessionFile: string,
+  prompt: string,
+): PiSessionLaunch {
   // Args handed to `pi` itself. Herdr's `agent start --kind pi` invokes the
-  // executable, so these must not include the `pi`/node prefix. Ghostty
-  // reconstructs the full command by prepending the invocation parts.
-  return ["--session", sessionFile, prompt];
+  // executable, so these must not include the `pi`/node prefix. Herdr submits
+  // the prompt separately after startup because agent-start args reject control
+  // characters. Ghostty reconstructs the full command with the prompt appended.
+  return { args: ["--session", sessionFile], prompt };
 }
 
 function buildStartupInput(commandParts: string[]): string {
@@ -319,7 +328,7 @@ function promptedForkLeaf(ctx: ExtensionContext): string | null {
 async function launchHerdrSplit(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
-  piArgs: string[],
+  launch: PiSessionLaunch,
 ): Promise<LaunchResult> {
   const herdrBin = process.env.HERDR_BIN_PATH || "herdr";
   const paneId = process.env.HERDR_PANE_ID;
@@ -411,7 +420,7 @@ async function launchHerdrSplit(
         "--timeout",
         "10000",
         "--",
-        ...piArgs,
+        ...launch.args,
       ],
       { timeout: 10000 },
     );
@@ -434,13 +443,41 @@ async function launchHerdrSplit(
     };
   }
 
+  // Step 4: submit the prompt through Herdr's prompt API. Unlike agent-start
+  // shell arguments, this path safely supports multiline text and tabs.
+  let promptResult: ExecResult;
+  try {
+    promptResult = await pi.exec(
+      herdrBin,
+      ["agent", "prompt", agentName, launch.prompt],
+      { timeout: 10000 },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      backend: "herdr",
+      reason: errorMessage(error),
+      canDeleteSession: false,
+    };
+  }
+
+  const promptFailure = execFailure(promptResult, "Herdr agent prompt failed");
+  if (promptFailure) {
+    return {
+      ok: false,
+      backend: "herdr",
+      reason: promptFailure,
+      canDeleteSession: false,
+    };
+  }
+
   return { ok: true, backend: "herdr", target: agentName };
 }
 
 async function launchGhosttySplit(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
-  piArgs: string[],
+  launch: PiSessionLaunch,
 ): Promise<LaunchResult> {
   if (process.platform !== "darwin") {
     return {
@@ -453,7 +490,8 @@ async function launchGhosttySplit(
 
   const startupInput = buildStartupInput([
     ...getPiInvocationParts(),
-    ...piArgs,
+    ...launch.args,
+    launch.prompt,
   ]);
   let result: ExecResult;
   try {
@@ -520,10 +558,10 @@ async function launchSplit(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   backend: SplitBackend,
-  piArgs: string[],
+  launch: PiSessionLaunch,
 ): Promise<LaunchResult> {
-  if (backend === "herdr") return launchHerdrSplit(pi, ctx, piArgs);
-  return launchGhosttySplit(pi, ctx, piArgs);
+  if (backend === "herdr") return launchHerdrSplit(pi, ctx, launch);
+  return launchGhosttySplit(pi, ctx, launch);
 }
 
 function isSplitRecord(
@@ -852,7 +890,7 @@ async function runSplit(
   let splitSessionFile: string | undefined;
   let launchAttempted = false;
   try {
-    let piArgs: string[];
+    let piLaunch: PiSessionLaunch;
     let baseLeafId: string | null;
     let recordLabel: string;
     let forkedBeforeInFlight = false;
@@ -864,7 +902,7 @@ async function runSplit(
         sourceSessionFile,
         forkLeafId!,
       ));
-      piArgs = buildPiSessionArgs(splitSessionFile, prompt);
+      piLaunch = buildPiSessionLaunch(splitSessionFile, prompt);
       recordLabel = prompt;
     } else {
       const messages = getForkMessages(ctx);
@@ -882,12 +920,12 @@ async function runSplit(
           selected.entryId,
         ));
       recordLabel = selected.text;
-      piArgs = buildPiSessionArgs(splitSessionFile, selected.text);
+      piLaunch = buildPiSessionLaunch(splitSessionFile, selected.text);
     }
 
     if (!splitSessionFile) throw new Error("Failed to create split session");
     launchAttempted = true;
-    const launch = await launchSplit(pi, ctx, host.backend, piArgs);
+    const launch = await launchSplit(pi, ctx, host.backend, piLaunch);
     if (!launch.ok) {
       let reason = launch.reason;
       if (launch.canDeleteSession) {

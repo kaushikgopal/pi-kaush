@@ -345,12 +345,23 @@ function herdrAgentStartResponse() {
   };
 }
 
+function herdrAgentPromptResponse() {
+  return {
+    code: 0,
+    stdout: JSON.stringify({ result: { type: "agent_prompted" } }),
+    stderr: "",
+  };
+}
+
 function successfulHerdrExec(_command: string, args: string[]) {
   if (args[0] === "pane" && args[1] === "split") {
     return Promise.resolve(herdrPaneSplitResponse("split-pane-1"));
   }
   if (args[0] === "agent" && args[1] === "start") {
     return Promise.resolve(herdrAgentStartResponse());
+  }
+  if (args[0] === "agent" && args[1] === "prompt") {
+    return Promise.resolve(herdrAgentPromptResponse());
   }
   throw new Error(`Unexpected Herdr command: ${args.join(" ")}`);
 }
@@ -1119,7 +1130,7 @@ describe("split launch", () => {
       restoreHerdrIdentity();
     }
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(calls[0]!.args).toEqual([
       "pane",
       "split",
@@ -1133,7 +1144,8 @@ describe("split launch", () => {
       "HERDR_AGENT=pi",
       "--focus",
     ]);
-    expect(calls[1]!.args.slice(0, 10)).toEqual([
+    const agentName = calls[1]!.args[2]!;
+    expect(calls[1]!.args).toEqual([
       "agent",
       "start",
       expect.stringMatching(/^pi-split-/),
@@ -1144,10 +1156,15 @@ describe("split launch", () => {
       "--timeout",
       "10000",
       "--",
+      "--session",
+      splitSessionFile,
     ]);
-    expect(calls[1]!.args.at(-1)).toBe("Selected prompt");
     expect(calls[1]!.args).not.toContain("--workspace");
     expect(calls[1]!.args).not.toContain("--tab");
+    expect(calls[2]).toEqual({
+      command: expect.any(String),
+      args: ["agent", "prompt", agentName, "Selected prompt"],
+    });
     expect(harness.appendedEntries).toHaveLength(1);
     expect(harness.appendedEntries[0]!.data).toMatchObject({
       baseLeafId: "copied-boundary",
@@ -1164,6 +1181,32 @@ describe("split launch", () => {
       ),
       level: "info",
     });
+  });
+
+  test("submits control characters through Herdr prompt instead of agent-start arguments", async () => {
+    const restoreHerdrIdentity = setHerdrIdentity();
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const harness = createSplitHarness(async (command, args) => {
+      calls.push({ command, args });
+      return successfulHerdrExec(command, args);
+    });
+    const prompt = "Review this:\n\t- preserve formatting";
+
+    try {
+      await harness.split(prompt);
+    } finally {
+      restoreHerdrIdentity();
+    }
+
+    expect(calls).toHaveLength(3);
+    expect(calls[1]!.args.every((arg) => !/[\n\t]/.test(arg))).toBe(true);
+    expect(calls[2]!.args.slice(0, 3)).toEqual([
+      "agent",
+      "prompt",
+      calls[1]!.args[2],
+    ]);
+    expect(calls[2]!.args[3]).toBe(prompt);
+    expect(harness.appendedEntries).toHaveLength(1);
   });
 
   test("keeps the copied session when Herdr agent start fails after pane split", async () => {
@@ -1205,6 +1248,33 @@ describe("split launch", () => {
           ),
       ),
     ).toBe(true);
+  });
+
+  test("keeps the copied session when Herdr cannot submit the prompt", async () => {
+    const restoreHerdrIdentity = setHerdrIdentity();
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const harness = createSplitHarness(async (command, args) => {
+      calls.push({ command, args });
+      if (args[0] === "pane") return herdrPaneSplitResponse("split-pane-1");
+      if (args[1] === "start") return herdrAgentStartResponse();
+      return { code: 1, stdout: "", stderr: "Herdr agent prompt failed" };
+    });
+
+    try {
+      await harness.split();
+    } finally {
+      restoreHerdrIdentity();
+    }
+
+    expect(calls).toHaveLength(3);
+    expect(existsSync(splitSessionFile)).toBe(true);
+    expect(harness.appendedEntries[0]).toMatchObject({
+      type: "split-fork-record",
+      data: { label: "[unconfirmed] Selected prompt" },
+    });
+    expect(harness.notifications[0]!.message).toContain(
+      "Herdr agent prompt failed",
+    );
   });
 
   test("reports an opened split separately when its tracking record cannot be saved", async () => {
