@@ -495,7 +495,7 @@ async function launchHerdrSplit(
       canDeleteSession: true,
     };
   }
-  const agentName = `pi-split-${randomUUID().slice(0, 8)}`;
+  const agentName = `pi-btw-${randomUUID().slice(0, 8)}`;
 
   // Step 1: split the current pane to the right. A definite failure here
   // happens before any child exists, so the copied session can be deleted.
@@ -1728,7 +1728,7 @@ async function detectAndImportPendingMerges(
   await importMerge(pi, ctx, chosen, undefined, undefined);
 }
 
-export default function splitSession(pi: ExtensionAPI) {
+export default function btwWithImports(pi: ExtensionAPI) {
   // Factory-local state prevents one extension instance from cancelling or
   // suppressing another. A generation token invalidates async selectors and
   // ticks that outlive a session switch.

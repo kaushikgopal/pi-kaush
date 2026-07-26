@@ -1,7 +1,7 @@
 {
-  "name": "@pi-kaush/pi-split-session",
-  "version": "0.2.0",
-  "description": "Fork a Pi session into a Herdr or Ghostty split with /btw and import a clean side-agent handoff with /btw merge.",
+  "name": "@pi-kaush/pi-btw-with-imports",
+  "version": "0.1.0",
+  "description": "Open persisted Pi side sessions with /btw and import child-authored handoffs with /btw merge.",
   "license": "MIT",
   "author": "Kaushik Gopal",
   "type": "module",
@@ -11,18 +11,20 @@
     "pi-package",
     "pi-extension",
     "session",
+    "btw",
+    "import",
     "split",
     "herdr",
     "ghostty"
   ],
-  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-split-session#readme",
+  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-btw-with-imports#readme",
   "bugs": {
     "url": "https://github.com/kaushikgopal/pi-kaush/issues"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kaushikgopal/pi-kaush.git",
-    "directory": "extensions/pi-split-session"
+    "directory": "extensions/pi-btw-with-imports"
   },
   "files": [
     "src",

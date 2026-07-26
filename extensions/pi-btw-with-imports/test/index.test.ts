@@ -2073,7 +2073,7 @@ describe("split launch", () => {
     expect(calls[1]!.args).toEqual([
       "agent",
       "start",
-      expect.stringMatching(/^pi-split-/),
+      expect.stringMatching(/^pi-btw-/),
       "--kind",
       "pi",
       "--pane",
@@ -2118,7 +2118,7 @@ describe("split launch", () => {
     ]);
     expect(harness.notifications).toContainEqual({
       message: expect.stringMatching(
-        /^Opened split in a herdr right split \(pi-split-.+\) and sent prompt\.$/,
+        /^Opened split in a herdr right split \(pi-btw-.+\) and sent prompt\.$/,
       ),
       level: "info",
     });
@@ -2128,7 +2128,7 @@ describe("split launch", () => {
     const restoreHerdrIdentity = setHerdrIdentity();
     const extensionPath = join(
       process.cwd(),
-      "extensions/pi-split-session/src/index.ts",
+      "extensions/pi-btw-with-imports/src/index.ts",
     );
     const originalArgv = process.argv;
     process.argv = [originalArgv[0]!, originalArgv[1]!, "-e", extensionPath];
@@ -2325,7 +2325,7 @@ describe("split launch", () => {
       harness.notifications.some(
         (notification) =>
           notification.level === "error" &&
-          notification.message.startsWith("Opened split (pi-split-") &&
+          notification.message.startsWith("Opened split (pi-btw-") &&
           notification.message.endsWith(
             ", but could not save its tracking record: record write failed",
           ),

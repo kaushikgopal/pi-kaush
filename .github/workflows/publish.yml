@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-text-verbosity-v') || startsWith(github.event.release.tag_name, 'pi-split-session-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
+    if: startsWith(github.event.release.tag_name, 'pi-btw-with-imports-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-text-verbosity-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -43,10 +43,10 @@ jobs:
               directory="extensions/pi-openai-text-verbosity"
               prefix="pi-openai-text-verbosity-v"
               ;;
-            pi-split-session-v*)
-              workspace="@pi-kaush/pi-split-session"
-              directory="extensions/pi-split-session"
-              prefix="pi-split-session-v"
+            pi-btw-with-imports-v*)
+              workspace="@pi-kaush/pi-btw-with-imports"
+              directory="extensions/pi-btw-with-imports"
+              prefix="pi-btw-with-imports-v"
               ;;
             pi-tool-call-markers-v*)
               workspace="@pi-kaush/pi-tool-call-markers"

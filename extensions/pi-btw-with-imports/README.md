@@ -1,4 +1,4 @@
-# @pi-kaush/pi-split-session
+# @pi-kaush/pi-btw-with-imports
 
 Fork the current Pi conversation into a right-hand side session, continue working there, and import a clean handoff back into the main session.
 
@@ -10,7 +10,7 @@ Pi already has useful primitives for branching and side questions. This extensio
 
 - `/fork` and `/clone` create another conversation path, but you continue by moving the active Pi session to that path.
 - BTW-style extensions are excellent for quick questions while the main agent runs, usually through a custom panel or an in-memory side thread.
-- `pi-split-session` creates a normal persisted Pi session in another terminal pane. The main session stays visible and keeps running, while the side gets Pi's normal editor, tools, commands, model, and session history.
+- `pi-btw-with-imports` creates a normal persisted Pi session in another terminal pane. The main session stays visible and keeps running, while the side gets Pi's normal editor, tools, commands, model, and session history.
 
 That makes it a good fit when the side task is more than a quick question: investigating code, trying an approach, reviewing a change, or iterating through several follow-ups. When the side work is ready, its own agent writes a clean handoff and the main session imports only that handoff. The main context never receives the raw side transcript.
 
@@ -21,13 +21,13 @@ The trade-off is deliberate: a real side terminal is heavier than a one-off BTW 
 After the first npm release:
 
 ```bash
-pi install npm:@pi-kaush/pi-split-session@0.2.0
+pi install npm:@pi-kaush/pi-btw-with-imports@0.1.0
 ```
 
 For local development:
 
 ```bash
-pi -e ./extensions/pi-split-session/src/index.ts
+pi -e ./extensions/pi-btw-with-imports/src/index.ts
 ```
 
 ## Workflow
@@ -125,7 +125,7 @@ npm run check
 Inspect the publish payload:
 
 ```bash
-npm pack --workspace @pi-kaush/pi-split-session --dry-run
+npm pack --workspace @pi-kaush/pi-btw-with-imports --dry-run
 ```
 
 ## License

@@ -6,8 +6,8 @@ check:
 
 # Publish an extension to npm via GitHub Actions OIDC.
 #
-#   make publish PACKAGE=pi-split-session               # patch bump
-#   make publish PACKAGE=pi-split-session VERSION=0.2.0 # explicit version
+#   make publish PACKAGE=pi-btw-with-imports               # patch bump
+#   make publish PACKAGE=pi-btw-with-imports VERSION=0.2.0 # explicit version
 #
 # Bumps the version, runs checks, commits, pushes to main, and creates a
 # GitHub Release whose tag triggers the OIDC publish workflow. The package

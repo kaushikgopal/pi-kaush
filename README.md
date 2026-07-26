@@ -9,7 +9,7 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 | [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)                       | Paste the same large block twice to expand Pi's paste markers into editable text.          |
 | [`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) | Highlight and route Codex-style `$skill-name` references through Pi's native skills.       |
 | [`@pi-kaush/pi-openai-text-verbosity`](./extensions/pi-openai-text-verbosity)     | Configure OpenAI Responses text verbosity from Pi's model configuration.                   |
-| [`@pi-kaush/pi-split-session`](./extensions/pi-split-session)                     | Fork a side session and import a clean side-agent handoff.                                 |
+| [`@pi-kaush/pi-btw-with-imports`](./extensions/pi-btw-with-imports)               | Open persisted side sessions and import child-authored handoffs through `/btw`.            |
 | [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers)             | Collapse adjacent successful tool calls into one compact, gear-headed block per tool type. |
 | [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)                   | Show a responsive startup header with Pi's loaded resources.                               |
 
@@ -25,7 +25,7 @@ Install an extension globally through Pi's package manager:
 pi install npm:@pi-kaush/pi-double-paste
 pi install npm:@pi-kaush/pi-inline-skill-identifier
 pi install npm:@pi-kaush/pi-openai-text-verbosity
-pi install npm:@pi-kaush/pi-split-session
+pi install npm:@pi-kaush/pi-btw-with-imports
 pi install npm:@pi-kaush/pi-tool-call-markers
 pi install npm:@pi-kaush/pi-welcome-screen
 ```
@@ -49,7 +49,7 @@ Then launch Pi from any project and point `-e` at the extension's entry file, re
 pi -e ~/path/to/pi-kaush/extensions/pi-double-paste/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-inline-skill-identifier/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-openai-text-verbosity/src/index.ts
-pi -e ~/path/to/pi-kaush/extensions/pi-split-session/src/index.ts
+pi -e ~/path/to/pi-kaush/extensions/pi-btw-with-imports/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-tool-call-markers/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-welcome-screen/src/index.ts
 ```
@@ -75,7 +75,7 @@ Create a GitHub release whose tag identifies the workspace and exactly matches i
 pi-double-paste-v0.1.0
 pi-inline-skill-identifier-v0.1.0
 pi-openai-text-verbosity-v0.1.0
-pi-split-session-v0.1.0
+pi-btw-with-imports-v0.1.0
 pi-tool-call-markers-v0.1.0
 pi-welcome-screen-v0.1.2
 ```
