@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Wait for every call in a contiguous parallel run to settle before grouping successful calls, which prevents completed prefixes and suffixes from repeatedly collapsing around active calls.
+
 ## 0.1.0
 
 - Collapse adjacent successful tool calls into one compact block per tool type, each with a gear header and bulleted call summaries.

@@ -354,6 +354,25 @@ describe("tool-call-markers grouping", () => {
     expect(output).toContain("• two.md");
   });
 
+  test("does not group settled prefixes or suffixes while a parallel call is active", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("edit", "one.ts"));
+    chat.addChild(succeeded("edit", "two.ts"));
+    const active = new MockToolExecutionComponent("edit", "three.ts");
+    chat.addChild(active);
+    chat.addChild(succeeded("edit", "four.ts"));
+    chat.addChild(succeeded("edit", "five.ts"));
+
+    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(5);
+
+    active.updateResult({ isError: false, output: "result:three.ts" });
+    const output = renderPlain(chat);
+    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output).toContain("• one.ts");
+    expect(output).toContain("• three.ts");
+    expect(output).toContain("• five.ts");
+  });
+
   test("keeps failed calls separate and expands their details", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("read", "one.md"));

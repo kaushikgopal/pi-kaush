@@ -231,6 +231,33 @@ function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
   );
 }
 
+function isSettledToolRow(row: ToolExecutionRow): boolean {
+  return row.isPartial === false && !!row.result;
+}
+
+function hasUnsettledToolInGroupRun(
+  children: unknown[],
+  index: number,
+  renderAt: (index: number) => string[],
+): boolean {
+  for (const direction of [-1, 1] as const) {
+    for (
+      let candidateIndex = index + direction;
+      candidateIndex >= 0 && candidateIndex < children.length;
+      candidateIndex += direction
+    ) {
+      const candidate = children[candidateIndex];
+      if (isToolExecutionRow(candidate)) {
+        if (!isSettledToolRow(candidate)) return true;
+        if (!isCollapsibleSuccess(candidate)) break;
+        continue;
+      }
+      if (renderAt(candidateIndex).some(hasVisibleContent)) break;
+    }
+  }
+  return false;
+}
+
 function renderComponent(component: unknown, width: number): string[] {
   if (!component || typeof (component as ComponentLike).render !== "function")
     return [];
@@ -547,6 +574,10 @@ function renderContainerWithToolGroups(
   for (let index = 0; index < children.length; index++) {
     const child = children[index];
     if (!isToolExecutionRow(child) || !isCollapsibleSuccess(child)) {
+      lines.push(...renderAt(index));
+      continue;
+    }
+    if (hasUnsettledToolInGroupRun(children, index, renderAt)) {
       lines.push(...renderAt(index));
       continue;
     }
