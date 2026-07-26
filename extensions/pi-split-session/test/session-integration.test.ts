@@ -1,8 +1,9 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   SessionManager,
+  buildSessionContext,
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { afterAll, expect, test } from "vitest";
@@ -48,155 +49,155 @@ function assistantMessage(text: string) {
   };
 }
 
-test("round-trips selectable side handoffs through real session files", async () => {
+function herdrExec(_command: string, args: string[]) {
+  if (args[0] === "pane" && args[1] === "split") {
+    return Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({
+        result: { pane: { pane_id: "integration-child-pane" } },
+      }),
+      stderr: "",
+    });
+  }
+  if (args[0] === "agent" && args[1] === "start") {
+    return Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({
+        result: { agent: { pane_id: "integration-child-pane" } },
+      }),
+      stderr: "",
+    });
+  }
+  if (args[0] === "agent" && args[1] === "prompt") {
+    return Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({ result: { type: "agent_prompted" } }),
+      stderr: "",
+    });
+  }
+  if (
+    (args[0] === "agent" && args[1] === "focus") ||
+    (args[0] === "pane" && args[1] === "close")
+  ) {
+    return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+  }
+  return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+}
+
+function buildPi(sessionManager: SessionManagerInstance) {
+  return {
+    registerCommand(
+      _name: string,
+      definition: { handler: (args: string, ctx: any) => Promise<void> },
+    ) {
+      (sessionManager as any).__btwHandler = definition.handler;
+    },
+    appendEntry(customType: string, data: unknown) {
+      sessionManager.appendCustomEntry(customType, data);
+    },
+    sendMessage(message: {
+      customType: string;
+      content: string;
+      display: boolean;
+      details?: unknown;
+    }) {
+      sessionManager.appendCustomMessageEntry(
+        message.customType,
+        message.content,
+        message.display,
+        message.details,
+      );
+    },
+    sendUserMessage(content: string) {
+      sessionManager.appendMessage(userMessage(content));
+    },
+    exec: herdrExec,
+    on: () => {},
+  } as any;
+}
+
+function contextFor(
+  sessionManager: SessionManagerInstance,
+  options?: {
+    hasUI?: boolean;
+  },
+) {
+  return {
+    cwd,
+    hasUI: options?.hasUI ?? true,
+    mode: "tui" as const,
+    isIdle: () => true,
+    waitForIdle: async () => {},
+    sessionManager,
+    ui: {
+      select: async (_title: string, _choices: string[]) => undefined,
+      notify: () => {},
+    },
+  } as any;
+}
+
+test("first-turn snapshot preserves exact in-memory messages and model state into a persisted child", async () => {
   const previousHerdr = {
     env: process.env.HERDR_ENV,
     pane: process.env.HERDR_PANE_ID,
   };
   process.env.HERDR_ENV = "1";
-  process.env.HERDR_PANE_ID = "integration-pane";
+  process.env.HERDR_PANE_ID = "integration-parent-pane";
 
   try {
-    let activeSession = SessionManager.create(cwd, sessionDir);
-    activeSession.appendMessage(userMessage("Set up the main task"));
-    activeSession.appendMessage(assistantMessage("Main task is ready"));
-    const parentFile = activeSession.getSessionFile();
-    if (!parentFile) throw new Error("Parent session was not persisted");
+    // In-memory parent: no session file yet (first turn).
+    const parent = SessionManager.inMemory(cwd);
+    parent.appendMessage(userMessage("Set up the main task"));
+    parent.appendMessage(assistantMessage("Main task is ready"));
+    parent.appendModelChange("anthropic", "claude-test");
+    parent.appendThinkingLevelChange("high");
+    expect(parent.getSessionFile()).toBeUndefined();
 
-    const commands = new Map<
-      string,
-      (args: string, ctx: any) => Promise<void>
-    >();
-    const notifications: string[] = [];
-    let selectedSplitIndex = 0;
-    const pi = {
-      registerCommand(
-        name: string,
-        definition: { handler: (args: string, ctx: any) => Promise<void> },
-      ) {
-        commands.set(name, definition.handler);
-      },
-      appendEntry(customType: string, data: unknown) {
-        activeSession.appendCustomEntry(customType, data);
-      },
-      sendMessage(message: {
-        customType: string;
-        content: string;
-        display: boolean;
-        details?: unknown;
-      }) {
-        activeSession.appendCustomMessageEntry(
-          message.customType,
-          message.content,
-          message.display,
-          message.details,
-        );
-      },
-      sendUserMessage(content: string) {
-        activeSession.appendMessage(userMessage(content));
-      },
-      exec: async (_command: string, args: string[]) => {
-        if (args[0] === "pane" && args[1] === "split") {
-          return {
-            code: 0,
-            stdout: JSON.stringify({
-              result: { pane: { pane_id: "integration-pane" } },
-            }),
-            stderr: "",
-          };
-        }
-        if (args[0] === "agent" && args[1] === "start") {
-          return {
-            code: 0,
-            stdout: JSON.stringify({
-              result: { agent: { pane_id: "integration-pane" } },
-            }),
-            stderr: "",
-          };
-        }
-        return { code: 0, stdout: "", stderr: "" };
-      },
-    };
-    registerSplitSession(pi as any);
+    const pi = buildPi(parent);
+    registerSplitSession(pi);
+    const btw = (parent as any).__btwHandler as (
+      args: string,
+      ctx: any,
+    ) => Promise<void>;
 
-    const contextFor = (sessionManager: SessionManagerInstance) => ({
-      cwd,
-      hasUI: true,
-      mode: "tui",
-      isIdle: () => true,
-      waitForIdle: async () => {},
-      sessionManager,
-      ui: {
-        select: async (_title: string, choices: string[]) =>
-          choices[selectedSplitIndex],
-        notify: (message: string) => notifications.push(message),
-      },
-    });
+    await btw("Investigate the side approach", contextFor(parent));
 
-    const split = commands.get("split");
-    const handoff = commands.get("split-handoff");
-    const importSummary = commands.get("split-import");
-    if (!split || !handoff || !importSummary)
-      throw new Error("Split commands were not registered");
-
-    await split("Investigate the first approach", contextFor(activeSession));
-    await split("Investigate the second approach", contextFor(activeSession));
-
-    const parentRecords = activeSession
+    const records = parent
       .getBranch()
       .filter(
         (entry): entry is CustomEntry =>
           entry.type === "custom" && entry.customType === "split-fork-record",
       );
-    expect(parentRecords).toHaveLength(2);
-    const firstChildFile = (parentRecords[0]!.data as { sessionFile: string })
-      .sessionFile;
-    const secondChildFile = (parentRecords[1]!.data as { sessionFile: string })
-      .sessionFile;
+    expect(records).toHaveLength(1);
+    const childFile = (records[0]!.data as { sessionFile: string }).sessionFile;
+    expect(existsSync(childFile)).toBe(true);
 
-    for (const [sessionFile, summary] of [
-      [firstChildFile, "First approach handoff"],
-      [secondChildFile, "Second approach handoff"],
-    ] as const) {
-      activeSession = SessionManager.open(sessionFile, sessionDir);
-      expect(
-        activeSession
-          .getBranch()
-          .some(
-            (entry: any) =>
-              entry.type === "custom" &&
-              entry.customType === "split-fork-child",
-          ),
-      ).toBe(true);
-      await handoff("", contextFor(activeSession));
-      activeSession.appendMessage(assistantMessage(summary));
-    }
-
-    activeSession = SessionManager.open(parentFile, sessionDir);
-    selectedSplitIndex = 1;
-    await importSummary("", contextFor(activeSession));
-
-    const reopenedParent = SessionManager.open(parentFile, sessionDir);
-    const importedResults = reopenedParent
+    const child = SessionManager.open(childFile, sessionDir);
+    // The snapshot preserves the exact messages from the in-memory context.
+    const childMessages = child
       .getBranch()
-      .filter(
-        (entry): entry is CustomMessageEntry =>
-          entry.type === "custom_message" &&
-          entry.customType === "split-fork-result",
-      );
-    expect(importedResults).toHaveLength(1);
-    const importedResult = importedResults[0]!;
-    expect(importedResult.content).toContain("First approach handoff");
-    expect(importedResult.content).not.toContain(
-      "Investigate the first approach",
-    );
-    expect(importedResult.content).not.toContain("Second approach handoff");
-    expect(importedResult.details).toMatchObject({
-      sessionFile: firstChildFile,
-      format: "summary",
+      .filter((entry) => entry.type === "message");
+    expect(childMessages).toHaveLength(2);
+    expect(childMessages[0]!.type).toBe("message");
+    expect(
+      (childMessages[0] as SessionEntry & { type: "message" }).message.role,
+    ).toBe("user");
+    const childContext = child.buildSessionContext();
+    expect(childContext.model).toEqual({
+      provider: "anthropic",
+      modelId: "claude-test",
     });
-    expect(notifications).toContain(
-      "Split import queued. The side split stays open; close it manually when you're done.",
+    expect(childContext.thinkingLevel).toBe("high");
+    // The child marker embeds the prompt for /btw --launch dispatch.
+    const childMarker = child
+      .getBranch()
+      .find(
+        (entry): entry is CustomEntry =>
+          entry.type === "custom" && entry.customType === "split-fork-child",
+      );
+    expect(childMarker).toBeDefined();
+    expect((childMarker!.data as { prompt: string }).prompt).toBe(
+      "Investigate the side approach",
     );
   } finally {
     for (const [key, value] of [
@@ -208,3 +209,111 @@ test("round-trips selectable side handoffs through real session files", async ()
     }
   }
 });
+
+test("round-trips a side handoff through merge request, durable pending state, and parent import", async () => {
+  const previousHerdr = {
+    env: process.env.HERDR_ENV,
+    pane: process.env.HERDR_PANE_ID,
+  };
+  process.env.HERDR_ENV = "1";
+  process.env.HERDR_PANE_ID = "integration-parent-pane";
+
+  try {
+    let parent = SessionManager.create(cwd, sessionDir);
+    parent.appendMessage(userMessage("Set up the main task"));
+    parent.appendMessage(assistantMessage("Main task is ready"));
+    const parentFile = parent.getSessionFile();
+    if (!parentFile) throw new Error("Parent session was not persisted");
+
+    const pi = buildPi(parent);
+    registerSplitSession(pi);
+    const btw = (parent as any).__btwHandler as (
+      args: string,
+      ctx: any,
+    ) => Promise<void>;
+
+    // Fork a side session from the persisted parent.
+    await btw("Investigate the approach", contextFor(parent));
+
+    const records = parent
+      .getBranch()
+      .filter(
+        (entry): entry is CustomEntry =>
+          entry.type === "custom" && entry.customType === "split-fork-record",
+      );
+    expect(records).toHaveLength(1);
+    const childFile = (records[0]!.data as { sessionFile: string }).sessionFile;
+
+    // Inside the child: append the same durable intent -> exact user prompt ->
+    // completed assistant -> merge request chain used by the extension.
+    const child = SessionManager.open(childFile, sessionDir);
+    child.appendMessage(userMessage("Investigate the approach"));
+    child.appendMessage(assistantMessage("Side answer is ready"));
+    const handoffPrompt = "Prepare the exact integration handoff";
+    const intentEntryId = child.appendCustomEntry("split-merge-intent", {
+      requestId: "req-integration",
+      handoffPrompt,
+    });
+    const promptEntryId = child.appendMessage(userMessage(handoffPrompt));
+    const answerEntryId = child.appendMessage(
+      assistantMessage("Validated integration handoff"),
+    );
+    child.appendCustomEntry("split-merge-request", {
+      requestId: "req-integration",
+      intentEntryId,
+      promptEntryId,
+      answerEntryId,
+    });
+
+    // Back in the parent: manually process the pending merge.
+    parent = SessionManager.open(parentFile, sessionDir);
+    await btw("merge", contextFor(parent, { hasUI: false }));
+
+    const reopenedParent = SessionManager.open(parentFile, sessionDir);
+    const importedResults = reopenedParent
+      .getBranch()
+      .filter(
+        (entry): entry is CustomMessageEntry =>
+          entry.type === "custom_message" &&
+          entry.customType === "split-merge-result",
+      );
+    expect(importedResults).toHaveLength(1);
+    const imported = importedResults[0]!;
+    expect(imported.content).toContain("Validated integration handoff");
+    expect(imported.content).not.toContain("Side answer is ready");
+    expect(imported.content).not.toContain("Investigate the approach");
+    expect(imported.details).toMatchObject({
+      requestId: "req-integration",
+      sessionFile: childFile,
+    });
+
+    // Dedupe: re-running /btw merge finds nothing new (same requestId).
+    await btw(
+      "merge",
+      contextFor(SessionManager.open(parentFile, sessionDir), {
+        hasUI: false,
+      }),
+    );
+    const reopenedParent2 = SessionManager.open(parentFile, sessionDir);
+    const importedResults2 = reopenedParent2
+      .getBranch()
+      .filter(
+        (entry): entry is CustomMessageEntry =>
+          entry.type === "custom_message" &&
+          entry.customType === "split-merge-result",
+      );
+    expect(importedResults2).toHaveLength(1);
+  } finally {
+    for (const [key, value] of [
+      ["HERDR_ENV", previousHerdr.env],
+      ["HERDR_PANE_ID", previousHerdr.pane],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+// Reference the imported buildSessionContext so the import stays used even if
+// future edits change the snapshot path; it documents the public API choice.
+void buildSessionContext;
