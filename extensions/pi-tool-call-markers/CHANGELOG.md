@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Keep grouping within one assistant tool batch, so a later pending batch does not reopen completed groups.
+- Wait for every tool in a batch to settle, including tools beyond failed or expanded siblings.
+- Preserve partial and image-bearing results instead of collapsing them.
+- Treat self-rendered tools as owning their full shell and use only their stable header line in grouped summaries.
+
 ## 0.1.1
 
 - Wait for every call in a contiguous parallel run to settle before grouping successful calls, which prevents completed prefixes and suffixes from repeatedly collapsing around active calls.

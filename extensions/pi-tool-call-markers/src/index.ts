@@ -47,7 +47,10 @@ type ToolExecutionRow = {
   args?: unknown;
   expanded?: boolean;
   isPartial?: boolean;
-  result?: { isError?: boolean };
+  result?: {
+    isError?: boolean;
+    content?: Array<{ type?: unknown }>;
+  };
   contentBox?: ComponentContainer;
   contentText?: TextComponent;
   selfRenderContainer?: ComponentContainer;
@@ -204,14 +207,18 @@ function hideResultImages(row: ToolExecutionRow): void {
 }
 
 function collapseSuccessfulResult(row: ToolExecutionRow): void {
-  if (row.expanded !== false || !row.result || row.result.isError) return;
+  if (
+    row.expanded !== false ||
+    row.isPartial !== false ||
+    !row.result ||
+    row.result.isError ||
+    hasImageResult(row) ||
+    row.getRenderShell?.() === "self"
+  )
+    return;
 
   const collapsed = row.hasRendererDefinition?.()
-    ? removeResultComponent(
-        row.getRenderShell?.() === "self"
-          ? row.selfRenderContainer
-          : row.contentBox,
-      )
+    ? removeResultComponent(row.contentBox)
     : collapseGenericResult(row);
   if (collapsed) hideResultImages(row);
 }
@@ -222,12 +229,25 @@ function isToolExecutionRow(
   return component instanceof ToolExecutionComponent;
 }
 
+function isAssistantMessageRow(component: unknown): boolean {
+  return component instanceof AssistantMessageComponent;
+}
+
+function hasImageResult(row: ToolExecutionRow): boolean {
+  return (
+    row.result?.content?.some((content) => content.type === "image") === true ||
+    (row.imageComponents?.length ?? 0) > 0 ||
+    (row.imageSpacers?.length ?? 0) > 0
+  );
+}
+
 function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
   return (
     row.expanded === false &&
     row.isPartial === false &&
     !!row.result &&
-    !row.result.isError
+    !row.result.isError &&
+    !hasImageResult(row)
   );
 }
 
@@ -235,7 +255,7 @@ function isSettledToolRow(row: ToolExecutionRow): boolean {
   return row.isPartial === false && !!row.result;
 }
 
-function hasUnsettledToolInGroupRun(
+function hasUnsettledToolInBatch(
   children: unknown[],
   index: number,
   renderAt: (index: number) => string[],
@@ -247,9 +267,9 @@ function hasUnsettledToolInGroupRun(
       candidateIndex += direction
     ) {
       const candidate = children[candidateIndex];
+      if (isAssistantMessageRow(candidate)) break;
       if (isToolExecutionRow(candidate)) {
         if (!isSettledToolRow(candidate)) return true;
-        if (!isCollapsibleSuccess(candidate)) break;
         continue;
       }
       if (renderAt(candidateIndex).some(hasVisibleContent)) break;
@@ -340,11 +360,12 @@ function renderedCallSummary(
     component = row.contentBox.children[0] as ComponentLike | undefined;
   }
 
+  const selfRendered = row.getRenderShell?.() === "self";
   if (component && typeof component.render === "function") {
     const visibleLines = component
       .render(Math.max(1, width))
       .filter(hasVisibleContent);
-    const rendered = visibleLines.slice(0, 3);
+    const rendered = visibleLines.slice(0, selfRendered ? 1 : 3);
     const line = rendered[0];
     if (line) {
       const first = trimRenderedLine(line);
@@ -379,6 +400,8 @@ function renderedCallSummary(
       }
     }
   }
+
+  if (selfRendered) return theme.fg("muted", "(details omitted)");
 
   const fallback = compactArgs(row.args);
   return fallback
@@ -577,7 +600,7 @@ function renderContainerWithToolGroups(
       lines.push(...renderAt(index));
       continue;
     }
-    if (hasUnsettledToolInGroupRun(children, index, renderAt)) {
+    if (hasUnsettledToolInBatch(children, index, renderAt)) {
       lines.push(...renderAt(index));
       continue;
     }
@@ -590,6 +613,7 @@ function renderContainerWithToolGroups(
       candidateIndex++
     ) {
       const candidate = children[candidateIndex];
+      if (isAssistantMessageRow(candidate)) break;
       if (isToolExecutionRow(candidate)) {
         if (!isCollapsibleSuccess(candidate)) break;
         group.push(candidate);

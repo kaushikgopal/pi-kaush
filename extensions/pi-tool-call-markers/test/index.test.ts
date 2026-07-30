@@ -68,7 +68,11 @@ class MockToolExecutionComponent extends MockContainer {
   args: { label: string };
   expanded = false;
   isPartial = true;
-  result?: { isError: boolean; output: string };
+  result?: {
+    isError: boolean;
+    output: string;
+    content?: Array<{ type: string }>;
+  };
   contentBox = new MockBox();
   contentText = new MockText("");
   selfRenderContainer = new MockContainer();
@@ -79,12 +83,15 @@ class MockToolExecutionComponent extends MockContainer {
   constructor(
     public toolName: string,
     label: string,
+    private renderShell: "default" | "self" = "default",
   ) {
     super();
     this.toolCallId = `${toolName}-${label}`;
     this.args = { label };
     this.addChild(new MockText(""));
-    this.addChild(this.contentBox);
+    this.addChild(
+      this.renderShell === "self" ? this.selfRenderContainer : this.contentBox,
+    );
     this.updateDisplay();
   }
 
@@ -93,7 +100,7 @@ class MockToolExecutionComponent extends MockContainer {
   }
 
   getRenderShell() {
-    return "default" as const;
+    return this.renderShell;
   }
 
   getTextOutput() {
@@ -101,21 +108,27 @@ class MockToolExecutionComponent extends MockContainer {
   }
 
   updateDisplay() {
-    this.contentBox.clear();
+    const container =
+      this.renderShell === "self" ? this.selfRenderContainer : this.contentBox;
+    container.clear();
     const token = this.toolName === "bash" ? "$" : this.toolName;
     this.callRendererComponent = new MockText(`${token} ${this.args.label}`);
-    this.contentBox.addChild(this.callRendererComponent);
+    container.addChild(this.callRendererComponent);
     if (this.result) {
       const detail =
         this.result.isError && this.expanded
           ? `FULL ${this.result.output}`
           : this.result.output;
-      this.contentBox.addChild(new MockText(detail));
+      container.addChild(new MockText(detail));
     }
   }
 
   updateResult(
-    result: { isError: boolean; output: string },
+    result: {
+      isError: boolean;
+      output: string;
+      content?: Array<{ type: string }>;
+    },
     isPartial = false,
   ) {
     this.result = result;
@@ -188,8 +201,9 @@ function renderPlain(container: MockContainer): string {
 function succeeded(
   toolName: string,
   label: string,
+  renderShell: "default" | "self" = "default",
 ): MockToolExecutionComponent {
-  const row = new MockToolExecutionComponent(toolName, label);
+  const row = new MockToolExecutionComponent(toolName, label, renderShell);
   row.updateResult({ isError: false, output: `result:${label}` });
   return row;
 }
@@ -371,6 +385,100 @@ describe("tool-call-markers grouping", () => {
     expect(output).toContain("• one.ts");
     expect(output).toContain("• three.ts");
     expect(output).toContain("• five.ts");
+  });
+
+  test("keeps settled batches stable when a later batch starts", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("edit", "one.ts"));
+    chat.addChild(succeeded("edit", "two.ts"));
+    chat.addChild(new MockAssistantMessageComponent());
+    const active = new MockToolExecutionComponent("edit", "three.ts");
+    chat.addChild(active);
+
+    const pendingOutput = renderPlain(chat);
+    expect(pendingOutput.match(/⚙️/g)).toHaveLength(2);
+    expect(pendingOutput).toContain("• one.ts");
+    expect(pendingOutput).toContain("• two.ts");
+
+    active.updateResult({ isError: false, output: "result:three.ts" });
+    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(2);
+  });
+
+  test("does not merge settled batches across empty assistant messages", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("read", "one.md"));
+    chat.addChild(succeeded("read", "two.md"));
+    chat.addChild(new MockAssistantMessageComponent());
+    chat.addChild(succeeded("read", "three.md"));
+    chat.addChild(succeeded("read", "four.md"));
+
+    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(2);
+  });
+
+  test("waits for pending siblings beyond failed calls", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("read", "one.md"));
+    chat.addChild(succeeded("read", "two.md"));
+    const failed = new MockToolExecutionComponent("read", "broken.md");
+    failed.updateResult({ isError: true, output: "error detail" });
+    chat.addChild(failed);
+    chat.addChild(new MockToolExecutionComponent("read", "pending.md"));
+
+    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(4);
+  });
+
+  test("keeps partial results visible", () => {
+    const chat = new MockContainer();
+    const partial = new MockToolExecutionComponent("custom", "streaming");
+    partial.updateResult({ isError: false, output: "partial progress" }, true);
+    chat.addChild(partial);
+
+    expect(renderPlain(chat)).toContain("partial progress");
+  });
+
+  test("uses only the header line for self-rendered summaries", () => {
+    const chat = new MockContainer();
+    for (const path of ["one.ts", "two.ts"]) {
+      const row = succeeded("edit", path, "self");
+      row.callRendererComponent = new MockText(
+        `edit ${path}\n@@ diff header\n+large changed line`,
+      );
+      row.selfRenderContainer.children[0] = row.callRendererComponent;
+      chat.addChild(row);
+    }
+
+    const output = renderPlain(chat);
+    expect(output).toContain("• one.ts");
+    expect(output).toContain("• two.ts");
+    expect(output).not.toContain("diff header");
+    expect(output).not.toContain("large changed line");
+  });
+
+  test("preserves singleton self-rendered output", () => {
+    const chat = new MockContainer();
+    const row = succeeded("edit", "one.ts", "self");
+    row.callRendererComponent = new MockText("edit one.ts\n@@ diff header");
+    row.selfRenderContainer.children[0] = row.callRendererComponent;
+    chat.addChild(row);
+
+    expect(renderPlain(chat)).toContain("diff header");
+  });
+
+  test("does not collapse image-bearing results", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("read", "one.md"));
+    const image = new MockToolExecutionComponent("read", "image.png");
+    image.updateResult({
+      isError: false,
+      output: "rendered image",
+      content: [{ type: "image" }],
+    });
+    chat.addChild(image);
+    chat.addChild(succeeded("read", "two.md"));
+
+    const output = renderPlain(chat);
+    expect(output.match(/⚙️/g)).toHaveLength(3);
+    expect(output).toContain("rendered image");
   });
 
   test("keeps failed calls separate and expands their details", () => {

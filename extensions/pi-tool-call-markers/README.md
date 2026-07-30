@@ -10,7 +10,9 @@ When several tool calls of the same type succeed in a row, Pi normally renders e
 - **Bulleted call summaries.** Each call in a group becomes one bullet with a short summary (the tool name is stripped from the bullet since the header already names the tool).
 - **Vertical spacing between tool types.** A blank line separates one tool group from the next.
 - **Hanging indent for wrapped bullets.** When a summary wraps, continuation lines align under the bullet text rather than under the gear.
-- **Parallel runs settle before grouping.** A contiguous run stays ungrouped while any call is active. After every call settles, successful calls group around visible thinking or text and failed-call boundaries.
+- **Tool batches settle before grouping.** A tool batch stays ungrouped while any sibling call is active. Completed batches remain stable when a later assistant turn starts, and successful calls group around failed-call boundaries after the batch settles.
+- **Self-rendered tools keep their shell.** Tools that own their framing keep singleton previews intact. Grouped summaries use only their stable header instead of scraping preview or diff lines.
+- **Partial and image results stay visible.** Streaming progress and image-bearing results are not collapsed into text-only groups.
 - **Errors expand in place.** A failed call keeps its own block and shows its full detail.
 - **Ctrl+O restores full blocks.** Expanding tools (`setToolsExpanded(true)`) brings back Pi's individual full blocks, results and all.
 - **Adjacent thinking blocks combine.** Only directly adjacent `thinking` blocks merge into one; a non-thinking block between them keeps them separate. Malformed thinking content safely falls back to Pi's renderer exactly once, so the display never breaks.
