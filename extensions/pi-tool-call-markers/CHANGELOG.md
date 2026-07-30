@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2
 
 - Keep grouping within one assistant tool batch, so a later pending batch does not reopen completed groups.
 - Wait for every tool in a batch to settle, including tools beyond failed or expanded siblings.
