@@ -47,9 +47,9 @@ describe("resolveNativeCompactionEnvironment", () => {
   test("accepts Gateway authorization headers and uses the effective auth base URL", async () => {
     const resolution = await resolveNativeCompactionEnvironment({
       model: {
-        provider: "instacart-openai",
+        provider: "openai",
         api: "openai-responses",
-        id: "gpt-5.6-luna",
+        id: "gpt-5.4",
         baseUrl: "https://model-config.example/v1",
       },
       modelRegistry: {

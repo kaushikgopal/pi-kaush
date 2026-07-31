@@ -6,9 +6,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const LIVE = process.env.PI_OPENAI_COMPACTION_LIVE === "1";
-const PROVIDER =
-  process.env.PI_OPENAI_COMPACTION_PROVIDER ?? "instacart-openai";
-const MODEL = process.env.PI_OPENAI_COMPACTION_MODEL ?? "gpt-5.6-luna";
+const PROVIDER = process.env.PI_OPENAI_COMPACTION_PROVIDER ?? "openai";
+const MODEL = process.env.PI_OPENAI_COMPACTION_MODEL ?? "gpt-5.4";
 const MODELS_PATH =
   process.env.PI_MODELS_PATH ?? join(homedir(), ".pi", "agent", "models.json");
 

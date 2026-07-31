@@ -6,10 +6,7 @@ import type { Usage } from "@earendil-works/pi-ai";
 
 export const EXTENSION_SETTINGS_KEY = "openaiNativeCompaction";
 export const EXTENSION_SETTINGS_FILE = "settings.json";
-export const DEFAULT_SUPPORTED_PROVIDERS = [
-  "openai",
-  "instacart-openai",
-] as const;
+export const DEFAULT_SUPPORTED_PROVIDERS = ["openai"] as const;
 export const DEFAULT_SUPPORTED_APIS = ["openai-responses"] as const;
 export const NATIVE_COMPACTION_STRATEGY = "openai-native-compact-v1";
 export const NATIVE_COMPACTION_SHIM_SUMMARY =

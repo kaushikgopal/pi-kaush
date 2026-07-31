@@ -7,7 +7,7 @@ This package is based on `unstableneutron/pi-openai-compaction`, descended from 
 ## Scope
 
 - Pi: `@earendil-works/pi-coding-agent >=0.83.0 <0.84.0`
-- Providers: `openai`, `instacart-openai`
+- Provider: `openai`
 - API: `openai-responses`
 - Endpoint: `POST <effective base URL>/responses/compact`
 - Persistence: canonical compact output in append-only Pi compaction details
@@ -49,7 +49,7 @@ Defaults are in `settings.json`:
 ```json
 {
   "enabled": true,
-  "supportedProviders": ["openai", "instacart-openai"],
+  "supportedProviders": ["openai"],
   "supportedApis": ["openai-responses"]
 }
 ```
@@ -60,7 +60,7 @@ Global overrides belong under `openaiNativeCompaction` in `~/.pi/agent/settings.
 {
   "openaiNativeCompaction": {
     "enabled": true,
-    "supportedProviders": ["instacart-openai"],
+    "supportedProviders": ["openai"],
     "supportedApis": ["openai-responses"]
   }
 }

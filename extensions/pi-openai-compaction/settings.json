@@ -1,5 +1,5 @@
 {
   "enabled": true,
-  "supportedProviders": ["openai", "instacart-openai"],
+  "supportedProviders": ["openai"],
   "supportedApis": ["openai-responses"]
 }
