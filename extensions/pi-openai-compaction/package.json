@@ -68,7 +68,7 @@
   "scripts": {
     "test": "bun test ./test/*.bun.ts",
     "test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov ./test/*.bun.ts",
-    "test:pi": "bun test ./test/pi-smoke.bun.ts",
+    "test:pi": "PI_OPENAI_COMPACTION_PI_SMOKE=1 bun test ./test/pi-smoke.bun.ts",
     "typecheck": "tsc --noEmit",
     "package:check": "npm run typecheck && node ./scripts/check-package.mjs && bun test ./test/*.bun.ts"
   },
