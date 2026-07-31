@@ -11,6 +11,8 @@
 
 Extensions publish to npm through GitHub Actions using OIDC Trusted Publishing — no local npm login, token, or publish-time 2FA is needed. Each package has a trusted publisher configured on npmjs.com that accepts publishes from `kaushikgopal/pi-kaush` workflow `publish.yml` in the `npm` environment.
 
+Recommended workflow: push ordinary fixes to `main` normally. When a version is ready for npm users, run `make publish PACKAGE=<extension-name>` instead of manually editing a version, tagging, creating a release, or running `npm publish`. This keeps public npm releases deliberate while GitHub Actions performs the publish.
+
 To release a new version of an extension (only when explicitly asked):
 
 1. Make sure code changes are committed and the working tree is clean.
