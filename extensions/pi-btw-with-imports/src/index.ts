@@ -77,6 +77,8 @@ const SPLIT_MERGE_INTENT_TYPE = "split-merge-intent";
 const SPLIT_MERGE_REQUEST_TYPE = "split-merge-request";
 const SPLIT_MERGE_RESULT_TYPE = "split-merge-result";
 const HERDR_EXEC_TIMEOUT_MS = 15000;
+const HERDR_AGENT_START_RETRY_DELAY_MS = 100;
+const HERDR_AGENT_START_MAX_ATTEMPTS = 30;
 
 const SPLIT_HANDOFF_PROMPT = `Prepare the final handoff from this side split for the main coding-agent session.
 
@@ -228,6 +230,25 @@ function execFailure(result: ExecResult, fallback: string): string | undefined {
   if (result.killed) return result.stderr?.trim() || `${fallback} timed out`;
   if (result.code === 0) return undefined;
   return result.stderr?.trim() || result.stdout?.trim() || fallback;
+}
+
+function isHerdrAgentPaneBusy(result: ExecResult): boolean {
+  for (const output of [result.stderr, result.stdout]) {
+    const message = output?.trim();
+    if (!message) continue;
+    try {
+      const parsed = JSON.parse(message) as { error?: { code?: unknown } };
+      if (parsed.error?.code === "agent_pane_busy") return true;
+    } catch {
+      // Some Herdr transports may not preserve the structured JSON error.
+    }
+    if (message.includes("agent_pane_busy")) return true;
+  }
+  return false;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function extractMessageText(content: unknown): string {
@@ -558,8 +579,9 @@ async function launchHerdrSplit(
     };
   }
 
-  // Step 3: start the pi agent in the new pane. Any failure here happens after
-  // pane creation, so the child may exist.
+  // Step 3: start the pi agent in the new pane. A successful pane split can
+  // return before its shell reaches the interactive prompt required by
+  // `agent start`, so retry only that transient structured failure.
   let startResult: ExecResult;
   try {
     startResult = await pi.exec(
@@ -579,6 +601,33 @@ async function launchHerdrSplit(
       ],
       { timeout: HERDR_EXEC_TIMEOUT_MS },
     );
+    for (
+      let attempt = 1;
+      attempt < HERDR_AGENT_START_MAX_ATTEMPTS &&
+      !startResult.killed &&
+      startResult.code !== 0 &&
+      isHerdrAgentPaneBusy(startResult);
+      attempt++
+    ) {
+      await wait(HERDR_AGENT_START_RETRY_DELAY_MS);
+      startResult = await pi.exec(
+        herdrBin,
+        [
+          "agent",
+          "start",
+          agentName,
+          "--kind",
+          "pi",
+          "--pane",
+          newPaneId,
+          "--timeout",
+          "10000",
+          "--",
+          ...launch.args,
+        ],
+        { timeout: HERDR_EXEC_TIMEOUT_MS },
+      );
+    }
   } catch (error) {
     return {
       ok: false,

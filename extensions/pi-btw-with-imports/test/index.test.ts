@@ -2124,6 +2124,123 @@ describe("split launch", () => {
     });
   });
 
+  test("retries a transient busy Herdr pane until its shell is ready", async () => {
+    const restoreHerdrIdentity = setHerdrIdentity();
+    vi.useFakeTimers();
+    const calls: Array<{ command: string; args: string[] }> = [];
+    let startAttempts = 0;
+    const harness = createSplitHarness(async (command, args) => {
+      calls.push({ command, args });
+      if (args[0] === "pane" && args[1] === "split") {
+        return herdrPaneSplitResponse("split-pane-1");
+      }
+      if (args[0] === "agent" && args[1] === "start") {
+        startAttempts++;
+        if (startAttempts <= 2) {
+          return {
+            code: 1,
+            stdout: "",
+            stderr: JSON.stringify({
+              error: {
+                code: "agent_pane_busy",
+                message: "agent target pane is not an available shell",
+              },
+            }),
+          };
+        }
+        return herdrAgentStartResponse();
+      }
+      return herdrAgentPromptResponse();
+    });
+
+    try {
+      const launch = harness.btw("");
+      await vi.runAllTimersAsync();
+      await launch;
+    } finally {
+      restoreHerdrIdentity();
+    }
+
+    const starts = calls.filter(
+      (call) => call.args[0] === "agent" && call.args[1] === "start",
+    );
+    const prompts = calls.filter(
+      (call) => call.args[0] === "agent" && call.args[1] === "prompt",
+    );
+    expect(starts).toHaveLength(3);
+    expect(starts[1]!.args).toEqual(starts[0]!.args);
+    expect(starts[2]!.args).toEqual(starts[0]!.args);
+    expect(prompts).toEqual([
+      {
+        command: expect.any(String),
+        args: ["agent", "prompt", starts[0]!.args[2], "/btw --launch"],
+      },
+    ]);
+    expect(
+      calls.some((call) => call.args[0] === "pane" && call.args[1] === "close"),
+    ).toBe(false);
+    expect(harness.appendedEntries).toHaveLength(1);
+    expect(harness.notifications).toContainEqual({
+      message: expect.stringMatching(/^Opened split in a herdr right split/),
+      level: "info",
+    });
+  });
+
+  test("bounds busy-pane retries and preserves definite failure cleanup", async () => {
+    const restoreHerdrIdentity = setHerdrIdentity();
+    vi.useFakeTimers();
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const busyResult = {
+      code: 1,
+      stdout: "",
+      stderr: JSON.stringify({
+        error: {
+          code: "agent_pane_busy",
+          message: "agent target pane is not an available shell",
+        },
+      }),
+    };
+    const harness = createSplitHarness(async (command, args) => {
+      calls.push({ command, args });
+      if (args[0] === "pane" && args[1] === "split") {
+        return herdrPaneSplitResponse("split-pane-1");
+      }
+      if (args[0] === "pane" && args[1] === "close") {
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      return busyResult;
+    });
+
+    try {
+      const launch = harness.btw("");
+      await vi.runAllTimersAsync();
+      await launch;
+    } finally {
+      restoreHerdrIdentity();
+    }
+
+    const starts = calls.filter(
+      (call) => call.args[0] === "agent" && call.args[1] === "start",
+    );
+    const prompts = calls.filter(
+      (call) => call.args[0] === "agent" && call.args[1] === "prompt",
+    );
+    const closes = calls.filter(
+      (call) => call.args[0] === "pane" && call.args[1] === "close",
+    );
+    expect(starts).toHaveLength(30);
+    expect(prompts).toHaveLength(0);
+    expect(closes).toEqual([
+      { command: expect.any(String), args: ["pane", "close", "split-pane-1"] },
+    ]);
+    expect(existsSync(splitSessionFile)).toBe(false);
+    expect(harness.appendedEntries).toHaveLength(0);
+    expect(harness.notifications).toContainEqual({
+      message: expect.stringContaining("agent_pane_busy"),
+      level: "error",
+    });
+  });
+
   test("propagates the matching local -e extension path to the child once", async () => {
     const restoreHerdrIdentity = setHerdrIdentity();
     const extensionPath = join(
