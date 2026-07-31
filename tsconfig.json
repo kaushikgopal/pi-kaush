@@ -15,5 +15,6 @@
     "target": "ES2022",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["extensions/**/*.ts"]
+  "include": ["extensions/**/*.ts"],
+  "exclude": ["extensions/pi-openai-compaction/**"]
 }
