@@ -6,8 +6,9 @@ import path from "node:path";
 describe("pi smoke", () => {
   test("loads from the local package path", () => {
     const packageDir = path.resolve(import.meta.dir, "..");
+    const pi = path.join(packageDir, "node_modules", ".bin", "pi");
     const result = spawnSync(
-      "pi",
+      pi,
       [
         "--no-session",
         "--offline",
