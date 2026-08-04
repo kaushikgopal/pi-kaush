@@ -9,7 +9,6 @@ import {
   sliceByColumn,
   truncateToWidth,
   visibleWidth,
-  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
 const BADGE = " ⚙️";
@@ -17,7 +16,6 @@ const BADGE_WIDTH = visibleWidth(BADGE);
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
-const THINKING_GROUPING_PATCHED = Symbol.for("kg.pi.thinkingGrouping.v1");
 const ANSI_RE = /\u001b\[[0-9;]*m/g;
 const BOLD_ON_RE = /\u001b\[1m/g;
 
@@ -49,7 +47,8 @@ type ToolExecutionRow = {
   isPartial?: boolean;
   result?: {
     isError?: boolean;
-    content?: Array<{ type?: unknown }>;
+    content?: Array<{ type?: unknown; text?: unknown }>;
+    details?: Record<string, unknown>;
   };
   contentBox?: ComponentContainer;
   contentText?: TextComponent;
@@ -85,25 +84,6 @@ type GroupRenderCache = {
   memberVersions: number[];
   themeSample: string;
   width: number;
-};
-
-type AssistantMessageLike = {
-  content?: unknown[];
-};
-
-type AssistantMessageRow = {
-  updateContent(message: AssistantMessageLike): void;
-};
-
-type ThinkingGroupingPatchState = {
-  originalUpdateContent: (message: AssistantMessageLike) => void;
-  patchedUpdateContent?: (message: AssistantMessageLike) => void;
-};
-
-type ThinkingContentLike = {
-  type: "thinking";
-  thinking: string;
-  [key: string]: unknown;
 };
 
 function stripAnsi(text: string): string {
@@ -206,7 +186,10 @@ function hideResultImages(row: ToolExecutionRow): void {
   row.imageSpacers = [];
 }
 
-function collapseSuccessfulResult(row: ToolExecutionRow): void {
+function collapseSuccessfulResult(
+  row: ToolExecutionRow,
+  theme?: ThemeLike,
+): void {
   if (
     row.expanded !== false ||
     row.isPartial !== false ||
@@ -220,7 +203,10 @@ function collapseSuccessfulResult(row: ToolExecutionRow): void {
   const collapsed = row.hasRendererDefinition?.()
     ? removeResultComponent(row.contentBox)
     : collapseGenericResult(row);
-  if (collapsed) hideResultImages(row);
+  if (collapsed) {
+    hideResultImages(row);
+    decorateSuccessfulCall(row, theme);
+  }
 }
 
 function isToolExecutionRow(
@@ -284,39 +270,6 @@ function renderComponent(component: unknown, width: number): string[] {
   return (component as ComponentLike).render(width);
 }
 
-function isThinkingContent(content: unknown): content is ThinkingContentLike {
-  return (
-    !!content &&
-    typeof content === "object" &&
-    (content as { type?: unknown }).type === "thinking" &&
-    typeof (content as { thinking?: unknown }).thinking === "string"
-  );
-}
-
-function combineAdjacentThinking(
-  message: AssistantMessageLike,
-): AssistantMessageLike {
-  if (!Array.isArray(message.content)) return message;
-
-  // Merge a display-only copy; the original provider blocks and their signatures stay untouched.
-  let changed = false;
-  const content: unknown[] = [];
-  for (const block of message.content) {
-    const previous = content.at(-1);
-    if (isThinkingContent(previous) && isThinkingContent(block)) {
-      content[content.length - 1] = {
-        ...previous,
-        thinking: `${previous.thinking.trim()}\n\n${block.thinking.trim()}`,
-      };
-      changed = true;
-      continue;
-    }
-    content.push(block);
-  }
-
-  return changed ? { ...message, content } : message;
-}
-
 function compactArgs(args: unknown): string {
   if (args === undefined || args === null) return "";
   try {
@@ -325,6 +278,169 @@ function compactArgs(args: unknown): string {
   } catch {
     return String(args);
   }
+}
+
+function resultText(row: ToolExecutionRow): string {
+  const contentText = row.result?.content?.find(
+    (content) => content.type === "text" && typeof content.text === "string",
+  )?.text;
+  if (typeof contentText === "string") return contentText;
+  return row.getTextOutput?.() ?? "";
+}
+
+function textLineCount(text: string): number {
+  if (!text) return 0;
+  const lines = text.split("\n");
+  return text.endsWith("\n") ? lines.length - 1 : lines.length;
+}
+
+function resultCount(row: ToolExecutionRow, text: string): number {
+  const totalMatched = row.result?.details?.totalMatched;
+  if (typeof totalMatched === "number" && Number.isFinite(totalMatched))
+    return Math.max(0, totalMatched);
+
+  const trimmed = text.trim();
+  if (
+    !trimmed ||
+    /^(?:No matches found|No files found|\(empty directory\))/i.test(trimmed)
+  )
+    return 0;
+
+  if (row.toolName === "grep" || row.toolName === "ffgrep") {
+    const lines = trimmed.split("\n");
+    const matches = lines.filter(
+      (line) => /^.+:\d+:/.test(line) || /^\s+\d+:/.test(line),
+    ).length;
+    if (matches > 0) return matches;
+  }
+
+  return trimmed
+    .split("\n")
+    .filter((line) => line.trim() && !/^\s*\[.*\]\s*$/.test(line)).length;
+}
+
+function readLineCount(row: ToolExecutionRow, text: string): number {
+  const outputLines = (
+    row.result?.details?.truncation as { outputLines?: unknown } | undefined
+  )?.outputLines;
+  if (typeof outputLines === "number" && Number.isFinite(outputLines))
+    return Math.max(0, outputLines);
+
+  const content = text.replace(
+    /\n\n\[[^\n]*(?:more lines|showing lines)[^\n]*\]\s*$/i,
+    "",
+  );
+  return textLineCount(content);
+}
+
+function diffCounts(diff: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) added++;
+    if (line.startsWith("-") && !line.startsWith("---")) removed++;
+  }
+  return { added, removed };
+}
+
+function outcomeSummary(row: ToolExecutionRow): string | undefined {
+  if (!isCollapsibleSuccess(row)) return undefined;
+
+  const text = resultText(row);
+  switch (row.toolName) {
+    case "bash":
+      return "done";
+    case "read": {
+      const lines = readLineCount(row, text);
+      return `${lines} ${lines === 1 ? "line" : "lines"}`;
+    }
+    case "write": {
+      const content = (row.args as { content?: unknown } | undefined)?.content;
+      if (typeof content !== "string") return "written";
+      const lines = textLineCount(content);
+      return `${lines} ${lines === 1 ? "line" : "lines"}`;
+    }
+    case "edit": {
+      const diff = row.result?.details?.diff;
+      if (typeof diff !== "string") return "applied";
+      const { added, removed } = diffCounts(diff);
+      return `+${added}/-${removed}`;
+    }
+    case "grep":
+    case "ffgrep":
+    case "find":
+    case "fffind":
+    case "ls": {
+      const results = resultCount(row, text);
+      return `${results} ${results === 1 ? "result" : "results"}`;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function renderedOutcome(
+  row: ToolExecutionRow,
+  theme: ThemeLike,
+): string | undefined {
+  const summary = outcomeSummary(row);
+  if (!summary) return undefined;
+  return `${theme.fg("muted", "→")} ${theme.fg("success", summary)}`;
+}
+
+function truncatePlain(text: string, width: number, suffix = "…"): string {
+  const max = Math.max(0, width);
+  const plain = stripAnsi(text);
+  if (visibleWidth(plain) <= max) return plain;
+
+  const suffixWidth = visibleWidth(suffix);
+  if (suffixWidth >= max) return sliceByColumn(suffix, 0, max, true);
+  return `${sliceByColumn(plain, 0, max - suffixWidth, true)}${suffix}`;
+}
+
+function fitSummary(summary: string, width: number): string {
+  const max = Math.max(1, width);
+  return visibleWidth(summary) <= max ? summary : truncatePlain(summary, max);
+}
+
+function fitSummaryTail(head: string, tail: string, width: number): string {
+  const max = Math.max(1, width);
+  const summary = `${head.trimEnd()} ${tail}`;
+  if (visibleWidth(summary) <= max) return summary;
+
+  const tailWidth = visibleWidth(tail);
+  if (tailWidth >= max) return truncatePlain(tail, max);
+  return `${truncatePlain(head, max - tailWidth - 1)} ${tail}`;
+}
+
+function decorateSuccessfulCall(
+  row: ToolExecutionRow,
+  theme?: ThemeLike,
+): void {
+  if (!theme || !Array.isArray(row.contentBox?.children)) return;
+  const original = row.contentBox.children[0] as ComponentLike | undefined;
+  const outcome = renderedOutcome(row, theme);
+  if (!original || typeof original.render !== "function" || !outcome) return;
+
+  row.contentBox.children[0] = {
+    render(width: number): string[] {
+      const lines = original.render(width);
+      const lineIndex = lines.findIndex(hasVisibleContent);
+      if (lineIndex === -1) return lines;
+      const line = lines[lineIndex];
+      if (line === undefined) return lines;
+      const next = [...lines];
+      next[lineIndex] = fitSummaryTail(
+        trimRenderedLine(line),
+        outcome,
+        Math.max(1, width - BADGE_WIDTH),
+      );
+      return next;
+    },
+    invalidate() {
+      original.invalidate();
+    },
+  };
 }
 
 function removeTrailingExpandHint(text: string): string {
@@ -409,20 +525,22 @@ function renderedCallSummary(
     : theme.fg("muted", "(no arguments)");
 }
 
-function wrappedBulletLines(
+function compactBulletLine(
   summary: string,
+  outcome: string | undefined,
   width: number,
   theme: ThemeLike,
-): string[] {
+): string {
   const prefix = `  ${theme.fg("muted", "•")} `;
   const indent = visibleWidth(prefix);
-  if (width <= indent) return [truncateToWidth(prefix, width, "", false)];
-
-  const wrapped = wrapTextWithAnsi(summary, width - indent);
-  return wrapped.map((line, index) => {
-    const linePrefix = index === 0 ? prefix : " ".repeat(indent);
-    return truncateToWidth(linePrefix + line, width, "", false);
-  });
+  if (width <= indent) return truncateToWidth(prefix, width, "", false);
+  const available = width - indent;
+  return (
+    prefix +
+    (outcome
+      ? fitSummaryTail(summary, outcome, available)
+      : fitSummary(summary, available))
+  );
 }
 
 function groupedCallComponent(
@@ -445,8 +563,9 @@ function groupedCallComponent(
           lines.push(truncateToWidth(heading, width, "", false));
           previousToolName = row.toolName;
         }
-        const summary = renderedCallSummary(row, Math.max(1, width - 4), theme);
-        lines.push(...wrappedBulletLines(summary, width, theme));
+        const call = renderedCallSummary(row, Math.max(1, width - 4), theme);
+        const outcome = renderedOutcome(row, theme);
+        lines.push(compactBulletLine(call, outcome, width, theme));
       }
       return lines;
     },
@@ -613,7 +732,10 @@ function renderContainerWithToolGroups(
       candidateIndex++
     ) {
       const candidate = children[candidateIndex];
-      if (isAssistantMessageRow(candidate)) break;
+      if (isAssistantMessageRow(candidate)) {
+        if (renderAt(candidateIndex).some(hasVisibleContent)) break;
+        continue;
+      }
       if (isToolExecutionRow(candidate)) {
         if (!isCollapsibleSuccess(candidate)) break;
         group.push(candidate);
@@ -636,69 +758,6 @@ function renderContainerWithToolGroups(
 }
 
 // TODO: Replace prototype patching with a public Pi tool/transcript rendering API when available.
-function installThinkingGroupingPatch():
-  | ThinkingGroupingPatchState
-  | undefined {
-  try {
-    const proto =
-      AssistantMessageComponent?.prototype as unknown as AssistantMessageRow & {
-        [THINKING_GROUPING_PATCHED]?: ThinkingGroupingPatchState;
-        updateContent?: (message: AssistantMessageLike) => void;
-      };
-    if (!proto || typeof proto.updateContent !== "function") return undefined;
-
-    const existing = proto[THINKING_GROUPING_PATCHED];
-    if (existing) return existing;
-
-    const state: ThinkingGroupingPatchState = {
-      originalUpdateContent: proto.updateContent,
-    };
-    const patchedUpdateContent = function updateContentWithCombinedThinking(
-      this: AssistantMessageRow,
-      message: AssistantMessageLike,
-    ): void {
-      // Combine adjacent thinking blocks for display, but fall back to the original
-      // message if combining throws. Either way, invoke Pi's renderer exactly once.
-      let combined = message;
-      try {
-        combined = combineAdjacentThinking(message);
-      } catch {
-        // Thinking grouping is cosmetic; preserve the original message intact.
-      }
-      state.originalUpdateContent.call(this, combined);
-    };
-
-    state.patchedUpdateContent = patchedUpdateContent;
-    proto.updateContent = patchedUpdateContent;
-    Object.defineProperty(proto, THINKING_GROUPING_PATCHED, {
-      configurable: true,
-      value: state,
-    });
-    return state;
-  } catch {
-    // Thinking grouping is cosmetic; preserve Pi's renderer if its internals change.
-    return undefined;
-  }
-}
-
-function uninstallThinkingGroupingPatch(
-  state: ThinkingGroupingPatchState | undefined,
-): void {
-  if (!state) return;
-  const proto =
-    AssistantMessageComponent?.prototype as unknown as AssistantMessageRow & {
-      [THINKING_GROUPING_PATCHED]?: ThinkingGroupingPatchState;
-      updateContent?: (message: AssistantMessageLike) => void;
-    };
-  if (
-    proto[THINKING_GROUPING_PATCHED] !== state ||
-    proto.updateContent !== state.patchedUpdateContent
-  )
-    return;
-  proto.updateContent = state.originalUpdateContent;
-  delete proto[THINKING_GROUPING_PATCHED];
-}
-
 function installGroupingPatch(
   presentation: PresentationPatchState,
 ): GroupingPatchState | undefined {
@@ -800,11 +859,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       state.groupCache.delete(this);
       state.originalUpdateDisplay.call(this);
       try {
-        if (this.result?.isError && this.expanded === false) {
-          this.expanded = true;
-          state.originalUpdateDisplay.call(this);
-        }
-        collapseSuccessfulResult(this);
+        collapseSuccessfulResult(this, state.theme);
       } catch {
         // Presentation is cosmetic; preserve Pi's renderer if its internals change.
       }
@@ -867,7 +922,6 @@ function uninstallPresentationPatch(
 export default function (pi: ExtensionAPI) {
   const patch = installPresentationPatch();
   const grouping = patch ? installGroupingPatch(patch) : undefined;
-  const thinkingGrouping = installThinkingGroupingPatch();
 
   pi.on("session_start", (_event, ctx) => {
     if (patch) patch.theme = ctx.ui.theme;
@@ -875,7 +929,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", () => {
-    uninstallThinkingGroupingPatch(thinkingGrouping);
     uninstallGroupingPatch(grouping);
     uninstallPresentationPatch(patch);
   });

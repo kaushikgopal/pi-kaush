@@ -16,6 +16,7 @@ const expected = [
   "README.md",
   "package.json",
   "src/index.ts",
+  "src/thinking-block-merger.ts",
 ].sort();
 
 if (JSON.stringify(files) !== JSON.stringify(expected)) {

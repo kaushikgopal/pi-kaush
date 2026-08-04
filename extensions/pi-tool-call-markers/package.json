@@ -1,7 +1,7 @@
 {
   "name": "@pi-kaush/pi-tool-call-markers",
   "version": "0.1.2",
-  "description": "Collapse adjacent successful tool calls into one compact, gear-headed block per tool type in Pi's transcript.",
+  "description": "Compact and group Pi tool calls, with a bundled extension for adjacent thinking blocks.",
   "license": "MIT",
   "author": "Kaushik Gopal",
   "type": "module",
@@ -31,7 +31,8 @@
   ],
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./src/index.ts",
+      "./src/thinking-block-merger.ts"
     ]
   },
   "peerDependencies": {

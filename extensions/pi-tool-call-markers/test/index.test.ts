@@ -72,6 +72,7 @@ class MockToolExecutionComponent extends MockContainer {
     isError: boolean;
     output: string;
     content?: Array<{ type: string }>;
+    details?: Record<string, unknown>;
   };
   contentBox = new MockBox();
   contentText = new MockText("");
@@ -128,6 +129,7 @@ class MockToolExecutionComponent extends MockContainer {
       isError: boolean;
       output: string;
       content?: Array<{ type: string }>;
+      details?: Record<string, unknown>;
     },
     isPartial = false,
   ) {
@@ -247,6 +249,64 @@ describe("tool-call-markers grouping", () => {
     expect(output).not.toContain("result:");
   });
 
+  test("adds compact outcomes to successful singleton rows", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("bash", "npm test"));
+    const boundary = new MockAssistantMessageComponent();
+    boundary.addChild(new MockText("Next check."));
+    chat.addChild(boundary);
+    chat.addChild(succeeded("read", "notes.md"));
+
+    const output = renderPlain(chat);
+    expect(output).toContain("⚙️ $ npm test → done");
+    expect(output).toContain("⚙️ read notes.md → 1 line");
+    expect(output).not.toContain("result:");
+  });
+
+  test("does not invent outcomes for unknown tools", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("custom", "opaque"));
+
+    expect(renderPlain(chat)).toContain("⚙️ custom opaque");
+    expect(renderPlain(chat)).not.toContain("→");
+  });
+
+  test("uses structured search counts and handles empty results", () => {
+    const chat = new MockContainer();
+    const matches = new MockToolExecutionComponent("ffgrep", "needle");
+    matches.updateResult({
+      isError: false,
+      output: "src/a.ts\n  1: first\n  2: second\n[page notice]",
+      details: { totalMatched: 7 },
+    });
+    const empty = new MockToolExecutionComponent("fffind", "missing");
+    empty.updateResult({
+      isError: false,
+      output: "No files found matching pattern",
+    });
+    chat.addChild(matches);
+    const boundary = new MockAssistantMessageComponent();
+    boundary.addChild(new MockText("Next search."));
+    chat.addChild(boundary);
+    chat.addChild(empty);
+
+    const output = renderPlain(chat);
+    expect(output).toContain("ffgrep needle → 7 results");
+    expect(output).toContain("fffind missing → 0 results");
+  });
+
+  test("does not count read continuation notices as file lines", () => {
+    const chat = new MockContainer();
+    const read = new MockToolExecutionComponent("read", "notes.md");
+    read.updateResult({
+      isError: false,
+      output: "only line\n\n[99 more lines in file. Use offset=2 to continue.]",
+    });
+    chat.addChild(read);
+
+    expect(renderPlain(chat)).toContain("notes.md → 1 line");
+  });
+
   test("reuses the grouped render while the calls are unchanged", () => {
     const chat = new MockContainer();
     const first = succeeded("read", "one.md");
@@ -295,26 +355,18 @@ describe("tool-call-markers grouping", () => {
     expect(output).toContain("• direct-two · detail-two · extra-two · …");
   });
 
-  test("uses a hanging indent for wrapped bullet summaries", () => {
+  test("keeps grouped bullets to one line and preserves result tails", () => {
     const chat = new MockContainer();
-    for (const label of ["one", "two"]) {
-      const row = succeeded("custom", label);
-      row.callRendererComponent = new MockText(
-        `custom first-${label}\nsecond-${label}\nthird-${label}`,
-      );
-      row.contentBox.children[0] = row.callRendererComponent;
-      chat.addChild(row);
-    }
+    chat.addChild(succeeded("bash", "a-command-with-a-very-long-target"));
+    chat.addChild(succeeded("bash", "another-command-with-a-long-target"));
 
     const lines = chat
       .render(24)
       .map(stripAnsi)
       .filter((line) => line.trim());
-    const bulletIndex = lines.findIndex((line) => line.includes("•"));
-    const textColumn = lines[bulletIndex]!.indexOf("first-one");
-    expect(textColumn).toBeGreaterThan(0);
-    expect(lines[bulletIndex + 1]?.slice(0, textColumn).trim()).toBe("");
-    expect(lines[bulletIndex + 1]?.trimStart()).not.toMatch(/^•/);
+    const bullets = lines.filter((line) => line.includes("•"));
+    expect(bullets).toHaveLength(2);
+    expect(bullets.every((line) => line.endsWith("→ done"))).toBe(true);
     expect(lines.every((line) => line.length <= 24)).toBe(true);
   });
 
@@ -330,7 +382,7 @@ describe("tool-call-markers grouping", () => {
     expect(output.match(/⚙️/g)).toHaveLength(2);
     expect(output).toContain("⚙️ read");
     expect(output).toMatch(
-      /• one\.md\n\s*• two\.md\n\s*⚙️ write\n\s*• one\.md\n\s*• two\.md/,
+      /• one\.md → 1 line\n\s*• two\.md → 1 line\n\s*⚙️ write\n\s*• one\.md → written\n\s*• two\.md → written/,
     );
     const writeHeading = renderedLines.findIndex((line) =>
       line.includes("⚙️ write"),
@@ -348,7 +400,7 @@ describe("tool-call-markers grouping", () => {
     expect(output.match(/⚙️/g)).toHaveLength(3);
     expect(output).toContain("⚙️ $");
     expect(output).toMatch(
-      /• first\n\s*⚙️ read\n\s*• middle\.md\n\s*⚙️ \$\n\s*• last/,
+      /• first → done\n\s*⚙️ read\n\s*• middle\.md → 1 line\n\s*⚙️ \$\n\s*• last → done/,
     );
   });
 
@@ -387,7 +439,7 @@ describe("tool-call-markers grouping", () => {
     expect(output).toContain("• five.ts");
   });
 
-  test("keeps settled batches stable when a later batch starts", () => {
+  test("keeps settled batches stable while a later batch runs, then merges", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("edit", "one.ts"));
     chat.addChild(succeeded("edit", "two.ts"));
@@ -401,10 +453,14 @@ describe("tool-call-markers grouping", () => {
     expect(pendingOutput).toContain("• two.ts");
 
     active.updateResult({ isError: false, output: "result:three.ts" });
-    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(2);
+    const settledOutput = renderPlain(chat);
+    expect(settledOutput.match(/⚙️/g)).toHaveLength(1);
+    expect(settledOutput).toContain("• one.ts");
+    expect(settledOutput).toContain("• two.ts");
+    expect(settledOutput).toContain("• three.ts");
   });
 
-  test("does not merge settled batches across empty assistant messages", () => {
+  test("merges settled batches across empty assistant messages", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("read", "one.md"));
     chat.addChild(succeeded("read", "two.md"));
@@ -412,7 +468,23 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("read", "three.md"));
     chat.addChild(succeeded("read", "four.md"));
 
-    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(2);
+    const output = renderPlain(chat);
+    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output).toContain("• one.md");
+    expect(output).toContain("• four.md");
+  });
+
+  test("keeps visible assistant prose as a grouping boundary", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("read", "one.md"));
+    const assistant = new MockAssistantMessageComponent();
+    assistant.addChild(new MockText("I need one more file."));
+    chat.addChild(assistant);
+    chat.addChild(succeeded("read", "two.md"));
+
+    const output = renderPlain(chat);
+    expect(output.match(/⚙️/g)).toHaveLength(2);
+    expect(output).toContain("I need one more file.");
   });
 
   test("waits for pending siblings beyond failed calls", () => {
@@ -444,12 +516,14 @@ describe("tool-call-markers grouping", () => {
         `edit ${path}\n@@ diff header\n+large changed line`,
       );
       row.selfRenderContainer.children[0] = row.callRendererComponent;
+      row.result!.details = { diff: "+new\n-old" };
       chat.addChild(row);
     }
 
     const output = renderPlain(chat);
     expect(output).toContain("• one.ts");
     expect(output).toContain("• two.ts");
+    expect(output.match(/→ \+1\/-1/g)).toHaveLength(2);
     expect(output).not.toContain("diff header");
     expect(output).not.toContain("large changed line");
   });
@@ -481,7 +555,7 @@ describe("tool-call-markers grouping", () => {
     expect(output).toContain("rendered image");
   });
 
-  test("keeps failed calls separate and expands their details", () => {
+  test("keeps failed calls separate and collapsed until expanded", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("read", "one.md"));
     const failed = new MockToolExecutionComponent("read", "broken.md");
@@ -490,8 +564,12 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output.match(/⚙️/g)).toHaveLength(2);
-    expect(output).toContain("FULL error detail");
-    expect(failed.expanded).toBe(true);
+    expect(output).toContain("error detail");
+    expect(output).not.toContain("FULL error detail");
+    expect(failed.expanded).toBe(false);
+
+    failed.setExpanded(true);
+    expect(renderPlain(chat)).toContain("FULL error detail");
   });
 
   test("uses visible content as a group boundary", () => {
@@ -526,68 +604,5 @@ describe("tool-call-markers grouping", () => {
     expect(output.match(/⚙️/g)).toHaveLength(2);
     expect(output).toContain("result:one.md");
     expect(output).toContain("result:two.md");
-  });
-});
-
-describe("tool-call-markers thinking grouping", () => {
-  test("combines only adjacent thinking blocks", () => {
-    const assistant = new MockAssistantMessageComponent();
-    assistant.updateContent({
-      content: [
-        { type: "thinking", thinking: "first" },
-        { type: "thinking", thinking: "second" },
-        { type: "toolCall", name: "read" },
-        { type: "thinking", thinking: "third" },
-        { type: "thinking", thinking: "fourth" },
-        { type: "text", text: "answer" },
-        { type: "thinking", thinking: "fifth" },
-      ],
-    });
-
-    expect(assistant.lastMessage?.content).toEqual([
-      { type: "thinking", thinking: "first\n\nsecond" },
-      { type: "toolCall", name: "read" },
-      { type: "thinking", thinking: "third\n\nfourth" },
-      { type: "text", text: "answer" },
-      { type: "thinking", thinking: "fifth" },
-    ]);
-  });
-
-  test("falls back to the original message when combineAdjacentThinking throws", () => {
-    // Uninstall the existing patch so the next install wraps our counting renderer.
-    for (const handler of shutdownHandlers.splice(0)) handler();
-
-    let originalCalls = 0;
-    const originalUpdateContent =
-      MockAssistantMessageComponent.prototype.updateContent;
-    MockAssistantMessageComponent.prototype.updateContent =
-      function updateContentCounting(
-        this: MockAssistantMessageComponent,
-        message: { content: unknown[] },
-      ) {
-        originalCalls++;
-        this.lastMessage = message;
-      };
-
-    install();
-
-    try {
-      const assistant = new MockAssistantMessageComponent();
-      const malformed = {
-        // A content getter that breaks combineAdjacentThinking by throwing.
-        get content() {
-          throw new Error("combine failure");
-        },
-      };
-
-      // Must not throw; the original renderer should run exactly once with the raw message.
-      assistant.updateContent(malformed as never);
-      expect(originalCalls).toBe(1);
-      expect(assistant.lastMessage).toBe(malformed);
-    } finally {
-      for (const handler of shutdownHandlers.splice(0)) handler();
-      MockAssistantMessageComponent.prototype.updateContent =
-        originalUpdateContent;
-    }
   });
 });

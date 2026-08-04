@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Keep failed calls collapsed by default while retaining their native error background and Ctrl+O expansion.
+- Add compact result tails for common successful tools in singleton and grouped summaries.
+- Keep grouped bullets to one line and preserve the useful result tail on narrow terminals.
+- Merge settled calls across assistant turns when no visible prose separates them, without reopening earlier groups while a later batch is active.
+- Move adjacent thinking-block merging to a separate extension entrypoint bundled in this package.
+
 ## 0.1.2
 
 - Keep grouping within one assistant tool batch, so a later pending batch does not reopen completed groups.
