@@ -55,17 +55,15 @@ interface CollapsedTextComponent extends Component {
   getExpandedText?: () => string;
 }
 
-interface ComponentParent {
+interface ResourcePanel extends Component {
   children: Component[];
-  removeChild?: (component: Component) => void;
+  clear: () => void;
+  addChild: (component: Component) => void;
 }
-
-interface ResourcePanel extends Component, ComponentParent {}
 
 interface ResourceBridge {
   panel: ResourcePanel;
-  parent: ComponentParent;
-  originalIndex: number;
+  originalChildren: Component[];
 }
 
 interface ResourcePanelSnapshot {
@@ -78,11 +76,16 @@ function stripAnsi(text: string): string {
   return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
 }
 
-function isComponentParent(
+function isResourcePanel(
   component: Component | undefined,
-): component is Component & ComponentParent {
+): component is ResourcePanel {
   if (!component || typeof component !== "object") return false;
-  return Array.isArray((component as Partial<Container>).children);
+  const candidate = component as Partial<Container>;
+  return (
+    Array.isArray(candidate.children) &&
+    typeof candidate.clear === "function" &&
+    typeof candidate.addChild === "function"
+  );
 }
 
 function getSectionHeading(text: string): string | undefined {
@@ -447,49 +450,43 @@ export function parseWelcomeResources(
 }
 
 interface ResourcePanelMatch {
-  bridge: ResourceBridge;
+  panel: ResourcePanel;
   snapshot: ResourcePanelSnapshot;
 }
 
-function findResourcePanel(
-  root: ComponentParent,
+function inspectResourceCandidate(
+  candidate: Component | undefined,
 ): ResourcePanelMatch | undefined {
-  const visited = new Set<ComponentParent>();
-
-  const visit = (parent: ComponentParent): ResourcePanelMatch | undefined => {
-    if (visited.has(parent)) return undefined;
-    visited.add(parent);
-
-    for (const [index, child] of parent.children.entries()) {
-      if (!isComponentParent(child)) continue;
-
-      const snapshot = inspectResourcePanel(child);
-      if (snapshot.resourceText) {
-        return {
-          bridge: { panel: child, parent, originalIndex: index },
-          snapshot,
-        };
-      }
-
-      const nested = visit(child);
-      if (nested) return nested;
-    }
-    return undefined;
-  };
-
-  return visit(root);
+  if (!isResourcePanel(candidate)) return undefined;
+  const snapshot = inspectResourcePanel(candidate);
+  return snapshot.resourceText ? { panel: candidate, snapshot } : undefined;
 }
 
-function detachResourcePanel(bridge: ResourceBridge): void {
-  if (!bridge.parent.children.includes(bridge.panel)) return;
-  if (bridge.parent.removeChild) bridge.parent.removeChild(bridge.panel);
-  else bridge.parent.children.splice(bridge.originalIndex, 1);
+function findResourcePanel(tui: TUI): ResourcePanelMatch | undefined {
+  // Pi 0.84 keeps one document container in both renderers. Fullscreen wraps
+  // that stable document in a ScrollView, but the mounted TUI children remain
+  // [document, dock...]. Keep this bridge surgical: never walk or render the
+  // transcript, editor, layout stacks, or scroll views.
+  const document = tui.children[0];
+  if (isResourcePanel(document)) {
+    const nested = inspectResourceCandidate(document.children[1]);
+    if (nested) return nested;
+  }
+
+  // Pi 0.80 mounted the startup-resource panel directly after the header.
+  return inspectResourceCandidate(tui.children[1]);
+}
+
+function hideResourcePanel(panel: ResourcePanel): ResourceBridge {
+  const bridge = { panel, originalChildren: [...panel.children] };
+  panel.clear();
+  return bridge;
 }
 
 function restoreResourcePanel(bridge: ResourceBridge | undefined): void {
-  if (!bridge || bridge.parent.children.includes(bridge.panel)) return;
-  const index = Math.min(bridge.originalIndex, bridge.parent.children.length);
-  bridge.parent.children.splice(index, 0, bridge.panel);
+  if (!bridge) return;
+  bridge.panel.clear();
+  for (const child of bridge.originalChildren) bridge.panel.addChild(child);
 }
 
 function centerBlockLine(
@@ -963,8 +960,7 @@ class WelcomeHeader implements Component {
       candidateResources?.extensions.some(isWelcomeScreenExtension),
     );
     if (resourcePanelIsComplete) {
-      this.bridge = match?.bridge;
-      if (this.bridge) detachResourcePanel(this.bridge);
+      this.bridge = match ? hideResourcePanel(match.panel) : undefined;
       this.resources = candidateResources;
       this.clearRenderCache();
       this.resourceReadyTimer = undefined;

@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Support Pi 0.84's regular and fullscreen TUI layouts.
-- Discover the native startup-resource panel recursively instead of assuming a fixed root child index.
-- Leave Pi's native panel in place until a complete replacement snapshot is ready.
+- Support Pi 0.84's regular and fullscreen TUI layouts without recursively traversing Pi's component tree.
+- Preserve fullscreen scrolling by keeping Pi's resource-panel container mounted in the scroll document.
+- Leave Pi's native panel untouched until a complete replacement snapshot is ready.
 
 ## 0.1.4
 

@@ -32,9 +32,9 @@ Use `--no-extensions` before `-e` to test it without your other configured exten
 
 ## Compatibility
 
-The extension installs its header through Pi's public `ctx.ui.setHeader()` API. Pi 0.84 does not expose structured startup-resource data, so the extension also uses a narrowly guarded bridge to inspect and temporarily relocate Pi's native startup-resource panel.
+The extension installs its header through Pi's public `ctx.ui.setHeader()` API. Pi 0.84 does not expose structured startup-resource data, so the extension also uses a narrowly guarded bridge to inspect Pi's native startup-resource panel.
 
-The bridge searches nested containers by resource-section content, so it works with both regular and fullscreen TUI layouts without assuming a fixed root child index. It does not move the panel until a complete snapshot is available. If Pi changes the panel, exposes an unknown section, or produces incomplete resource data, the extension leaves Pi's native panel untouched rather than hiding information. The current release is tested against Pi 0.80.6 and 0.84.0.
+The bridge checks only Pi's documented-era startup positions: the legacy root panel and Pi 0.84's resource panel inside the stable document container. It never recursively traverses or renders the transcript, editor, layout stacks, or fullscreen scroll view. Once a complete snapshot is available, it clears the resource panel through the public `Container` API while leaving that container mounted in Pi's scroll document. If Pi changes the panel, exposes an unknown section, or produces incomplete resource data, the extension leaves Pi's native panel untouched rather than hiding information. The current release is tested against Pi 0.80.6 and 0.84.0.
 
 Like any custom-header extension, it shares Pi's single header slot. If another extension also calls `setHeader()`, the last installed header wins; neither extension needs to replace the editor or intercept terminal input.
 
@@ -46,7 +46,7 @@ The package contains readable TypeScript and has:
 - no network, subprocess, clipboard, prompt, tool, model, or telemetry access;
 - no background work after the startup resource snapshot completes.
 
-At startup it reads only the names of entries in Pi's local extension directory and the text already rendered in Pi's startup-resource panel so extensions can be grouped by provenance. Resource capture uses at most three short 50 ms retries and is then disposed or replaced by Pi's native panel.
+At startup it reads only the names of entries in Pi's local extension directory and the text already rendered in Pi's startup-resource panel so extensions can be grouped by provenance. Resource capture uses at most three short 50 ms retries. The native panel container remains mounted throughout capture so Pi retains ownership of fullscreen transcript layout and scrolling.
 
 ## Development
 

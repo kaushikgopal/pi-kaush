@@ -602,6 +602,12 @@ describe("welcome resource-panel bridge", () => {
     };
     const panel = {
       children: [] as Array<typeof resourceComponent | typeof themeComponent>,
+      addChild(component: typeof resourceComponent | typeof themeComponent) {
+        this.children.push(component);
+      },
+      clear() {
+        this.children.splice(0);
+      },
       invalidate() {},
       render() {
         return [];
@@ -618,6 +624,12 @@ describe("welcome resource-panel bridge", () => {
       removeChild(component: unknown) {
         const index = this.children.indexOf(component as never);
         if (index !== -1) this.children.splice(index, 1);
+      },
+      addChild(component: (typeof children)[number]) {
+        this.children.push(component);
+      },
+      clear() {
+        this.children.splice(0);
       },
     };
     const tui = {
@@ -640,7 +652,8 @@ describe("welcome resource-panel bridge", () => {
       "~/dev/pi-kaush/extensions/pi-double-paste/src",
     );
     expect(firstRender?.join("\n")).not.toMatch(/• src\s*$/m);
-    expect(documentContainer.children).not.toContain(panel);
+    expect(documentContainer.children).toContain(panel);
+    expect(panel.children).toEqual([]);
     expect(header?.render(80)).toBe(firstRender);
     const readsAfterCapture = resourceReads;
     header?.render(80);
@@ -701,6 +714,12 @@ describe("welcome resource-panel bridge", () => {
       : [];
     const panel = {
       children: [] as any[],
+      addChild(component: any) {
+        this.children.push(component);
+      },
+      clear() {
+        this.children.splice(0);
+      },
       invalidate() {},
       render() {
         return this.children.flatMap((child) => child.render(1_000));
