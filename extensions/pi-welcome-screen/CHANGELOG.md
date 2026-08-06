@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Show the active theme name next to the Pi version in the brand header, e.g. `v0.84.0 [cobalt2]`.
+- Fix resource capture on Pi 0.84, where the loaded-resources panel moved inside a document container; both the nested 0.84 and flat 0.80–0.83 layouts are detected.
+
 ## 0.1.4
 
 - Show extension filenames for package-backed sources on the welcome screen.

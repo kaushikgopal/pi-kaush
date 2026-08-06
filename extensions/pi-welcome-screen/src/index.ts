@@ -61,7 +61,13 @@ interface ResourcePanel extends Component {
   children: Component[];
 }
 
+interface ResourcePanelHost {
+  children: Component[];
+  removeChild(component: Component): void;
+}
+
 interface ResourceBridge {
+  host: ResourcePanelHost;
   panel: ResourcePanel;
   originalIndex: number;
 }
@@ -85,6 +91,15 @@ function isResourcePanel(
 ): component is ResourcePanel {
   if (!component || typeof component !== "object") return false;
   return Array.isArray((component as Partial<Container>).children);
+}
+
+function isResourcePanelHost(
+  component: Component | undefined,
+): component is ResourcePanel & ResourcePanelHost {
+  return (
+    isResourcePanel(component) &&
+    typeof (component as Partial<Container>).removeChild === "function"
+  );
 }
 
 function getSectionHeading(text: string): string | undefined {
@@ -449,23 +464,53 @@ export function parseWelcomeResources(
 }
 
 function takeResourcePanel(tui: TUI): ResourceBridge | undefined {
-  const host = tui as BridgeTui;
-  if (host[RESOURCE_BRIDGE_KEY]) return undefined;
+  const keyed = tui as BridgeTui;
+  if (keyed[RESOURCE_BRIDGE_KEY]) return undefined;
 
   // TODO: Replace this bridge when Pi exposes structured startup resources
   // through its custom-header API.
-  // Pi 0.80 places the loaded-resources container immediately after the
-  // header. Guard the full shape so an upstream layout change falls back to
-  // Pi's untouched resource panel instead of moving an unrelated component.
-  if (tui.children.length < 8 || !isResourcePanel(tui.children[0]))
-    return undefined;
-  const panel = tui.children[RESOURCE_PANEL_INDEX];
-  if (!isResourcePanel(panel)) return undefined;
+  // Guard each full layout shape so an upstream change falls back to Pi's
+  // untouched resource panel instead of moving an unrelated component.
+  //
+  // Pi 0.84 nests the loaded-resources container inside a document container
+  // at tui.children[0]: [header, loaded-resources, chat].
+  const documentContainer = tui.children[0];
+  if (isResourcePanelHost(documentContainer)) {
+    const [header, panel, chat] = documentContainer.children;
+    if (
+      isResourcePanel(header) &&
+      isResourcePanel(panel) &&
+      isResourcePanel(chat)
+    ) {
+      const bridge: ResourceBridge = {
+        host: documentContainer,
+        panel,
+        originalIndex: RESOURCE_PANEL_INDEX,
+      };
+      documentContainer.removeChild(panel);
+      keyed[RESOURCE_BRIDGE_KEY] = bridge;
+      return bridge;
+    }
+  }
 
-  const bridge = { panel, originalIndex: RESOURCE_PANEL_INDEX };
-  tui.removeChild(panel);
-  host[RESOURCE_BRIDGE_KEY] = bridge;
-  return bridge;
+  // Pi 0.80–0.83 place the loaded-resources container directly at
+  // tui.children[1], immediately after the header container.
+  if (
+    tui.children.length >= 8 &&
+    isResourcePanel(tui.children[0]) &&
+    isResourcePanel(tui.children[RESOURCE_PANEL_INDEX])
+  ) {
+    const bridge: ResourceBridge = {
+      host: tui,
+      panel: tui.children[RESOURCE_PANEL_INDEX],
+      originalIndex: RESOURCE_PANEL_INDEX,
+    };
+    tui.removeChild(bridge.panel);
+    keyed[RESOURCE_BRIDGE_KEY] = bridge;
+    return bridge;
+  }
+
+  return undefined;
 }
 
 function restoreResourcePanel(
@@ -474,9 +519,9 @@ function restoreResourcePanel(
 ): void {
   if (!bridge) return;
 
-  if (!tui.children.includes(bridge.panel)) {
-    const index = Math.min(bridge.originalIndex, tui.children.length);
-    tui.children.splice(index, 0, bridge.panel);
+  if (!bridge.host.children.includes(bridge.panel)) {
+    const index = Math.min(bridge.originalIndex, bridge.host.children.length);
+    bridge.host.children.splice(index, 0, bridge.panel);
   }
   delete (tui as BridgeTui)[RESOURCE_BRIDGE_KEY];
 }
@@ -709,7 +754,10 @@ function renderBrandColumn(theme: Theme, columnWidth: number): string[] {
     );
   }
   lines.push("");
-  const versionSummary = theme.fg("dim", `v${VERSION}`);
+  const versionSummary = theme.fg(
+    "dim",
+    theme.name ? `v${VERSION} [${theme.name}]` : `v${VERSION}`,
+  );
   lines.push(
     centerBlockLine(versionSummary, visibleWidth(versionSummary), columnWidth),
   );

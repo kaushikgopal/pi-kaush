@@ -303,6 +303,23 @@ describe("welcome resource formatting", () => {
     expect(narrow.every((line) => line.length <= 24)).toBe(true);
   });
 
+  test("shows the active theme name alongside the version", () => {
+    const resources = {
+      context: ["AGENTS.md"],
+      skills: ["artifactor"],
+      prompts: ["/implement"],
+      extensions: ["welcome-screen"],
+    };
+    const namedTheme = { ...plainTheme, name: "cobalt2" };
+
+    const named = renderCenteredWelcome(resources, namedTheme as never, 80);
+    const versionIndex = named.findIndex((line) => line.includes("v0.80.6"));
+    expect(named[versionIndex]?.trim()).toBe("v0.80.6 [cobalt2]");
+
+    const unnamed = renderCenteredWelcome(resources, plainTheme as never, 80);
+    expect(unnamed.some((line) => line.trim() === "v0.80.6")).toBe(true);
+  });
+
   test("uses one, two, or three equal-width grid columns as space allows", () => {
     const resources = {
       context: ["AGENTS.md"],
@@ -644,6 +661,109 @@ describe("welcome resource-panel bridge", () => {
 
     header?.dispose?.();
     expect(tui.children[1]).toBe(panel);
+  });
+
+  test("captures resources from Pi 0.84's nested document container", async () => {
+    let sessionStart: ((event: unknown, context: any) => void) | undefined;
+    welcomeScreen({
+      on(event: string, handler: (event: unknown, context: any) => void) {
+        if (event === "session_start") sessionStart = handler;
+      },
+    } as never);
+
+    let headerFactory:
+      | ((
+          tui: any,
+          theme: any,
+        ) => { render(width: number): string[]; dispose?(): void })
+      | undefined;
+    sessionStart?.(
+      {},
+      {
+        mode: "tui",
+        ui: {
+          setHeader(factory: typeof headerFactory) {
+            headerFactory = factory;
+          },
+        },
+      },
+    );
+
+    const resourceComponent = {
+      ...emptyComponent(),
+      getCollapsedText() {
+        return [
+          "[Context]",
+          "  AGENTS.md",
+          "[Skills]",
+          "  artifactor",
+          "[Prompts]",
+          "  /implement",
+          "[Extensions]",
+          "  src",
+        ].join("\n");
+      },
+      getExpandedText() {
+        return [
+          "[Extensions]",
+          "  user",
+          "    ~/dev/pi-kaush/extensions/pi-welcome-screen/src",
+        ].join("\n");
+      },
+    };
+    const themeComponent = {
+      ...emptyComponent(),
+      getCollapsedText() {
+        return "[Themes]\n  dracula";
+      },
+    };
+    const panel = {
+      children: [] as Array<typeof resourceComponent | typeof themeComponent>,
+      invalidate() {},
+      render() {
+        return [];
+      },
+    };
+    const makeContainer = () => ({
+      ...emptyComponent(),
+      children: [] as any[],
+      removeChild(component: unknown) {
+        const index = this.children.indexOf(component as never);
+        if (index !== -1) this.children.splice(index, 1);
+      },
+    });
+    const documentContainer = makeContainer();
+    documentContainer.children.push(makeContainer(), panel, makeContainer());
+    const tui = {
+      children: [
+        documentContainer,
+        ...Array.from({ length: 6 }, emptyComponent),
+      ],
+      removeChild(component: unknown) {
+        const index = this.children.indexOf(component as never);
+        if (index !== -1) this.children.splice(index, 1);
+      },
+      requestRender() {},
+    };
+
+    const header = headerFactory?.(tui, plainTheme);
+    expect(documentContainer.children).not.toContain(panel);
+    expect(documentContainer.children).toHaveLength(2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    panel.children.push(resourceComponent, themeComponent);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const rendered = header?.render(80).join("\n");
+    expect(rendered).toContain("• AGENTS.md");
+    expect(rendered).toContain(
+      "~/dev/pi-kaush/extensions/pi-welcome-screen/src",
+    );
+    expect(rendered).not.toContain("[Themes]");
+    expect(rendered).not.toContain("dracula");
+    expect(tui.children[0]).toBe(documentContainer);
+
+    header?.dispose?.();
+    expect(documentContainer.children[1]).toBe(panel);
   });
 
   async function expectNativePanelFallback(options: {
