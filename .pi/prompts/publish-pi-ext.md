@@ -41,9 +41,11 @@ Run the entire workflow from the pi-kaush repo at `/Users/kg/dev/oss/pi-kaush`.
      Stop polling once the returned version equals `NEW_VERSION`. Report the published version.
 
 5. **Refresh the local Pi install**. Run:
+
    ```bash
    pi update npm:@pi-kaush/$PACKAGE
    ```
+
    If that fails, fall back to `pi update --extension npm:@pi-kaush/$PACKAGE`.
 
 6. **Unpin the package in Pi settings**. Check both:
