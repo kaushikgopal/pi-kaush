@@ -17,8 +17,10 @@ import {
 
 const MAX_STACKED_COLUMN_WIDTH = 80;
 const MIN_GRID_COLUMN_WIDTH = 40;
-const MAX_GRID_COLUMN_WIDTH = 60;
 const GRID_COLUMN_GAP = 4;
+const BRAND_COLUMN_WIDTH = 24;
+const MAX_RESOURCE_COLUMN_WIDTH = 72;
+const MAX_EXTENSION_COLUMN_WIDTH = 120;
 const MAX_LIST_ROWS_PER_COLUMN = 6;
 const MIN_LIST_COLUMN_WIDTH = 22;
 const LIST_COLUMN_GAP = 2;
@@ -793,11 +795,11 @@ function renderGridItem(
   resources: WelcomeResources,
   theme: Theme,
   columnWidth: number,
-  sharedColumnCount: 2 | 3,
 ): string[] {
   if (item === "Brand") return renderBrandColumn(theme, columnWidth);
 
   const lines: string[] = [];
+  const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
   appendResourceSection(
     lines,
     item,
@@ -812,24 +814,26 @@ function renderGridItem(
 function renderGridWelcome(
   resources: WelcomeResources,
   theme: Theme,
-  columnWidth: number,
+  columnWidths: readonly number[],
   columnCount: 2 | 3,
 ): string[] {
-  const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
-  const topAlignedColumns = GRID_COLUMNS[columnCount].map((items) =>
+  const topAlignedColumns = GRID_COLUMNS[columnCount].map((items, column) =>
     items.flatMap((item, index) => [
       ...(index > 0 ? [""] : []),
-      ...renderGridItem(item, resources, theme, columnWidth, sharedColumnCount),
+      ...renderGridItem(item, resources, theme, columnWidths[column] ?? 1),
     ]),
   );
   const rowCount = Math.max(
     ...topAlignedColumns.map((column) => column.length),
   );
   if (columnCount === 2) {
-    const layoutWidth = columnWidth * 2 + GRID_COLUMN_GAP;
+    const layoutWidth =
+      (columnWidths[0] ?? 0) + GRID_COLUMN_GAP + (columnWidths[1] ?? 0);
     const resourceRows = Array.from({ length: rowCount }, (_, row) =>
       topAlignedColumns
-        .map((column) => padToWidth(column[row] ?? "", columnWidth))
+        .map((column, index) =>
+          padToWidth(column[row] ?? "", columnWidths[index] ?? 1),
+        )
         .join(" ".repeat(GRID_COLUMN_GAP))
         .trimEnd(),
     );
@@ -850,7 +854,9 @@ function renderGridWelcome(
 
   return Array.from({ length: rowCount }, (_, row) =>
     columns
-      .map((column) => padToWidth(column[row] ?? "", columnWidth))
+      .map((column, index) =>
+        padToWidth(column[row] ?? "", columnWidths[index] ?? 1),
+      )
       .join(" ".repeat(GRID_COLUMN_GAP))
       .trimEnd(),
   );
@@ -879,6 +885,44 @@ function getGridColumnCount(width: number): 1 | 2 | 3 {
   return 1;
 }
 
+function splitResourceWidths(availableWidth: number): [number, number] {
+  const totalWidth = Math.min(
+    availableWidth,
+    MAX_RESOURCE_COLUMN_WIDTH + MAX_EXTENSION_COLUMN_WIDTH,
+  );
+  let extensionWidth = Math.floor(totalWidth * 0.6);
+  let resourceWidth = totalWidth - extensionWidth;
+
+  if (resourceWidth < MIN_GRID_COLUMN_WIDTH) {
+    resourceWidth = MIN_GRID_COLUMN_WIDTH;
+    extensionWidth = totalWidth - resourceWidth;
+  } else if (extensionWidth < MIN_GRID_COLUMN_WIDTH) {
+    extensionWidth = MIN_GRID_COLUMN_WIDTH;
+    resourceWidth = totalWidth - extensionWidth;
+  }
+
+  if (resourceWidth > MAX_RESOURCE_COLUMN_WIDTH) {
+    resourceWidth = MAX_RESOURCE_COLUMN_WIDTH;
+    extensionWidth = totalWidth - resourceWidth;
+  } else if (extensionWidth > MAX_EXTENSION_COLUMN_WIDTH) {
+    extensionWidth = MAX_EXTENSION_COLUMN_WIDTH;
+    resourceWidth = totalWidth - extensionWidth;
+  }
+
+  return [resourceWidth, extensionWidth];
+}
+
+function getGridColumnWidths(width: number, columnCount: 2 | 3): number[] {
+  const gapWidth = GRID_COLUMN_GAP * (columnCount - 1);
+  if (columnCount === 2) return splitResourceWidths(width - gapWidth);
+
+  const availableResourceWidth = Math.min(
+    width - gapWidth - BRAND_COLUMN_WIDTH,
+    MAX_RESOURCE_COLUMN_WIDTH + MAX_EXTENSION_COLUMN_WIDTH,
+  );
+  return [BRAND_COLUMN_WIDTH, ...splitResourceWidths(availableResourceWidth)];
+}
+
 export function renderCenteredWelcome(
   resources: WelcomeResources | undefined,
   theme: Theme,
@@ -886,21 +930,17 @@ export function renderCenteredWelcome(
 ): string[] {
   if (width <= 0) return [];
   const columnCount = resources ? getGridColumnCount(width) : 1;
-  const columnWidth =
+  const columnWidths =
     columnCount === 1
-      ? Math.min(MAX_STACKED_COLUMN_WIDTH, width)
-      : Math.min(
-          MAX_GRID_COLUMN_WIDTH,
-          Math.floor(
-            (width - GRID_COLUMN_GAP * (columnCount - 1)) / columnCount,
-          ),
-        );
+      ? [Math.min(MAX_STACKED_COLUMN_WIDTH, width)]
+      : getGridColumnWidths(width, columnCount);
   const layoutWidth =
-    columnWidth * columnCount + GRID_COLUMN_GAP * (columnCount - 1);
+    columnWidths.reduce((total, columnWidth) => total + columnWidth, 0) +
+    GRID_COLUMN_GAP * (columnCount - 1);
   const leftPadding = " ".repeat(Math.floor((width - layoutWidth) / 2));
   const lines =
     columnCount !== 1 && resources
-      ? renderGridWelcome(resources, theme, columnWidth, columnCount)
+      ? renderGridWelcome(resources, theme, columnWidths, columnCount)
       : renderStackedWelcome(resources, theme, layoutWidth);
 
   return lines.map((line) =>

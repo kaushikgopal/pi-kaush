@@ -231,7 +231,7 @@ describe("welcome resource formatting", () => {
     ).toEqual(loadOrder);
   });
 
-  test("uses two columns for long labels and safely truncates exceptional ones", () => {
+  test("uses two columns for long labels and safely wraps exceptional ones", () => {
     const labels = Array.from(
       { length: 14 },
       (_, index) => `item-${index + 1}`,
@@ -270,9 +270,14 @@ describe("welcome resource formatting", () => {
       plainTheme as never,
       100,
     );
-    expect(sectionRows(truncated, "Skills", "Prompts").join("\n")).toContain(
-      "…",
-    );
+    const exceptionalRows = sectionRows(truncated, "Skills", "Prompts");
+    expect(exceptionalRows.join("\n")).not.toContain("…");
+    expect(
+      exceptionalRows
+        .map((row) => row.slice(0, 44).trim())
+        .join("")
+        .replace(/•/g, ""),
+    ).toContain(exceptional.skills[3]);
   });
 
   test("centers an 80-column layout and remains within narrow terminals", () => {
@@ -303,7 +308,7 @@ describe("welcome resource formatting", () => {
     expect(narrow.every((line) => line.length <= 24)).toBe(true);
   });
 
-  test("uses one, two, or three equal-width grid columns as space allows", () => {
+  test("uses one, two, or three responsive grid columns as space allows", () => {
     const resources = {
       context: ["AGENTS.md"],
       skills: ["artifactor"],
@@ -357,9 +362,9 @@ describe("welcome resource formatting", () => {
     const threeColumnTopRow = threeColumns.find(
       (line) => line.includes("[Context]") && line.includes("[Extensions]"),
     );
-    expect(threeColumnTopRow?.indexOf("[Context]")).toBe(44);
-    expect(threeColumnTopRow?.indexOf("[Extensions]")).toBe(88);
-    expect(threeColumns.every((line) => !/[\[•]/.test(line.slice(0, 40)))).toBe(
+    expect(threeColumnTopRow?.indexOf("[Context]")).toBe(28);
+    expect(threeColumnTopRow?.indexOf("[Extensions]")).toBe(72);
+    expect(threeColumns.every((line) => !/[\[•]/.test(line.slice(0, 24)))).toBe(
       true,
     );
     const threeColumnFirstLogoRow = threeColumns.findIndex((line) =>
@@ -375,6 +380,37 @@ describe("welcome resource formatting", () => {
       ),
     ).toBeLessThanOrEqual(1);
     expect(threeColumns.every((line) => line.length <= 128)).toBe(true);
+  });
+
+  test("gives wide terminals a narrow brand rail and a wider extension rail", () => {
+    const resources = {
+      context: ["~/.pi/agent/AGENTS.md", "AGENTS.md"],
+      skills: ["model-facing-api-design", "tasks-handoff"],
+      prompts: ["/session-diagnostic"],
+      extensions: [
+        "welcome-screen",
+        "@juicesharp/rpiv-ask-user-question",
+        "~/projects/contribute/pi-kaush/extensions/pi-welcome-screen/src",
+      ],
+      packageExtensions: ["@juicesharp/rpiv-ask-user-question"],
+      sourceExtensions: [
+        "~/projects/contribute/pi-kaush/extensions/pi-welcome-screen/src",
+      ],
+    };
+
+    const wide = renderCenteredWelcome(resources, plainTheme as never, 200);
+    const headingRow = wide.find(
+      (line) => line.includes("[Context]") && line.includes("[Extensions]"),
+    );
+    const contextStart = headingRow?.indexOf("[Context]") ?? -1;
+    const extensionStart = headingRow?.indexOf("[Extensions]") ?? -1;
+
+    expect(contextStart).toBe(28);
+    expect(extensionStart).toBe(100);
+    expect(extensionStart - contextStart).toBeGreaterThan(60);
+    expect(200 - extensionStart).toBeGreaterThanOrEqual(100);
+    expect(wide.join("\n")).toContain(resources.sourceExtensions[0]);
+    expect(wide.every((line) => line.length <= 200)).toBe(true);
   });
 
   test("columns local extensions and lists vendored packages separately", () => {
