@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserve unrelated startup status and diagnostics while replacing Pi's compact comma-separated resource panel.
 - Use asymmetric wide-screen columns so the brand stays compact while extension paths receive more room.
 - Support Pi 0.84's regular and fullscreen TUI layouts without recursively traversing Pi's component tree.
 - Preserve fullscreen scrolling by keeping Pi's resource-panel container mounted in the scroll document.

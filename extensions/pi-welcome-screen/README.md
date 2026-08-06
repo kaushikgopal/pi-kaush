@@ -10,7 +10,7 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 - **Context files in load order** — shows exactly which instructions Pi loaded and the order in which they apply.
 - **Extensions grouped by source** — separates Pi-local extensions, installed packages, and linked source paths.
 - **Responsive layout** — adapts from a stacked view to a full-width brand over two resource columns, then a compact brand rail beside asymmetric resource columns that give long extension paths more room.
-- **Fail-safe behavior** — if the startup data or UI shape is unfamiliar, restores Pi's untouched native resource panel instead of hiding information.
+- **Fail-safe behavior** — preserves unfamiliar startup components and falls back to Pi's untouched native resource panel when the known resource snapshot is incomplete.
 
 ## Install
 
@@ -34,7 +34,7 @@ Use `--no-extensions` before `-e` to test it without your other configured exten
 
 The extension installs its header through Pi's public `ctx.ui.setHeader()` API. Pi 0.84 does not expose structured startup-resource data, so the extension also uses a narrowly guarded bridge to inspect Pi's native startup-resource panel.
 
-The bridge checks only Pi's documented-era startup positions: the legacy root panel and Pi 0.84's resource panel inside the stable document container. It never recursively traverses or renders the transcript, editor, layout stacks, or fullscreen scroll view. Once a complete snapshot is available, it clears the resource panel through the public `Container` API while leaving that container mounted in Pi's scroll document. If Pi changes the panel, exposes an unknown section, or produces incomplete resource data, the extension leaves Pi's native panel untouched rather than hiding information. The current release is tested against Pi 0.80.6 and 0.84.0.
+The bridge checks only Pi's documented-era startup positions: the legacy root panel and Pi 0.84's resource panel inside the stable document container. It never recursively traverses or renders the transcript, editor, layout stacks, or fullscreen scroll view. Once a complete snapshot is available, it replaces only the known resource and theme children through the public `Container` API while leaving that container mounted in Pi's scroll document. Unknown status and diagnostic children remain mounted in their original order. If the known resource data is incomplete, the extension leaves Pi's native panel untouched rather than hiding information. The current release is tested against Pi 0.80.6 and 0.84.0.
 
 Like any custom-header extension, it shares Pi's single header slot. If another extension also calls `setHeader()`, the last installed header wins; neither extension needs to replace the editor or intercept terminal input.
 

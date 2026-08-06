@@ -71,7 +71,7 @@ interface ResourceBridge {
 interface ResourcePanelSnapshot {
   resourceText: string;
   expandedExtensionsText?: string;
-  requiresNativePanel: boolean;
+  retainedChildren: Component[];
 }
 
 function stripAnsi(text: string): string {
@@ -98,6 +98,7 @@ function getSectionHeading(text: string): string | undefined {
 
 function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
   const sections: string[] = [];
+  const retainedChildren: Component[] = [];
   let expandedExtensionsText: string | undefined;
 
   for (const child of panel.children) {
@@ -114,26 +115,19 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
         ) {
           expandedExtensionsText = collapsible.getExpandedText();
         }
-      } else if (heading !== "Themes") {
-        // Unknown native sections may contain actionable information. Keep
-        // Pi's panel intact rather than guessing how to reproduce them.
-        return { resourceText: "", requiresNativePanel: true };
-      }
+      } else if (heading !== "Themes") retainedChildren.push(child);
       continue;
     }
 
-    const hasVisibleContent = child
-      .render(1_000)
-      .some((line) => stripAnsi(line).trim().length > 0);
-    if (hasVisibleContent) {
-      return { resourceText: "", requiresNativePanel: true };
-    }
+    // Preserve status, diagnostics, spacers, and future Pi-owned components
+    // without rendering or otherwise probing them during inspection.
+    retainedChildren.push(child);
   }
 
   return {
     resourceText: sections.join("\n"),
     ...(expandedExtensionsText ? { expandedExtensionsText } : {}),
-    requiresNativePanel: false,
+    retainedChildren,
   };
 }
 
@@ -479,16 +473,24 @@ function findResourcePanel(tui: TUI): ResourcePanelMatch | undefined {
   return inspectResourceCandidate(tui.children[1]);
 }
 
-function hideResourcePanel(panel: ResourcePanel): ResourceBridge {
+function hideResourcePanel(
+  panel: ResourcePanel,
+  retainedChildren: Component[],
+): ResourceBridge {
   const bridge = { panel, originalChildren: [...panel.children] };
   panel.clear();
+  for (const child of retainedChildren) panel.addChild(child);
   return bridge;
 }
 
 function restoreResourcePanel(bridge: ResourceBridge | undefined): void {
   if (!bridge) return;
+  const addedChildren = bridge.panel.children.filter(
+    (child) => !bridge.originalChildren.includes(child),
+  );
   bridge.panel.clear();
   for (const child of bridge.originalChildren) bridge.panel.addChild(child);
+  for (const child of addedChildren) bridge.panel.addChild(child);
 }
 
 function centerBlockLine(
@@ -1000,7 +1002,9 @@ class WelcomeHeader implements Component {
       candidateResources?.extensions.some(isWelcomeScreenExtension),
     );
     if (resourcePanelIsComplete) {
-      this.bridge = match ? hideResourcePanel(match.panel) : undefined;
+      this.bridge = match
+        ? hideResourcePanel(match.panel, match.snapshot.retainedChildren)
+        : undefined;
       this.resources = candidateResources;
       this.clearRenderCache();
       this.resourceReadyTimer = undefined;

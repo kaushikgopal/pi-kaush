@@ -308,6 +308,37 @@ describe("welcome resource formatting", () => {
     expect(narrow.every((line) => line.length <= 24)).toBe(true);
   });
 
+  test("renders compact extensions as one grouped item per row", () => {
+    const resources = {
+      context: ["AGENTS.md"],
+      skills: ["pohuy", "tasks-handoff"],
+      prompts: ["/session-diagnostic"],
+      extensions: [
+        "pi-autoname",
+        "pi-command-center",
+        "@narumitw/pi-lsp",
+        "~/projects/pi-switch/packages/pi-tasks/src/host/pi-extension.ts",
+      ],
+      packageExtensions: ["@narumitw/pi-lsp"],
+      sourceExtensions: [
+        "~/projects/pi-switch/packages/pi-tasks/src/host/pi-extension.ts",
+      ],
+    };
+
+    const compact = renderCenteredWelcome(resources, plainTheme as never, 83);
+    const extensionRows = sectionRows(compact, "Extensions", "missing");
+    const bullets = bulletRows(extensionRows);
+
+    expect(bullets).toHaveLength(resources.extensions.length);
+    expect(bullets.every((row) => (row.match(/•/g)?.length ?? 0) === 1)).toBe(
+      true,
+    );
+    expect(extensionRows.join("\n")).not.toContain(",");
+    expect(extensionRows.join("\n")).toContain("Local");
+    expect(extensionRows.join("\n")).toContain("Packages");
+    expect(extensionRows.join("\n")).toContain("Source paths");
+  });
+
   test("uses one, two, or three responsive grid columns as space allows", () => {
     const resources = {
       context: ["AGENTS.md"],
@@ -699,10 +730,9 @@ describe("welcome resource-panel bridge", () => {
     expect(documentContainer.children[1]).toBe(panel);
   });
 
-  async function expectNativePanelFallback(options: {
+  async function expectSelectiveResourceReplacement(options: {
     nativeComponent?: any;
     heading?: string;
-    waitMs?: number;
   }) {
     let sessionStart: ((event: unknown, context: any) => void) | undefined;
     welcomeScreen({
@@ -779,23 +809,27 @@ describe("welcome resource-panel bridge", () => {
     expect(tui.children).toContain(panel);
     await new Promise((resolve) => setTimeout(resolve, 0));
     panel.children.push(...originalPanelChildren);
-    await new Promise((resolve) => setTimeout(resolve, options.waitMs ?? 80));
+    await new Promise((resolve) => setTimeout(resolve, 80));
 
     const renderedHeader = header?.render(80).join("\n") ?? "";
     expect(renderedHeader).toContain("█████████");
-    expect(renderedHeader).not.toContain("[Context]");
+    expect(renderedHeader).toContain("[Context]");
+    expect(renderedHeader).toContain("• AGENTS.md");
     expect(tui.children[1]).toBe(panel);
-    expect(panel.children).toEqual(originalPanelChildren);
+    expect(panel.children).toEqual(
+      options.nativeComponent ? [spacer, options.nativeComponent] : [spacer],
+    );
     if (options.heading) {
       expect(panel.render().join("\n")).toContain(options.heading);
     }
 
     header?.dispose?.();
     expect(tui.children.filter((child) => child === panel)).toHaveLength(1);
+    expect(panel.children).toEqual(originalPanelChildren);
   }
 
-  test("keeps the custom brand and restores Pi's untouched panel for diagnostics", () =>
-    expectNativePanelFallback({
+  test("replaces known resources while retaining Pi diagnostics", () =>
+    expectSelectiveResourceReplacement({
       nativeComponent: {
         invalidate() {},
         render: () => ["[Extension issues]", "  broken-extension.ts"],
@@ -803,8 +837,8 @@ describe("welcome resource-panel bridge", () => {
       heading: "[Extension issues]",
     }));
 
-  test("keeps the custom brand and restores Pi's untouched panel for unknown native sections", () =>
-    expectNativePanelFallback({
+  test("replaces known resources while retaining unknown native sections", () =>
+    expectSelectiveResourceReplacement({
       nativeComponent: {
         invalidate() {},
         getCollapsedText: () => "[Future startup info]\n  important detail",
@@ -813,6 +847,51 @@ describe("welcome resource-panel bridge", () => {
       heading: "[Future startup info]",
     }));
 
-  test("restores Pi's native panel after three resource retries", () =>
-    expectNativePanelFallback({ waitMs: 180 }));
+  test("restores Pi's native panel after three resource retries", async () => {
+    let sessionStart: ((event: unknown, context: any) => void) | undefined;
+    welcomeScreen({
+      on(event: string, handler: (event: unknown, context: any) => void) {
+        if (event === "session_start") sessionStart = handler;
+      },
+    } as never);
+
+    let headerFactory:
+      | ((tui: any, theme: any) => { render(width: number): string[] })
+      | undefined;
+    sessionStart?.(
+      { reason: "startup" },
+      {
+        mode: "tui",
+        ui: {
+          setHeader(factory: typeof headerFactory) {
+            headerFactory = factory;
+          },
+        },
+      },
+    );
+
+    const panel = {
+      children: [] as any[],
+      addChild(component: any) {
+        this.children.push(component);
+      },
+      clear() {
+        this.children.splice(0);
+      },
+      invalidate() {},
+      render() {
+        return [];
+      },
+    };
+    const tui = {
+      children: [emptyComponent(), panel],
+      requestRender() {},
+    };
+    const header = headerFactory?.(tui, plainTheme);
+
+    await new Promise((resolve) => setTimeout(resolve, 180));
+
+    expect(header?.render(80).join("\n")).not.toContain("[Context]");
+    expect(panel.children).toEqual([]);
+  });
 });
