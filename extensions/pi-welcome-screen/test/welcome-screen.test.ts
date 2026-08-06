@@ -612,17 +612,21 @@ describe("welcome resource-panel bridge", () => {
       panel,
       ...Array.from({ length: 7 }, emptyComponent),
     ];
-    const tui = {
+    const documentContainer = {
+      ...emptyComponent(),
       children,
       removeChild(component: unknown) {
         const index = this.children.indexOf(component as never);
         if (index !== -1) this.children.splice(index, 1);
       },
+    };
+    const tui = {
+      children: [documentContainer],
       requestRender() {},
     };
 
     const header = headerFactory?.(tui, plainTheme);
-    expect(tui.children).not.toContain(panel);
+    expect(documentContainer.children).toContain(panel);
     const loadingRender = header?.render(80).join("\n");
     expect(loadingRender).not.toContain("[Context]");
     expect(loadingRender).not.toContain("(none)");
@@ -636,14 +640,14 @@ describe("welcome resource-panel bridge", () => {
       "~/dev/pi-kaush/extensions/pi-double-paste/src",
     );
     expect(firstRender?.join("\n")).not.toMatch(/• src\s*$/m);
-    expect(tui.children).not.toContain(panel);
+    expect(documentContainer.children).not.toContain(panel);
     expect(header?.render(80)).toBe(firstRender);
     const readsAfterCapture = resourceReads;
     header?.render(80);
     expect(resourceReads).toBe(readsAfterCapture);
 
     header?.dispose?.();
-    expect(tui.children[1]).toBe(panel);
+    expect(documentContainer.children[1]).toBe(panel);
   });
 
   async function expectNativePanelFallback(options: {
@@ -717,7 +721,7 @@ describe("welcome resource-panel bridge", () => {
     };
 
     const header = headerFactory?.(tui, plainTheme);
-    expect(tui.children).not.toContain(panel);
+    expect(tui.children).toContain(panel);
     await new Promise((resolve) => setTimeout(resolve, 0));
     panel.children.push(...originalPanelChildren);
     await new Promise((resolve) => setTimeout(resolve, options.waitMs ?? 80));
