@@ -24,8 +24,6 @@ const MIN_LIST_COLUMN_WIDTH = 22;
 const LIST_COLUMN_GAP = 2;
 const RESOURCE_POLL_INTERVAL_MS = 50;
 const MAX_RESOURCE_RETRIES = 3;
-const RESOURCE_PANEL_INDEX = 1;
-const RESOURCE_BRIDGE_KEY = "__piKaushWelcomeScreenResourceBridge";
 
 let cachedLocalExtensionNames: Set<string> | undefined;
 
@@ -57,12 +55,16 @@ interface CollapsedTextComponent extends Component {
   getExpandedText?: () => string;
 }
 
-interface ResourcePanel extends Component {
+interface ComponentParent {
   children: Component[];
+  removeChild?: (component: Component) => void;
 }
+
+interface ResourcePanel extends Component, ComponentParent {}
 
 interface ResourceBridge {
   panel: ResourcePanel;
+  parent: ComponentParent;
   originalIndex: number;
 }
 
@@ -72,17 +74,13 @@ interface ResourcePanelSnapshot {
   requiresNativePanel: boolean;
 }
 
-type BridgeTui = TUI & {
-  [RESOURCE_BRIDGE_KEY]?: ResourceBridge;
-};
-
 function stripAnsi(text: string): string {
   return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
 }
 
-function isResourcePanel(
+function isComponentParent(
   component: Component | undefined,
-): component is ResourcePanel {
+): component is Component & ComponentParent {
   if (!component || typeof component !== "object") return false;
   return Array.isArray((component as Partial<Container>).children);
 }
@@ -448,37 +446,50 @@ export function parseWelcomeResources(
   };
 }
 
-function takeResourcePanel(tui: TUI): ResourceBridge | undefined {
-  const host = tui as BridgeTui;
-  if (host[RESOURCE_BRIDGE_KEY]) return undefined;
-
-  // TODO: Replace this bridge when Pi exposes structured startup resources
-  // through its custom-header API.
-  // Pi 0.80 places the loaded-resources container immediately after the
-  // header. Guard the full shape so an upstream layout change falls back to
-  // Pi's untouched resource panel instead of moving an unrelated component.
-  if (tui.children.length < 8 || !isResourcePanel(tui.children[0]))
-    return undefined;
-  const panel = tui.children[RESOURCE_PANEL_INDEX];
-  if (!isResourcePanel(panel)) return undefined;
-
-  const bridge = { panel, originalIndex: RESOURCE_PANEL_INDEX };
-  tui.removeChild(panel);
-  host[RESOURCE_BRIDGE_KEY] = bridge;
-  return bridge;
+interface ResourcePanelMatch {
+  bridge: ResourceBridge;
+  snapshot: ResourcePanelSnapshot;
 }
 
-function restoreResourcePanel(
-  tui: TUI,
-  bridge: ResourceBridge | undefined,
-): void {
-  if (!bridge) return;
+function findResourcePanel(
+  root: ComponentParent,
+): ResourcePanelMatch | undefined {
+  const visited = new Set<ComponentParent>();
 
-  if (!tui.children.includes(bridge.panel)) {
-    const index = Math.min(bridge.originalIndex, tui.children.length);
-    tui.children.splice(index, 0, bridge.panel);
-  }
-  delete (tui as BridgeTui)[RESOURCE_BRIDGE_KEY];
+  const visit = (parent: ComponentParent): ResourcePanelMatch | undefined => {
+    if (visited.has(parent)) return undefined;
+    visited.add(parent);
+
+    for (const [index, child] of parent.children.entries()) {
+      if (!isComponentParent(child)) continue;
+
+      const snapshot = inspectResourcePanel(child);
+      if (snapshot.resourceText) {
+        return {
+          bridge: { panel: child, parent, originalIndex: index },
+          snapshot,
+        };
+      }
+
+      const nested = visit(child);
+      if (nested) return nested;
+    }
+    return undefined;
+  };
+
+  return visit(root);
+}
+
+function detachResourcePanel(bridge: ResourceBridge): void {
+  if (!bridge.parent.children.includes(bridge.panel)) return;
+  if (bridge.parent.removeChild) bridge.parent.removeChild(bridge.panel);
+  else bridge.parent.children.splice(bridge.originalIndex, 1);
+}
+
+function restoreResourcePanel(bridge: ResourceBridge | undefined): void {
+  if (!bridge || bridge.parent.children.includes(bridge.panel)) return;
+  const index = Math.min(bridge.originalIndex, bridge.parent.children.length);
+  bridge.parent.children.splice(index, 0, bridge.panel);
 }
 
 function centerBlockLine(
@@ -905,15 +916,17 @@ class WelcomeHeader implements Component {
   private resources: WelcomeResources | undefined;
   private cachedWidth: number | undefined;
   private cachedLines: string[] | undefined;
+  private bridge: ResourceBridge | undefined;
   private disposed = false;
 
   constructor(
     private readonly tui: TUI,
     private readonly theme: Theme,
-    private readonly bridge: ResourceBridge | undefined,
     forceInitialRender: boolean,
   ) {
-    // session_start runs just before Pi populates its loaded-resource panel.
+    // Resource discovery and the loaded-resource panel are finalized after
+    // session_start. Search lazily so both regular and fullscreen TUI layouts
+    // work without relying on a root child index.
     this.resourceReadyTimer = setTimeout(
       () => this.captureResourcesWhenReady(forceInitialRender, 0),
       0,
@@ -925,25 +938,18 @@ class WelcomeHeader implements Component {
     attempt: number,
   ): void {
     if (this.disposed) return;
-    if (!this.bridge) {
-      this.resourceReadyTimer = undefined;
-      if (attempt === 0) this.tui.requestRender(forceInitialRender);
-      return;
-    }
 
-    let snapshot: ResourcePanelSnapshot;
+    let match: ResourcePanelMatch | undefined;
     try {
-      snapshot = inspectResourcePanel(this.bridge.panel);
+      match = findResourcePanel(this.tui);
     } catch {
-      this.showNativePanel(forceInitialRender);
-      return;
-    }
-    if (snapshot.requiresNativePanel) {
-      this.showNativePanel(forceInitialRender);
-      return;
+      match = undefined;
     }
 
-    const { resourceText, expandedExtensionsText } = snapshot;
+    const { resourceText, expandedExtensionsText } = match?.snapshot ?? {
+      resourceText: "",
+      expandedExtensionsText: undefined,
+    };
     const candidateResources = resourceText
       ? parseWelcomeResources(
           resourceText,
@@ -951,12 +957,14 @@ class WelcomeHeader implements Component {
           expandedExtensionsText,
         )
       : undefined;
-    // Pi 0.80 builds this panel synchronously. If a future Pi populates it
-    // asynchronously after Extensions appears, this snapshot can be incomplete.
+    // Do not detach a partial panel: resource discovery may still be filling it
+    // after the first render tick.
     const resourcePanelIsComplete = Boolean(
       candidateResources?.extensions.some(isWelcomeScreenExtension),
     );
     if (resourcePanelIsComplete) {
+      this.bridge = match?.bridge;
+      if (this.bridge) detachResourcePanel(this.bridge);
       this.resources = candidateResources;
       this.clearRenderCache();
       this.resourceReadyTimer = undefined;
@@ -965,8 +973,6 @@ class WelcomeHeader implements Component {
     }
 
     if (attempt === 0) {
-      // Remove Pi's pre-TUI model-scope line while leaving resource sections
-      // hidden until the complete panel can be revealed atomically.
       this.tui.requestRender(forceInitialRender);
     }
     if (attempt < MAX_RESOURCE_RETRIES) {
@@ -975,15 +981,11 @@ class WelcomeHeader implements Component {
         RESOURCE_POLL_INTERVAL_MS,
       );
     } else {
-      this.showNativePanel(false);
+      // The panel was absent, incomplete, or unfamiliar. It was never moved,
+      // so leave Pi's native startup information untouched.
+      this.resourceReadyTimer = undefined;
+      this.tui.requestRender(false);
     }
-  }
-
-  private showNativePanel(forceRender: boolean): void {
-    this.resourceReadyTimer = undefined;
-    restoreResourcePanel(this.tui, this.bridge);
-    this.clearRenderCache();
-    this.tui.requestRender(forceRender);
   }
 
   private clearRenderCache(): void {
@@ -1014,7 +1016,7 @@ class WelcomeHeader implements Component {
     if (this.disposed) return;
     this.disposed = true;
     if (this.resourceReadyTimer) clearTimeout(this.resourceReadyTimer);
-    restoreResourcePanel(this.tui, this.bridge);
+    restoreResourcePanel(this.bridge);
   }
 }
 
@@ -1023,13 +1025,7 @@ export default function (pi: ExtensionAPI) {
     if (ctx.mode !== "tui") return;
 
     ctx.ui.setHeader(
-      (tui, theme) =>
-        new WelcomeHeader(
-          tui,
-          theme,
-          takeResourcePanel(tui),
-          event.reason === "startup",
-        ),
+      (tui, theme) => new WelcomeHeader(tui, theme, event.reason === "startup"),
     );
   });
 }

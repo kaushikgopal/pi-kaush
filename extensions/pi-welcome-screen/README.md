@@ -32,9 +32,9 @@ Use `--no-extensions` before `-e` to test it without your other configured exten
 
 ## Compatibility
 
-The extension installs its header through Pi's public `ctx.ui.setHeader()` API. Pi 0.80.6 does not expose structured startup-resource data, so the extension also uses a narrowly guarded bridge to inspect and temporarily relocate Pi's native startup-resource panel.
+The extension installs its header through Pi's public `ctx.ui.setHeader()` API. Pi 0.84 does not expose structured startup-resource data, so the extension also uses a narrowly guarded bridge to inspect and temporarily relocate Pi's native startup-resource panel.
 
-Every expected component shape is checked before it is touched. If Pi changes the panel, exposes an unknown section, or produces incomplete resource data, the extension restores Pi's untouched native panel rather than hiding information. The initial release is tested against Pi 0.80.6.
+The bridge searches nested containers by resource-section content, so it works with both regular and fullscreen TUI layouts without assuming a fixed root child index. It does not move the panel until a complete snapshot is available. If Pi changes the panel, exposes an unknown section, or produces incomplete resource data, the extension leaves Pi's native panel untouched rather than hiding information. The current release is tested against Pi 0.80.6 and 0.84.0.
 
 Like any custom-header extension, it shares Pi's single header slot. If another extension also calls `setHeader()`, the last installed header wins; neither extension needs to replace the editor or intercept terminal input.
 
