@@ -24,6 +24,8 @@ const MIN_LIST_COLUMN_WIDTH = 22;
 const LIST_COLUMN_GAP = 2;
 const RESOURCE_POLL_INTERVAL_MS = 50;
 const MAX_RESOURCE_RETRIES = 3;
+const LAYOUT_NOTICE =
+  "pi-welcome-screen: unrecognized Pi layout — using native panel";
 const RESOURCE_PANEL_INDEX = 1;
 const RESOURCE_BRIDGE_KEY = "__piKaushWelcomeScreenResourceBridge";
 
@@ -900,8 +902,15 @@ function renderStackedWelcome(
   resources: WelcomeResources | undefined,
   theme: Theme,
   columnWidth: number,
+  notice?: string,
 ): string[] {
   const lines = ["", ...renderBrandColumn(theme, columnWidth)];
+  if (notice) {
+    const noticeText = theme.fg("dim", notice);
+    lines.push(
+      centerBlockLine(noticeText, visibleWidth(noticeText), columnWidth),
+    );
+  }
   if (resources)
     lines.push("", ...renderResourceColumn(resources, theme, columnWidth));
   lines.push("");
@@ -923,6 +932,7 @@ export function renderCenteredWelcome(
   resources: WelcomeResources | undefined,
   theme: Theme,
   width: number,
+  notice?: string,
 ): string[] {
   if (width <= 0) return [];
   const columnCount = resources ? getGridColumnCount(width) : 1;
@@ -941,7 +951,7 @@ export function renderCenteredWelcome(
   const lines =
     columnCount !== 1 && resources
       ? renderGridWelcome(resources, theme, columnWidth, columnCount)
-      : renderStackedWelcome(resources, theme, layoutWidth);
+      : renderStackedWelcome(resources, theme, layoutWidth, notice);
 
   return lines.map((line) =>
     line ? leftPadding + truncateToWidth(line, layoutWidth, "") : "",
@@ -951,6 +961,7 @@ export function renderCenteredWelcome(
 class WelcomeHeader implements Component {
   private resourceReadyTimer: ReturnType<typeof setTimeout> | undefined;
   private resources: WelcomeResources | undefined;
+  private notice: string | undefined;
   private cachedWidth: number | undefined;
   private cachedLines: string[] | undefined;
   private disposed = false;
@@ -974,7 +985,10 @@ class WelcomeHeader implements Component {
   ): void {
     if (this.disposed) return;
     if (!this.bridge) {
+      // The TUI layout matched no known shape. Say so in the header instead
+      // of degrading silently; this is how Pi layout changes get noticed.
       this.resourceReadyTimer = undefined;
+      this.notice = LAYOUT_NOTICE;
       if (attempt === 0) this.tui.requestRender(forceInitialRender);
       return;
     }
@@ -983,10 +997,12 @@ class WelcomeHeader implements Component {
     try {
       snapshot = inspectResourcePanel(this.bridge.panel);
     } catch {
-      this.showNativePanel(forceInitialRender);
+      this.showNativePanel(forceInitialRender, LAYOUT_NOTICE);
       return;
     }
     if (snapshot.requiresNativePanel) {
+      // Expected fallback for diagnostics and unknown-but-valid sections:
+      // Pi's panel is preserved intact, so stay silent.
       this.showNativePanel(forceInitialRender);
       return;
     }
@@ -1023,12 +1039,15 @@ class WelcomeHeader implements Component {
         RESOURCE_POLL_INTERVAL_MS,
       );
     } else {
-      this.showNativePanel(false);
+      // A still-empty panel means quiet startup or slow resource loading;
+      // warn only when sections loaded but never became parseable.
+      this.showNativePanel(false, resourceText ? LAYOUT_NOTICE : undefined);
     }
   }
 
-  private showNativePanel(forceRender: boolean): void {
+  private showNativePanel(forceRender: boolean, notice?: string): void {
     this.resourceReadyTimer = undefined;
+    this.notice = notice;
     restoreResourcePanel(this.tui, this.bridge);
     this.clearRenderCache();
     this.tui.requestRender(forceRender);
@@ -1045,7 +1064,12 @@ class WelcomeHeader implements Component {
     }
 
     const resources = this.resources;
-    const lines = renderCenteredWelcome(resources, this.theme, width);
+    const lines = renderCenteredWelcome(
+      resources,
+      this.theme,
+      width,
+      this.notice,
+    );
     if (resources) {
       this.cachedWidth = width;
       this.cachedLines = lines;

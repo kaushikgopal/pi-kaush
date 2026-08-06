@@ -10,7 +10,7 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 - **Context files in load order** — shows exactly which instructions Pi loaded and the order in which they apply.
 - **Extensions grouped by source** — separates Pi-local extensions, installed packages, and linked source paths.
 - **Responsive layout** — adapts from a stacked view to a full-width brand over two resource columns, then a dedicated brand beside two resource columns.
-- **Fail-safe behavior** — if the startup data or UI shape is unfamiliar, restores Pi's untouched native resource panel instead of hiding information.
+- **Fail-safe behavior** — if the startup data or UI shape is unfamiliar, restores Pi's untouched native resource panel instead of hiding information. When the layout itself is unrecognized, the header says so instead of degrading silently.
 
 ## Install
 

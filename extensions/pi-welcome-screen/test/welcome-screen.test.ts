@@ -320,6 +320,20 @@ describe("welcome resource formatting", () => {
     expect(unnamed.some((line) => line.trim() === "v0.80.6")).toBe(true);
   });
 
+  test("renders the layout notice beneath the version", () => {
+    const lines = renderCenteredWelcome(
+      undefined,
+      plainTheme as never,
+      80,
+      "pi-welcome-screen: unrecognized Pi layout — using native panel",
+    );
+    const versionIndex = lines.findIndex((line) => line.includes("v0.80.6"));
+    expect(lines[versionIndex + 1]?.trim()).toBe(
+      "pi-welcome-screen: unrecognized Pi layout — using native panel",
+    );
+    expect(lines.every((line) => line.length <= 80)).toBe(true);
+  });
+
   test("uses one, two, or three equal-width grid columns as space allows", () => {
     const resources = {
       context: ["AGENTS.md"],
@@ -766,6 +780,111 @@ describe("welcome resource-panel bridge", () => {
     expect(documentContainer.children[1]).toBe(panel);
   });
 
+  test("warns in the header when Pi's layout shape is unrecognized", async () => {
+    let sessionStart: ((event: unknown, context: any) => void) | undefined;
+    welcomeScreen({
+      on(event: string, handler: (event: unknown, context: any) => void) {
+        if (event === "session_start") sessionStart = handler;
+      },
+    } as never);
+
+    let headerFactory:
+      | ((
+          tui: any,
+          theme: any,
+        ) => { render(width: number): string[]; dispose?(): void })
+      | undefined;
+    sessionStart?.(
+      {},
+      {
+        mode: "tui",
+        ui: {
+          setHeader(factory: typeof headerFactory) {
+            headerFactory = factory;
+          },
+        },
+      },
+    );
+
+    const tui = {
+      children: Array.from({ length: 9 }, emptyComponent),
+      removeChild() {},
+      requestRender() {},
+    };
+    const header = headerFactory?.(tui, plainTheme);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const rendered = header?.render(80).join("\n");
+    expect(rendered).toContain("█████████");
+    expect(rendered).toContain(
+      "pi-welcome-screen: unrecognized Pi layout — using native panel",
+    );
+  });
+
+  test("warns when loaded sections never become parseable", async () => {
+    let sessionStart: ((event: unknown, context: any) => void) | undefined;
+    welcomeScreen({
+      on(event: string, handler: (event: unknown, context: any) => void) {
+        if (event === "session_start") sessionStart = handler;
+      },
+    } as never);
+
+    let headerFactory:
+      | ((
+          tui: any,
+          theme: any,
+        ) => { render(width: number): string[]; dispose?(): void })
+      | undefined;
+    sessionStart?.(
+      {},
+      {
+        mode: "tui",
+        ui: {
+          setHeader(factory: typeof headerFactory) {
+            headerFactory = factory;
+          },
+        },
+      },
+    );
+
+    const resourceComponent = {
+      ...emptyComponent(),
+      getCollapsedText() {
+        return "[Context]\n  AGENTS.md\n[Extensions]\n  some-other-extension";
+      },
+    };
+    const panel = {
+      children: [] as Array<typeof resourceComponent>,
+      invalidate() {},
+      render() {
+        return [];
+      },
+    };
+    const children = [
+      { ...emptyComponent(), children: [] },
+      panel,
+      ...Array.from({ length: 7 }, emptyComponent),
+    ];
+    const tui = {
+      children,
+      removeChild(component: unknown) {
+        const index = this.children.indexOf(component as never);
+        if (index !== -1) this.children.splice(index, 1);
+      },
+      requestRender() {},
+    };
+
+    const header = headerFactory?.(tui, plainTheme);
+    expect(tui.children).not.toContain(panel);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    panel.children.push(resourceComponent);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+
+    const rendered = header?.render(80).join("\n");
+    expect(rendered).toContain("unrecognized Pi layout");
+    expect(tui.children[1]).toBe(panel);
+  });
+
   async function expectNativePanelFallback(options: {
     nativeComponent?: any;
     heading?: string;
@@ -845,6 +964,9 @@ describe("welcome resource-panel bridge", () => {
     const renderedHeader = header?.render(80).join("\n") ?? "";
     expect(renderedHeader).toContain("█████████");
     expect(renderedHeader).not.toContain("[Context]");
+    // Expected fallbacks (diagnostics, unknown sections, quiet startup)
+    // restore Pi's panel without crying wolf.
+    expect(renderedHeader).not.toContain("unrecognized Pi layout");
     expect(tui.children[1]).toBe(panel);
     expect(panel.children).toEqual(originalPanelChildren);
     if (options.heading) {
