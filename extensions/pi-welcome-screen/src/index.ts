@@ -1,11 +1,14 @@
 import {
+  CONFIG_DIR_NAME,
   getAgentDir,
   VERSION,
   type ExtensionAPI,
+  type ExtensionContext,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join, relative } from "node:path";
 import {
   type Component,
   type Container,
@@ -26,6 +29,51 @@ const MIN_LIST_COLUMN_WIDTH = 22;
 const LIST_COLUMN_GAP = 2;
 const RESOURCE_POLL_INTERVAL_MS = 50;
 const MAX_RESOURCE_RETRIES = 3;
+const EXTENSION_SETTINGS_KEY = "welcomeScreen";
+
+export interface WelcomeSettings {
+  showCounts: boolean;
+  showWorkspace: boolean;
+  showEstimate: boolean;
+  showHealth: boolean;
+  splitExtensionsAt: number | false;
+}
+
+export const DEFAULT_WELCOME_SETTINGS: Readonly<WelcomeSettings> = {
+  showCounts: true,
+  showWorkspace: false,
+  showEstimate: true,
+  showHealth: true,
+  splitExtensionsAt: 180,
+};
+
+export interface WelcomeEstimate {
+  promptChars: number;
+  promptTokens: number;
+  denominator: number;
+  activeTools?: number | undefined;
+  model?: string | undefined;
+  contextWindow?: number | undefined;
+}
+
+export interface LoadedWelcomeSettings {
+  settings: WelcomeSettings;
+  warnings: string[];
+}
+
+interface WelcomeDisplayContext {
+  settings: WelcomeSettings;
+  workspace: string[];
+  estimate: WelcomeEstimate | undefined;
+  healthWarnings: string[];
+}
+
+export interface WelcomeRenderOptions {
+  settings?: Partial<WelcomeSettings>;
+  workspace?: string[];
+  estimate?: WelcomeEstimate | undefined;
+  healthWarnings?: string[];
+}
 
 let cachedLocalExtensionNames: Set<string> | undefined;
 
@@ -72,6 +120,204 @@ interface ResourcePanelSnapshot {
   resourceText: string;
   expandedExtensionsText?: string;
   retainedChildren: Component[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readSettingsObject(
+  settingsPath: string,
+  warnings: string[],
+): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
+    if (isRecord(parsed)) return parsed;
+    warnings.push(`${settingsPath}: expected a JSON object.`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      warnings.push(
+        `${settingsPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return undefined;
+}
+
+function readWelcomeSettingsBlock(
+  settingsPath: string,
+  warnings: string[],
+): Partial<WelcomeSettings> {
+  const root = readSettingsObject(settingsPath, warnings);
+  if (!root || root[EXTENSION_SETTINGS_KEY] === undefined) return {};
+  const raw = root[EXTENSION_SETTINGS_KEY];
+  if (!isRecord(raw)) {
+    warnings.push(
+      `${settingsPath}:${EXTENSION_SETTINGS_KEY} must be an object.`,
+    );
+    return {};
+  }
+
+  const result: Partial<WelcomeSettings> = {};
+  for (const field of [
+    "showCounts",
+    "showWorkspace",
+    "showEstimate",
+    "showHealth",
+  ] as const) {
+    if (raw[field] === undefined) continue;
+    if (typeof raw[field] === "boolean") result[field] = raw[field];
+    else
+      warnings.push(
+        `${settingsPath}:${EXTENSION_SETTINGS_KEY}.${field} must be a boolean.`,
+      );
+  }
+
+  if (raw.splitExtensionsAt !== undefined) {
+    if (
+      raw.splitExtensionsAt === false ||
+      (typeof raw.splitExtensionsAt === "number" &&
+        Number.isSafeInteger(raw.splitExtensionsAt) &&
+        raw.splitExtensionsAt > 0)
+    ) {
+      result.splitExtensionsAt = raw.splitExtensionsAt;
+    } else {
+      warnings.push(
+        `${settingsPath}:${EXTENSION_SETTINGS_KEY}.splitExtensionsAt must be a positive integer or false.`,
+      );
+    }
+  }
+
+  const knownFields = new Set([
+    "showCounts",
+    "showWorkspace",
+    "showEstimate",
+    "showHealth",
+    "splitExtensionsAt",
+  ]);
+  for (const field of Object.keys(raw)) {
+    if (!knownFields.has(field)) {
+      warnings.push(
+        `${settingsPath}:${EXTENSION_SETTINGS_KEY}.${field} is not supported.`,
+      );
+    }
+  }
+  return result;
+}
+
+function compactCount(value: number): string {
+  if (value < 1_000) return String(Math.round(value));
+  const unit = value >= 1_000_000 ? 1_000_000 : 1_000;
+  const suffix = unit === 1_000_000 ? "M" : "k";
+  return `${(value / unit).toFixed(1).replace(/\.0$/, "")}${suffix}`;
+}
+
+// Keep this deliberately smaller than a context inspector: Claude is the material
+// exception to the honest chars/4 fallback for Pi-shaped system text. These ratios
+// follow pi-contextimate's measured family boundary; tool schemas stay excluded because
+// provider wire transforms need a substantially larger, provider-specific estimator.
+function promptTokenDenominator(
+  model:
+    | Pick<NonNullable<ExtensionContext["model"]>, "provider" | "id">
+    | undefined,
+): number {
+  if (!model) return 4;
+  const provider = model.provider.toLowerCase();
+  const id = model.id.toLowerCase();
+  if (!provider.includes("anthropic") && !id.includes("claude")) return 4;
+  if (
+    /claude.*(?:4[-.]?[7-9](?=$|[-.:@])|(?:fable|opus|sonnet|haiku)[-.]?5(?=$|[-.:@]))|4[-.]?[7-9](?=$|[-.:@]).*claude/.test(
+      id,
+    )
+  )
+    return 2.6;
+  if (/claude.*4[-.]?[56]|4[-.]?[56].*claude/.test(id)) return 3.8;
+  return 3.5;
+}
+
+export function buildWelcomeEstimate(
+  pi: Pick<ExtensionAPI, "getActiveTools">,
+  ctx: Pick<ExtensionContext, "getSystemPrompt" | "model">,
+): WelcomeEstimate | undefined {
+  let prompt: string;
+  try {
+    prompt = ctx.getSystemPrompt();
+  } catch {
+    return undefined;
+  }
+  if (!prompt) return undefined;
+
+  let activeTools: number | undefined;
+  try {
+    activeTools = pi.getActiveTools().length;
+  } catch {
+    activeTools = undefined;
+  }
+
+  const denominator = promptTokenDenominator(ctx.model);
+  const contextWindow = ctx.model?.contextWindow;
+  return {
+    promptChars: prompt.length,
+    promptTokens: Math.ceil(prompt.length / denominator),
+    denominator,
+    activeTools,
+    model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+    contextWindow:
+      typeof contextWindow === "number" &&
+      Number.isFinite(contextWindow) &&
+      contextWindow > 0
+        ? contextWindow
+        : undefined,
+  };
+}
+
+export function loadWelcomeSettings(
+  cwd: string,
+  projectTrusted: boolean,
+  agentDir = getAgentDir(),
+): LoadedWelcomeSettings {
+  const warnings: string[] = [];
+  const globalSettings = readWelcomeSettingsBlock(
+    join(agentDir, "settings.json"),
+    warnings,
+  );
+  const projectSettings = projectTrusted
+    ? readWelcomeSettingsBlock(
+        join(cwd, CONFIG_DIR_NAME, "settings.json"),
+        warnings,
+      )
+    : {};
+  return {
+    settings: {
+      ...DEFAULT_WELCOME_SETTINGS,
+      ...globalSettings,
+      ...projectSettings,
+    },
+    warnings,
+  };
+}
+
+function getWorkspaceLines(cwd: string, sessionReason: string): string[] {
+  let root = cwd;
+  while (!existsSync(join(root, ".git"))) {
+    const parent = dirname(root);
+    if (parent === root) break;
+    root = parent;
+  }
+
+  if (!existsSync(join(root, ".git"))) {
+    const displayPath = cwd.startsWith(`${homedir()}/`)
+      ? `~/${relative(homedir(), cwd)}`
+      : cwd;
+    return [basename(cwd), displayPath, `Session: ${sessionReason}`];
+  }
+
+  const relativeCwd = relative(root, cwd);
+  return [
+    basename(root),
+    ...(relativeCwd ? [relativeCwd] : []),
+    `Session: ${sessionReason}`,
+  ];
 }
 
 function stripAnsi(text: string): string {
@@ -654,6 +900,8 @@ function appendExtensionsSection(
   theme: Theme,
   columnWidth: number,
   sharedColumnCount: 2 | 3,
+  terminalWidth: number,
+  settings: WelcomeSettings,
 ): void {
   if (lines.length > 0) lines.push("");
   lines.push(theme.fg("mdHeading", "[Extensions]"));
@@ -678,23 +926,21 @@ function appendExtensionsSection(
     sourceExtensions.has(name),
   );
   const groups = [
-    { title: "Local", items: localExtensions, multiColumn: true },
+    { title: "Local", items: localExtensions },
     {
       title: "Packages",
       items: installedPackageExtensions,
-      multiColumn: false,
     },
     {
       title: "Source paths",
       items: linkedSourceExtensions,
-      multiColumn: false,
     },
   ].filter(({ items }) => items.length > 0);
 
   for (const [index, group] of groups.entries()) {
     if (index > 0) lines.push("");
     lines.push(theme.fg("muted", `  ${group.title}`));
-    if (group.multiColumn) {
+    if (group.title === "Local") {
       appendColumnRows(
         lines,
         group.items,
@@ -702,13 +948,24 @@ function appendExtensionsSection(
         columnWidth,
         sharedColumnCount,
       );
+    } else if (
+      group.title === "Packages" &&
+      settings.splitExtensionsAt !== false &&
+      terminalWidth >= settings.splitExtensionsAt
+    ) {
+      appendColumnRows(lines, group.items, theme, columnWidth, 2);
     } else {
       appendSingleColumnRows(lines, group.items, theme, columnWidth);
     }
   }
 }
 
-function renderBrandColumn(theme: Theme, columnWidth: number): string[] {
+function renderBrandColumn(
+  resources: WelcomeResources | undefined,
+  theme: Theme,
+  columnWidth: number,
+  display: WelcomeDisplayContext,
+): string[] {
   const lines: string[] = [];
   const bannerWidth = Math.max(...PI_BANNER.map((line) => visibleWidth(line)));
   for (const bannerLine of PI_BANNER) {
@@ -725,7 +982,70 @@ function renderBrandColumn(theme: Theme, columnWidth: number): string[] {
   lines.push(
     centerBlockLine(versionSummary, visibleWidth(versionSummary), columnWidth),
   );
+
+  if (resources && display.settings.showCounts) {
+    const countRows = [
+      `${resources.context.length} ctx · ${resources.skills.length} ${resources.skills.length === 1 ? "skill" : "skills"}`,
+      `${resources.prompts.length} ${resources.prompts.length === 1 ? "prompt" : "prompts"} · ${resources.extensions.length} ext`,
+    ];
+    lines.push("");
+    for (const countRow of countRows) {
+      const themedRow = theme.fg("dim", countRow);
+      lines.push(
+        centerBlockLine(themedRow, visibleWidth(themedRow), columnWidth),
+      );
+    }
+  }
+
+  if (display.settings.showWorkspace && display.workspace.length > 0) {
+    lines.push("", theme.fg("mdHeading", "[Workspace]"));
+    appendSingleColumnRows(lines, display.workspace, theme, columnWidth);
+  }
   return lines;
+}
+
+function appendHealthSection(
+  lines: string[],
+  display: WelcomeDisplayContext,
+  theme: Theme,
+  columnWidth: number,
+): void {
+  if (!display.settings.showHealth || display.healthWarnings.length === 0)
+    return;
+  if (lines.length > 0) lines.push("");
+  lines.push(theme.fg("mdHeading", "[Health]"));
+  appendSingleColumnRows(lines, display.healthWarnings, theme, columnWidth);
+}
+
+function appendEstimateSection(
+  lines: string[],
+  display: WelcomeDisplayContext,
+  theme: Theme,
+  columnWidth: number,
+): void {
+  const estimate = display.estimate;
+  if (!display.settings.showEstimate || !estimate) return;
+
+  const rows: string[] = [];
+  if (estimate.model) {
+    rows.push(
+      estimate.contextWindow
+        ? `${estimate.model} · ${compactCount(estimate.contextWindow)} ctx`
+        : estimate.model,
+    );
+  }
+  rows.push(
+    `System prompt ~${compactCount(estimate.promptTokens)} tokens (${compactCount(estimate.promptChars)} ch ÷ ${estimate.denominator})`,
+  );
+  if (estimate.activeTools !== undefined) {
+    rows.push(
+      `${estimate.activeTools} active ${estimate.activeTools === 1 ? "tool" : "tools"} · schemas excluded`,
+    );
+  }
+
+  if (lines.length > 0) lines.push("");
+  lines.push(theme.fg("mdHeading", "[Estimate]"));
+  appendSingleColumnRows(lines, rows, theme, columnWidth);
 }
 
 function appendResourceSection(
@@ -735,6 +1055,8 @@ function appendResourceSection(
   theme: Theme,
   columnWidth: number,
   sharedColumnCount: 2 | 3,
+  terminalWidth: number,
+  display: WelcomeDisplayContext,
 ): void {
   if (title === "Extensions") {
     appendExtensionsSection(
@@ -745,6 +1067,8 @@ function appendResourceSection(
       theme,
       columnWidth,
       sharedColumnCount,
+      terminalWidth,
+      display.settings,
     );
     return;
   }
@@ -764,12 +1088,18 @@ function appendResourceSection(
     title === "Context",
     title === "Skills" ? sharedColumnCount : undefined,
   );
+  if (title === "Prompts") {
+    appendEstimateSection(lines, display, theme, columnWidth);
+    appendHealthSection(lines, display, theme, columnWidth);
+  }
 }
 
 function renderResourceColumn(
   resources: WelcomeResources,
   theme: Theme,
   columnWidth: number,
+  terminalWidth: number,
+  display: WelcomeDisplayContext,
 ): string[] {
   const lines: string[] = [];
   const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
@@ -781,6 +1111,8 @@ function renderResourceColumn(
       theme,
       columnWidth,
       sharedColumnCount,
+      terminalWidth,
+      display,
     );
   return lines;
 }
@@ -797,8 +1129,11 @@ function renderGridItem(
   resources: WelcomeResources,
   theme: Theme,
   columnWidth: number,
+  terminalWidth: number,
+  display: WelcomeDisplayContext,
 ): string[] {
-  if (item === "Brand") return renderBrandColumn(theme, columnWidth);
+  if (item === "Brand")
+    return renderBrandColumn(resources, theme, columnWidth, display);
 
   const lines: string[] = [];
   const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
@@ -809,6 +1144,8 @@ function renderGridItem(
     theme,
     columnWidth,
     sharedColumnCount,
+    terminalWidth,
+    display,
   );
   return lines;
 }
@@ -818,11 +1155,20 @@ function renderGridWelcome(
   theme: Theme,
   columnWidths: readonly number[],
   columnCount: 2 | 3,
+  terminalWidth: number,
+  display: WelcomeDisplayContext,
 ): string[] {
   const topAlignedColumns = GRID_COLUMNS[columnCount].map((items, column) =>
     items.flatMap((item, index) => [
       ...(index > 0 ? [""] : []),
-      ...renderGridItem(item, resources, theme, columnWidths[column] ?? 1),
+      ...renderGridItem(
+        item,
+        resources,
+        theme,
+        columnWidths[column] ?? 1,
+        terminalWidth,
+        display,
+      ),
     ]),
   );
   const rowCount = Math.max(
@@ -839,7 +1185,12 @@ function renderGridWelcome(
         .join(" ".repeat(GRID_COLUMN_GAP))
         .trimEnd(),
     );
-    return ["", ...renderBrandColumn(theme, layoutWidth), "", ...resourceRows];
+    return [
+      "",
+      ...renderBrandColumn(resources, theme, layoutWidth, display),
+      "",
+      ...resourceRows,
+    ];
   }
 
   const columns = topAlignedColumns.map((column, index) =>
@@ -868,10 +1219,23 @@ function renderStackedWelcome(
   resources: WelcomeResources | undefined,
   theme: Theme,
   columnWidth: number,
+  display: WelcomeDisplayContext,
 ): string[] {
-  const lines = ["", ...renderBrandColumn(theme, columnWidth)];
+  const lines = [
+    "",
+    ...renderBrandColumn(resources, theme, columnWidth, display),
+  ];
   if (resources)
-    lines.push("", ...renderResourceColumn(resources, theme, columnWidth));
+    lines.push(
+      "",
+      ...renderResourceColumn(
+        resources,
+        theme,
+        columnWidth,
+        columnWidth,
+        display,
+      ),
+    );
   lines.push("");
   return lines;
 }
@@ -929,8 +1293,30 @@ export function renderCenteredWelcome(
   resources: WelcomeResources | undefined,
   theme: Theme,
   width: number,
+  options: WelcomeRenderOptions = {},
 ): string[] {
   if (width <= 0) return [];
+  const requestedSettings = options.settings;
+  const display: WelcomeDisplayContext = {
+    settings: {
+      showCounts:
+        requestedSettings?.showCounts ?? DEFAULT_WELCOME_SETTINGS.showCounts,
+      showWorkspace:
+        requestedSettings?.showWorkspace ??
+        DEFAULT_WELCOME_SETTINGS.showWorkspace,
+      showEstimate:
+        requestedSettings?.showEstimate ??
+        DEFAULT_WELCOME_SETTINGS.showEstimate,
+      showHealth:
+        requestedSettings?.showHealth ?? DEFAULT_WELCOME_SETTINGS.showHealth,
+      splitExtensionsAt:
+        requestedSettings?.splitExtensionsAt ??
+        DEFAULT_WELCOME_SETTINGS.splitExtensionsAt,
+    },
+    workspace: [...(options.workspace ?? [])],
+    estimate: options.estimate,
+    healthWarnings: [...(options.healthWarnings ?? [])],
+  };
   const columnCount = resources ? getGridColumnCount(width) : 1;
   const columnWidths =
     columnCount === 1
@@ -942,8 +1328,15 @@ export function renderCenteredWelcome(
   const leftPadding = " ".repeat(Math.floor((width - layoutWidth) / 2));
   const lines =
     columnCount !== 1 && resources
-      ? renderGridWelcome(resources, theme, columnWidths, columnCount)
-      : renderStackedWelcome(resources, theme, layoutWidth);
+      ? renderGridWelcome(
+          resources,
+          theme,
+          columnWidths,
+          columnCount,
+          width,
+          display,
+        )
+      : renderStackedWelcome(resources, theme, layoutWidth, display);
 
   return lines.map((line) =>
     line ? leftPadding + truncateToWidth(line, layoutWidth, "") : "",
@@ -962,6 +1355,7 @@ class WelcomeHeader implements Component {
     private readonly tui: TUI,
     private readonly theme: Theme,
     forceInitialRender: boolean,
+    private readonly display: WelcomeDisplayContext,
   ) {
     // Resource discovery and the loaded-resource panel are finalized after
     // session_start. Search lazily so both regular and fullscreen TUI layouts
@@ -1039,7 +1433,12 @@ class WelcomeHeader implements Component {
     }
 
     const resources = this.resources;
-    const lines = renderCenteredWelcome(resources, this.theme, width);
+    const lines = renderCenteredWelcome(
+      resources,
+      this.theme,
+      width,
+      this.display,
+    );
     if (resources) {
       this.cachedWidth = width;
       this.cachedLines = lines;
@@ -1064,8 +1463,21 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
 
+    const loaded = loadWelcomeSettings(ctx.cwd, ctx.isProjectTrusted());
+    const display: WelcomeDisplayContext = {
+      settings: loaded.settings,
+      workspace: loaded.settings.showWorkspace
+        ? getWorkspaceLines(ctx.cwd, event.reason)
+        : [],
+      estimate: loaded.settings.showEstimate
+        ? buildWelcomeEstimate(pi, ctx)
+        : undefined,
+      healthWarnings: loaded.warnings,
+    };
+
     ctx.ui.setHeader(
-      (tui, theme) => new WelcomeHeader(tui, theme, event.reason === "startup"),
+      (tui, theme) =>
+        new WelcomeHeader(tui, theme, event.reason === "startup", display),
     );
   });
 }

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
+  CONFIG_DIR_NAME: ".pi",
   VERSION: "0.80.6",
   getAgentDir: () => "/tmp/pi-agent",
 }));
@@ -26,7 +30,9 @@ vi.mock("@earendil-works/pi-tui", () => ({
 }));
 
 const {
+  buildWelcomeEstimate,
   default: welcomeScreen,
+  loadWelcomeSettings,
   normalizeExtensionName,
   parseWelcomeResources,
   renderCenteredWelcome,
@@ -72,6 +78,153 @@ beforeEach(() => {
 afterEach(() => {
   if (originalOffline === undefined) delete process.env.PI_OFFLINE;
   else process.env.PI_OFFLINE = originalOffline;
+});
+
+describe("welcome settings", () => {
+  test("uses code defaults when canonical Pi settings are absent", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-welcome-settings-"));
+    try {
+      expect(loadWelcomeSettings(join(root, "project"), true, root)).toEqual({
+        settings: {
+          showCounts: true,
+          showWorkspace: false,
+          showEstimate: true,
+          showHealth: true,
+          splitExtensionsAt: 180,
+        },
+        warnings: [],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("merges trusted project settings over global settings by field", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-welcome-settings-"));
+    const agentDir = join(root, "agent");
+    const cwd = join(root, "project");
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(
+      join(agentDir, "settings.json"),
+      JSON.stringify({
+        welcomeScreen: {
+          showCounts: false,
+          showWorkspace: true,
+          showEstimate: false,
+          splitExtensionsAt: false,
+        },
+      }),
+    );
+    writeFileSync(
+      join(cwd, ".pi", "settings.json"),
+      JSON.stringify({
+        welcomeScreen: {
+          showCounts: true,
+          showEstimate: true,
+          showHealth: false,
+        },
+      }),
+    );
+
+    try {
+      expect(loadWelcomeSettings(cwd, true, agentDir).settings).toEqual({
+        showCounts: true,
+        showWorkspace: true,
+        showEstimate: true,
+        showHealth: false,
+        splitExtensionsAt: false,
+      });
+      expect(loadWelcomeSettings(cwd, false, agentDir).settings).toEqual({
+        showCounts: false,
+        showWorkspace: true,
+        showEstimate: false,
+        showHealth: true,
+        splitExtensionsAt: false,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ignores invalid values and reports actionable health warnings", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-welcome-settings-"));
+    mkdirSync(root, { recursive: true });
+    writeFileSync(
+      join(root, "settings.json"),
+      JSON.stringify({
+        welcomeScreen: {
+          showCounts: "yes",
+          splitExtensionsAt: 12.5,
+          extraNoise: true,
+        },
+      }),
+    );
+
+    try {
+      const loaded = loadWelcomeSettings(join(root, "project"), false, root);
+      expect(loaded.settings).toEqual({
+        showCounts: true,
+        showWorkspace: false,
+        showEstimate: true,
+        showHealth: true,
+        splitExtensionsAt: 180,
+      });
+      expect(loaded.warnings).toHaveLength(3);
+      expect(loaded.warnings.join("\n")).toContain("showCounts");
+      expect(loaded.warnings.join("\n")).toContain("splitExtensionsAt");
+      expect(loaded.warnings.join("\n")).toContain("extraNoise");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("builds an honest prompt-only estimate from public Pi context", () => {
+    const estimate = buildWelcomeEstimate(
+      { getActiveTools: () => ["read", "grep", "git"] } as never,
+      {
+        getSystemPrompt: () => "x".repeat(8_001),
+        model: {
+          provider: "openai-codex",
+          id: "gpt-5.4",
+          contextWindow: 272_000,
+        },
+      } as never,
+    );
+
+    expect(estimate).toEqual({
+      promptChars: 8_001,
+      promptTokens: 2_001,
+      denominator: 4,
+      activeTools: 3,
+      model: "openai-codex/gpt-5.4",
+      contextWindow: 272_000,
+    });
+    expect(
+      buildWelcomeEstimate(
+        { getActiveTools: () => ["read"] } as never,
+        {
+          getSystemPrompt: () => "x".repeat(8_001),
+          model: {
+            provider: "anthropic",
+            id: "claude-opus-4-7",
+            contextWindow: 200_000,
+          },
+        } as never,
+      ),
+    ).toMatchObject({ denominator: 2.6, promptTokens: 3_078 });
+    expect(
+      buildWelcomeEstimate(
+        { getActiveTools: () => [] } as never,
+        {
+          getSystemPrompt: () => {
+            throw new Error("not ready");
+          },
+          model: undefined,
+        } as never,
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("welcome resource formatting", () => {
@@ -378,7 +531,9 @@ describe("welcome resource formatting", () => {
     );
     expect(twoColumns[firstLogoRow]?.indexOf("█")).toBe(36);
     expect(firstLogoRow).toBe(1);
-    expect(firstResourceRow - versionRow - 1).toBe(firstLogoRow);
+    expect(twoColumns[versionRow + 2]?.trim()).toBe("1 ctx · 1 skill");
+    expect(twoColumns[versionRow + 3]?.trim()).toBe("1 prompt · 12 ext");
+    expect(firstResourceRow).toBeGreaterThan(versionRow + 3);
     expect(
       twoColumns.map((line) => line.includes("extension-11")).lastIndexOf(true),
     ).toBeGreaterThan(
@@ -401,13 +556,13 @@ describe("welcome resource formatting", () => {
     const threeColumnFirstLogoRow = threeColumns.findIndex((line) =>
       line.includes("█"),
     );
-    const threeColumnVersionRow = threeColumns.findIndex((line) =>
-      line.includes("v0.80.6"),
+    const threeColumnLastBrandRow = threeColumns.findIndex((line) =>
+      line.includes("prompt · 12 ext"),
     );
     expect(
       Math.abs(
         threeColumnFirstLogoRow -
-          (threeColumns.length - threeColumnVersionRow - 1),
+          (threeColumns.length - threeColumnLastBrandRow - 1),
       ),
     ).toBeLessThanOrEqual(1);
     expect(threeColumns.every((line) => line.length <= 128)).toBe(true);
@@ -442,6 +597,127 @@ describe("welcome resource formatting", () => {
     expect(200 - extensionStart).toBeGreaterThanOrEqual(100);
     expect(wide.join("\n")).toContain(resources.sourceExtensions[0]);
     expect(wide.every((line) => line.length <= 200)).toBe(true);
+  });
+
+  test("splits only package extensions at the configured wide breakpoint", () => {
+    const packages = Array.from(
+      { length: 14 },
+      (_, index) => `package-${index + 1}`,
+    );
+    const sourcePath = "~/projects/example/extensions/custom/src/index.ts";
+    const resources = {
+      context: ["AGENTS.md"],
+      skills: [],
+      prompts: [],
+      extensions: ["welcome-screen", ...packages, sourcePath],
+      packageExtensions: packages,
+      sourceExtensions: [sourcePath],
+    };
+    const options = {
+      settings: { splitExtensionsAt: 180 },
+    };
+
+    const before = renderCenteredWelcome(
+      resources,
+      plainTheme as never,
+      179,
+      options,
+    );
+    const after = renderCenteredWelcome(
+      resources,
+      plainTheme as never,
+      180,
+      options,
+    );
+    const packageRows = (lines: string[]) => {
+      const start = lines.findIndex((line) => line.trim() === "Packages");
+      const end = lines.findIndex(
+        (line, index) => index > start && line.trim() === "Source paths",
+      );
+      return lines.slice(start + 1, end);
+    };
+
+    expect(
+      packageRows(before).every((row) => (row.match(/•/g)?.length ?? 0) <= 1),
+    ).toBe(true);
+    expect(
+      packageRows(after).some((row) => (row.match(/•/g)?.length ?? 0) === 2),
+    ).toBe(true);
+    expect(after.join("\n")).toContain(sourcePath);
+    expect(after.every((line) => line.length <= 180)).toBe(true);
+
+    const disabled = renderCenteredWelcome(
+      resources,
+      plainTheme as never,
+      200,
+      { settings: { splitExtensionsAt: false } },
+    );
+    expect(
+      packageRows(disabled).every((row) => (row.match(/•/g)?.length ?? 0) <= 1),
+    ).toBe(true);
+  });
+
+  test("renders optional counts, workspace, and non-empty health information", () => {
+    const resources = {
+      context: ["AGENTS.md", "project/AGENTS.md"],
+      skills: ["tasks-handoff"],
+      prompts: ["/review"],
+      extensions: ["welcome-screen", "pi-subagents"],
+    };
+    const rendered = renderCenteredWelcome(
+      resources,
+      plainTheme as never,
+      128,
+      {
+        settings: { showWorkspace: true },
+        workspace: [
+          "pi-kaush",
+          "extensions/pi-welcome-screen",
+          "Session: resume",
+        ],
+        healthWarnings: ["welcomeScreen.extraNoise is not supported."],
+        estimate: {
+          promptChars: 8_001,
+          promptTokens: 2_001,
+          denominator: 4,
+          activeTools: 3,
+          model: "openai-codex/gpt-5.4",
+          contextWindow: 272_000,
+        },
+      },
+    );
+    const text = rendered.join("\n");
+
+    expect(text).toContain("2 ctx · 1 skill");
+    expect(text).toContain("1 prompt · 2 ext");
+    expect(text).toContain("[Workspace]");
+    expect(text).toContain("Session: resume");
+    expect(text).toContain("[Estimate]");
+    expect(text).toContain("System prompt ~2k tokens");
+    expect(text).toContain("3 active tools · schemas excluded");
+    expect(text).toContain("[Health]");
+    expect(text).toContain("extraNoise");
+    expect(rendered.every((line) => line.length <= 128)).toBe(true);
+
+    const hidden = renderCenteredWelcome(resources, plainTheme as never, 128, {
+      settings: {
+        showCounts: false,
+        showWorkspace: false,
+        showEstimate: false,
+        showHealth: false,
+      },
+      workspace: ["pi-kaush"],
+      estimate: {
+        promptChars: 8_000,
+        promptTokens: 2_000,
+        denominator: 4,
+      },
+      healthWarnings: ["bad setting"],
+    }).join("\n");
+    expect(hidden).not.toContain("ctx ·");
+    expect(hidden).not.toContain("[Workspace]");
+    expect(hidden).not.toContain("[Estimate]");
+    expect(hidden).not.toContain("[Health]");
   });
 
   test("columns local extensions and lists vendored packages separately", () => {
@@ -616,6 +892,9 @@ describe("welcome resource-panel bridge", () => {
       on(event: string, handler: (event: unknown, context: any) => void) {
         if (event === "session_start") sessionStart = handler;
       },
+      getActiveTools() {
+        return ["read", "grep"];
+      },
     } as never);
 
     let headerFactory:
@@ -628,6 +907,14 @@ describe("welcome resource-panel bridge", () => {
       {},
       {
         mode: "tui",
+        cwd: "/tmp/project",
+        isProjectTrusted: () => false,
+        getSystemPrompt: () => "x".repeat(4_000),
+        model: {
+          provider: "openai-codex",
+          id: "gpt-5.4",
+          contextWindow: 272_000,
+        },
         ui: {
           setHeader(factory: typeof headerFactory) {
             headerFactory = factory;
@@ -715,6 +1002,11 @@ describe("welcome resource-panel bridge", () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
     const firstRender = header?.render(80);
     expect(firstRender?.join("\n")).toContain("• AGENTS.md");
+    expect(firstRender?.join("\n")).toContain("[Estimate]");
+    expect(firstRender?.join("\n")).toContain("System prompt ~1k tokens");
+    expect(firstRender?.join("\n")).toContain(
+      "2 active tools · schemas excluded",
+    );
     expect(firstRender?.join("\n")).toContain(
       "~/dev/pi-kaush/extensions/pi-double-paste/src",
     );
@@ -751,6 +1043,8 @@ describe("welcome resource-panel bridge", () => {
       { reason: "startup" },
       {
         mode: "tui",
+        cwd: "/tmp/project",
+        isProjectTrusted: () => false,
         ui: {
           setHeader(factory: typeof headerFactory) {
             headerFactory = factory;
@@ -862,6 +1156,8 @@ describe("welcome resource-panel bridge", () => {
       { reason: "startup" },
       {
         mode: "tui",
+        cwd: "/tmp/project",
+        isProjectTrusted: () => false,
         ui: {
           setHeader(factory: typeof headerFactory) {
             headerFactory = factory;

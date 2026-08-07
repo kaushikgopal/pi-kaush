@@ -9,7 +9,8 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 - **Zero runtime dependencies** — installs as readable TypeScript without pulling additional packages into your Pi setup.
 - **Context files in load order** — shows exactly which instructions Pi loaded and the order in which they apply.
 - **Extensions grouped by source** — separates Pi-local extensions, installed packages, and linked source paths.
-- **Responsive layout** — adapts from a stacked view to a full-width brand over two resource columns, then a compact brand rail beside asymmetric resource columns that give long extension paths more room.
+- **Responsive layout** — adapts from a stacked view to asymmetric resource columns, then splits long package lists again on very wide terminals.
+- **Useful optional metadata** — shows compact resource counts and an honest system-prompt estimate, with opt-in workspace details and configuration health warnings only when needed.
 - **Fail-safe behavior** — preserves unfamiliar startup components and falls back to Pi's untouched native resource panel when the known resource snapshot is incomplete.
 
 ## Install
@@ -19,6 +20,30 @@ pi install npm:@pi-kaush/pi-welcome-screen@0.1.3
 ```
 
 Restart Pi or run `/reload`.
+
+## Configuration
+
+Configure the extension in Pi's canonical global `~/.pi/agent/settings.json` or trusted project `.pi/settings.json`. Project fields override matching global fields; defaults remain in the extension, so no additional configuration file is created.
+
+```json
+{
+  "welcomeScreen": {
+    "showCounts": true,
+    "showWorkspace": false,
+    "showEstimate": true,
+    "showHealth": true,
+    "splitExtensionsAt": 180
+  }
+}
+```
+
+- `showCounts` adds compact context, skill, prompt, and extension counts below the Pi version.
+- `showWorkspace` adds the repository or directory name, relative working directory, and session start reason.
+- `showEstimate` adds the current model, context-window size, a local system-prompt estimate, and the active tool count. It uses measured Claude-family character ratios where they materially differ and an explicit characters-divided-by-four fallback elsewhere. Tool schemas are excluded because providers reshape them differently on the wire.
+- `showHealth` displays invalid `welcomeScreen` settings. Empty health information is omitted.
+- `splitExtensionsAt` is the terminal width at which package extensions flow into two columns. Set it to `false` to keep packages in one column.
+
+Only trusted project settings are read. Invalid fields are ignored individually, and valid global or default values remain active.
 
 ## Run from a local clone
 
@@ -43,10 +68,10 @@ Like any custom-header extension, it shares Pi's single header slot. If another 
 The package contains readable TypeScript and has:
 
 - no runtime dependencies or install scripts;
-- no network, subprocess, clipboard, prompt, tool, model, or telemetry access;
+- no network, subprocess, clipboard, tool execution, or telemetry access;
 - no background work after the startup resource snapshot completes.
 
-At startup it reads only the names of entries in Pi's local extension directory and the text already rendered in Pi's startup-resource panel so extensions can be grouped by provenance. Resource capture uses at most three short 50 ms retries. The native panel container remains mounted throughout capture so Pi retains ownership of fullscreen transcript layout and scrolling.
+At startup it reads Pi's global settings, trusted project settings, the names of entries in Pi's local extension directory, and the text already rendered in Pi's startup-resource panel. For the estimate it reads the current in-memory system-prompt length, model metadata, and active tool names through public Pi APIs; prompt contents and tool schemas are not rendered or persisted. When workspace details are enabled, it also walks parent directory names until it finds the workspace's `.git` entry; it does not inspect repository contents or run Git. Resource capture uses at most three short 50 ms retries. The native panel container remains mounted throughout capture so Pi retains ownership of fullscreen transcript layout and scrolling.
 
 ## Development
 
