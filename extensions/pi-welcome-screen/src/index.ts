@@ -716,9 +716,27 @@ function findResourcePanel(tui: TUI): ResourcePanelMatch | undefined {
   return inspectResourceCandidate(tui.children[1]);
 }
 
+function getKnownChildHeadings(component: Component): Set<string> {
+  const collapsible = component as CollapsedTextComponent;
+  if (typeof collapsible.getCollapsedText !== "function") return new Set();
+  return new Set(
+    stripAnsi(collapsible.getCollapsedText())
+      .split("\n")
+      .map((line) => line.trim().match(/^\[([^\]]+)\]$/)?.[1])
+      .filter((heading): heading is string =>
+        Boolean(
+          heading &&
+            (heading === "Themes" ||
+              WELCOME_SECTIONS.some((section) => section === heading)),
+        ),
+      ),
+  );
+}
+
 function removeKnownResourceChildren(
   panel: ResourcePanel,
   knownChildren: Component[],
+  previous?: ResourceBridge,
 ): ResourceBridge {
   // Never clear and replay this container. Third-party startup components may
   // self-heal from a transient detach and insert the same logical block twice.
@@ -726,7 +744,26 @@ function removeKnownResourceChildren(
     panel.children.includes(child),
   );
   for (const child of removedChildren) panel.removeChild(child);
-  return { panel, removedChildren };
+
+  if (!previous || previous.panel !== panel) return { panel, removedChildren };
+
+  // Reload may rebuild Pi's native resource components after session_start.
+  // Retain only the newest component for each known section so dispose() cannot
+  // restore stale and current copies of the same native startup information.
+  const replacementHeadings = new Set(
+    removedChildren.flatMap((child) => [...getKnownChildHeadings(child)]),
+  );
+  return {
+    panel,
+    removedChildren: [
+      ...previous.removedChildren.filter((child) =>
+        [...getKnownChildHeadings(child)].every(
+          (heading) => !replacementHeadings.has(heading),
+        ),
+      ),
+      ...removedChildren,
+    ],
+  };
 }
 
 function restoreResourcePanel(bridge: ResourceBridge | undefined): void {
@@ -1345,7 +1382,7 @@ class WelcomeHeader implements Component {
   private resources: WelcomeResources | undefined;
   private cachedWidth: number | undefined;
   private cachedLines: string[] | undefined;
-  private bridge: ResourceBridge | undefined;
+  private bridges: ResourceBridge[] = [];
   private disposed = false;
 
   constructor(
@@ -1392,20 +1429,29 @@ class WelcomeHeader implements Component {
     const resourcePanelIsComplete = Boolean(
       candidateResources?.extensions.some(isWelcomeScreenExtension),
     );
-    if (resourcePanelIsComplete) {
-      this.bridge = match
-        ? removeKnownResourceChildren(match.panel, match.snapshot.knownChildren)
-        : undefined;
+    if (resourcePanelIsComplete && match) {
+      const bridgeIndex = this.bridges.findIndex(
+        (bridge) => bridge.panel === match.panel,
+      );
+      const previousBridge =
+        bridgeIndex === -1 ? undefined : this.bridges[bridgeIndex];
+      const bridge = removeKnownResourceChildren(
+        match.panel,
+        match.snapshot.knownChildren,
+        previousBridge,
+      );
+      if (bridgeIndex === -1) this.bridges.push(bridge);
+      else this.bridges[bridgeIndex] = bridge;
       this.resources = candidateResources;
       this.clearRenderCache();
-      this.resourceReadyTimer = undefined;
       this.tui.requestRender(forceInitialRender);
-      return;
+    } else if (attempt === 0) {
+      this.tui.requestRender(forceInitialRender);
     }
 
-    if (attempt === 0) {
-      this.tui.requestRender(forceInitialRender);
-    }
+    // Keep watching briefly after the first successful capture. During /reload,
+    // Pi can replace its native resource component after session_start; stopping
+    // at the first match leaves both the custom and rebuilt native panels visible.
     if (attempt < MAX_RESOURCE_RETRIES) {
       this.resourceReadyTimer = setTimeout(
         () => this.captureResourcesWhenReady(false, attempt + 1),
@@ -1445,14 +1491,14 @@ class WelcomeHeader implements Component {
 
   invalidate(): void {
     this.clearRenderCache();
-    this.bridge?.panel.invalidate();
+    for (const bridge of this.bridges) bridge.panel.invalidate();
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     if (this.resourceReadyTimer) clearTimeout(this.resourceReadyTimer);
-    restoreResourcePanel(this.bridge);
+    for (const bridge of this.bridges) restoreResourcePanel(bridge);
   }
 }
 

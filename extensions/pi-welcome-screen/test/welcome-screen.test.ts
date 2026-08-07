@@ -1030,6 +1030,7 @@ describe("welcome resource-panel bridge", () => {
     nativeComponent?: any;
     heading?: string;
     repairsWhenCleared?: boolean;
+    rebuildsResourceAfterCapture?: boolean;
   }) {
     let sessionStart: ((event: unknown, context: any) => void) | undefined;
     welcomeScreen({
@@ -1120,10 +1121,34 @@ describe("welcome resource-panel bridge", () => {
     panel.children.push(...originalPanelChildren);
     await new Promise((resolve) => setTimeout(resolve, 80));
 
+    const rebuiltResourceComponent = {
+      ...resourceComponent,
+      getCollapsedText() {
+        return [
+          "[Context]",
+          "  AGENTS-reloaded.md",
+          "[Skills]",
+          "  artifactor",
+          "[Prompts]",
+          "  /implement",
+          "[Extensions]",
+          "  @pi-kaush/pi-welcome-screen:src/index.ts",
+        ].join("\n");
+      },
+    };
+    if (options.rebuildsResourceAfterCapture) {
+      panel.children.push(rebuiltResourceComponent);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+
     const renderedHeader = header?.render(80).join("\n") ?? "";
     expect(renderedHeader).toContain("█████████");
     expect(renderedHeader).toContain("[Context]");
-    expect(renderedHeader).toContain("• AGENTS.md");
+    expect(renderedHeader).toContain(
+      options.rebuildsResourceAfterCapture
+        ? "• AGENTS-reloaded.md"
+        : "• AGENTS.md",
+    );
     expect(tui.children[1]).toBe(panel);
     expect(panel.children).toEqual(
       options.nativeComponent ? [spacer, options.nativeComponent] : [spacer],
@@ -1141,8 +1166,18 @@ describe("welcome resource-panel bridge", () => {
     expect(tui.children.filter((child) => child === panel)).toHaveLength(1);
     expect(panel.children).toEqual(
       options.nativeComponent
-        ? [spacer, options.nativeComponent, resourceComponent]
-        : [resourceComponent],
+        ? [
+            spacer,
+            options.nativeComponent,
+            options.rebuildsResourceAfterCapture
+              ? rebuiltResourceComponent
+              : resourceComponent,
+          ]
+        : [
+            options.rebuildsResourceAfterCapture
+              ? rebuiltResourceComponent
+              : resourceComponent,
+          ],
     );
   }
 
@@ -1176,6 +1211,16 @@ describe("welcome resource-panel bridge", () => {
       repairsWhenCleared: true,
     });
   });
+
+  test("replaces a native resource component rebuilt shortly after reload", () =>
+    expectSelectiveResourceReplacement({
+      nativeComponent: {
+        invalidate() {},
+        render: () => ["[Contextimate]", "  Total harness ~24k tokens"],
+      },
+      heading: "[Contextimate]",
+      rebuildsResourceAfterCapture: true,
+    }));
 
   test("restores Pi's native panel after three resource retries", async () => {
     let sessionStart: ((event: unknown, context: any) => void) | undefined;
