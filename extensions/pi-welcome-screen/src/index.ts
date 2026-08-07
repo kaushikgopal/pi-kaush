@@ -107,19 +107,19 @@ interface CollapsedTextComponent extends Component {
 
 interface ResourcePanel extends Component {
   children: Component[];
-  clear: () => void;
   addChild: (component: Component) => void;
+  removeChild: (component: Component) => void;
 }
 
 interface ResourceBridge {
   panel: ResourcePanel;
-  originalChildren: Component[];
+  removedChildren: Component[];
 }
 
 interface ResourcePanelSnapshot {
   resourceText: string;
   expandedExtensionsText?: string;
-  retainedChildren: Component[];
+  knownChildren: Component[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -331,8 +331,8 @@ function isResourcePanel(
   const candidate = component as Partial<Container>;
   return (
     Array.isArray(candidate.children) &&
-    typeof candidate.clear === "function" &&
-    typeof candidate.addChild === "function"
+    typeof candidate.addChild === "function" &&
+    typeof candidate.removeChild === "function"
   );
 }
 
@@ -344,7 +344,7 @@ function getSectionHeading(text: string): string | undefined {
 
 function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
   const sections: string[] = [];
-  const retainedChildren: Component[] = [];
+  const knownChildren: Component[] = [];
   let expandedExtensionsText: string | undefined;
 
   for (const child of panel.children) {
@@ -353,6 +353,7 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
       const text = collapsible.getCollapsedText();
       const heading = getSectionHeading(text);
       if (WELCOME_SECTIONS.some((section) => section === heading)) {
+        knownChildren.push(child);
         sections.push(text);
         if (
           (heading === "Extensions" ||
@@ -361,19 +362,15 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
         ) {
           expandedExtensionsText = collapsible.getExpandedText();
         }
-      } else if (heading !== "Themes") retainedChildren.push(child);
+      } else if (heading === "Themes") knownChildren.push(child);
       continue;
     }
-
-    // Preserve status, diagnostics, spacers, and future Pi-owned components
-    // without rendering or otherwise probing them during inspection.
-    retainedChildren.push(child);
   }
 
   return {
     resourceText: sections.join("\n"),
     ...(expandedExtensionsText ? { expandedExtensionsText } : {}),
-    retainedChildren,
+    knownChildren,
   };
 }
 
@@ -719,24 +716,24 @@ function findResourcePanel(tui: TUI): ResourcePanelMatch | undefined {
   return inspectResourceCandidate(tui.children[1]);
 }
 
-function hideResourcePanel(
+function removeKnownResourceChildren(
   panel: ResourcePanel,
-  retainedChildren: Component[],
+  knownChildren: Component[],
 ): ResourceBridge {
-  const bridge = { panel, originalChildren: [...panel.children] };
-  panel.clear();
-  for (const child of retainedChildren) panel.addChild(child);
-  return bridge;
+  // Never clear and replay this container. Third-party startup components may
+  // self-heal from a transient detach and insert the same logical block twice.
+  const removedChildren = knownChildren.filter((child) =>
+    panel.children.includes(child),
+  );
+  for (const child of removedChildren) panel.removeChild(child);
+  return { panel, removedChildren };
 }
 
 function restoreResourcePanel(bridge: ResourceBridge | undefined): void {
   if (!bridge) return;
-  const addedChildren = bridge.panel.children.filter(
-    (child) => !bridge.originalChildren.includes(child),
-  );
-  bridge.panel.clear();
-  for (const child of bridge.originalChildren) bridge.panel.addChild(child);
-  for (const child of addedChildren) bridge.panel.addChild(child);
+  for (const child of bridge.removedChildren) {
+    if (!bridge.panel.children.includes(child)) bridge.panel.addChild(child);
+  }
 }
 
 function centerBlockLine(
@@ -1397,7 +1394,7 @@ class WelcomeHeader implements Component {
     );
     if (resourcePanelIsComplete) {
       this.bridge = match
-        ? hideResourcePanel(match.panel, match.snapshot.retainedChildren)
+        ? removeKnownResourceChildren(match.panel, match.snapshot.knownChildren)
         : undefined;
       this.resources = candidateResources;
       this.clearRenderCache();

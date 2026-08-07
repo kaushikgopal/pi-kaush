@@ -959,6 +959,10 @@ describe("welcome resource-panel bridge", () => {
       addChild(component: typeof resourceComponent | typeof themeComponent) {
         this.children.push(component);
       },
+      removeChild(component: typeof resourceComponent | typeof themeComponent) {
+        const index = this.children.indexOf(component);
+        if (index !== -1) this.children.splice(index, 1);
+      },
       clear() {
         this.children.splice(0);
       },
@@ -1025,6 +1029,7 @@ describe("welcome resource-panel bridge", () => {
   async function expectSelectiveResourceReplacement(options: {
     nativeComponent?: any;
     heading?: string;
+    repairsWhenCleared?: boolean;
   }) {
     let sessionStart: ((event: unknown, context: any) => void) | undefined;
     welcomeScreen({
@@ -1077,8 +1082,18 @@ describe("welcome resource-panel bridge", () => {
       addChild(component: any) {
         this.children.push(component);
       },
+      removeChild(component: any) {
+        const index = this.children.indexOf(component);
+        if (index !== -1) this.children.splice(index, 1);
+      },
       clear() {
+        const nativeWasMounted =
+          options.nativeComponent &&
+          this.children.includes(options.nativeComponent);
         this.children.splice(0);
+        if (options.repairsWhenCleared && nativeWasMounted) {
+          this.children.push(options.nativeComponent);
+        }
       },
       invalidate() {},
       render() {
@@ -1113,13 +1128,22 @@ describe("welcome resource-panel bridge", () => {
     expect(panel.children).toEqual(
       options.nativeComponent ? [spacer, options.nativeComponent] : [spacer],
     );
+    if (options.nativeComponent) {
+      expect(
+        panel.children.filter((child) => child === options.nativeComponent),
+      ).toHaveLength(1);
+    }
     if (options.heading) {
       expect(panel.render().join("\n")).toContain(options.heading);
     }
 
     header?.dispose?.();
     expect(tui.children.filter((child) => child === panel)).toHaveLength(1);
-    expect(panel.children).toEqual(originalPanelChildren);
+    expect(panel.children).toEqual(
+      options.nativeComponent
+        ? [spacer, options.nativeComponent, resourceComponent]
+        : [resourceComponent],
+    );
   }
 
   test("replaces known resources while retaining Pi diagnostics", () =>
@@ -1140,6 +1164,18 @@ describe("welcome resource-panel bridge", () => {
       },
       heading: "[Future startup info]",
     }));
+
+  test("never detaches a self-healing third-party startup component", () => {
+    const contextimate = {
+      invalidate() {},
+      render: () => ["[Contextimate]", "  Total harness ~24k tokens"],
+    };
+    return expectSelectiveResourceReplacement({
+      nativeComponent: contextimate,
+      heading: "[Contextimate]",
+      repairsWhenCleared: true,
+    });
+  });
 
   test("restores Pi's native panel after three resource retries", async () => {
     let sessionStart: ((event: unknown, context: any) => void) | undefined;
@@ -1170,6 +1206,10 @@ describe("welcome resource-panel bridge", () => {
       children: [] as any[],
       addChild(component: any) {
         this.children.push(component);
+      },
+      removeChild(component: any) {
+        const index = this.children.indexOf(component);
+        if (index !== -1) this.children.splice(index, 1);
       },
       clear() {
         this.children.splice(0);

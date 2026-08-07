@@ -5,6 +5,7 @@
 - Add namespaced `welcomeScreen` options in Pi's canonical global and trusted project settings files.
 - Show resource counts and split long package lists on very wide terminals, with optional workspace and settings-health details.
 - Add a lightweight `[Estimate]` section for model, context window, system-prompt size, and active tools without pretending raw tool schemas equal provider tokens.
+- Preserve third-party startup components in place so self-healing panels such as Contextimate cannot be duplicated.
 - Preserve unrelated startup status and diagnostics while replacing Pi's compact comma-separated resource panel.
 - Use asymmetric wide-screen columns so the brand stays compact while extension paths receive more room.
 - Support Pi 0.84's regular and fullscreen TUI layouts without recursively traversing Pi's component tree.
