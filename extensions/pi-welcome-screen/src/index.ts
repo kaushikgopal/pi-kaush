@@ -37,6 +37,7 @@ export interface WelcomeSettings {
   showWorkspace: boolean;
   showEstimate: boolean;
   showHealth: boolean;
+  skillGateOnlyActive: boolean;
   sourcePathDisplay: "full" | "compact";
   splitExtensionsAt: number | false;
 }
@@ -46,6 +47,7 @@ export const DEFAULT_WELCOME_SETTINGS: Readonly<WelcomeSettings> = {
   showWorkspace: false,
   showEstimate: true,
   showHealth: true,
+  skillGateOnlyActive: false,
   sourcePathDisplay: "full",
   splitExtensionsAt: 180,
 };
@@ -69,6 +71,11 @@ interface WelcomeDisplayContext {
   workspace: string[];
   estimate: WelcomeEstimate | undefined;
   healthWarnings: string[];
+}
+
+export interface LoadedSkillGateFilter {
+  activeSkills: ReadonlySet<string>;
+  warnings: string[];
 }
 
 export interface WelcomeRenderOptions {
@@ -167,6 +174,7 @@ function readWelcomeSettingsBlock(
     "showWorkspace",
     "showEstimate",
     "showHealth",
+    "skillGateOnlyActive",
   ] as const) {
     if (raw[field] === undefined) continue;
     if (typeof raw[field] === "boolean") result[field] = raw[field];
@@ -209,6 +217,7 @@ function readWelcomeSettingsBlock(
     "showWorkspace",
     "showEstimate",
     "showHealth",
+    "skillGateOnlyActive",
     "sourcePathDisplay",
     "splitExtensionsAt",
   ]);
@@ -311,6 +320,83 @@ export function loadWelcomeSettings(
       ...projectSettings,
     },
     warnings,
+  };
+}
+
+function readSkillGateState(
+  value: unknown,
+  path: string,
+  warnings: string[],
+): "enabled" | "disabled" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "enabled" || value === "disabled") return value;
+  warnings.push(`${path} must be "enabled" or "disabled".`);
+  return undefined;
+}
+
+export function loadSkillGateFilter(
+  cwd: string,
+  agentDir = getAgentDir(),
+): LoadedSkillGateFilter {
+  const warnings: string[] = [];
+  const configPath = join(agentDir, "config", "skill-gate.json");
+  const root = readSettingsObject(configPath, warnings);
+  if (!root) return { activeSkills: new Set(), warnings };
+
+  const globalSkills = isRecord(root.skills) ? root.skills : {};
+  if (root.skills !== undefined && !isRecord(root.skills)) {
+    warnings.push(`${configPath}:skills must be an object.`);
+  }
+
+  let projectSkills: Record<string, unknown> = {};
+  if (root.projects !== undefined && !isRecord(root.projects)) {
+    warnings.push(`${configPath}:projects must be an object.`);
+  } else if (isRecord(root.projects) && cwd !== homedir()) {
+    const project = root.projects[cwd];
+    if (project !== undefined && !isRecord(project)) {
+      warnings.push(`${configPath}:projects.${cwd} must be an object.`);
+    } else if (isRecord(project)) {
+      if (project.skills !== undefined && !isRecord(project.skills)) {
+        warnings.push(
+          `${configPath}:projects.${cwd}.skills must be an object.`,
+        );
+      } else if (isRecord(project.skills)) {
+        projectSkills = project.skills;
+      }
+    }
+  }
+
+  const activeSkills = new Set<string>();
+  const names = new Set([
+    ...Object.keys(globalSkills),
+    ...Object.keys(projectSkills),
+  ]);
+  for (const name of names) {
+    const projectState = readSkillGateState(
+      projectSkills[name],
+      `${configPath}:projects.${cwd}.skills.${name}`,
+      warnings,
+    );
+    const globalState = readSkillGateState(
+      globalSkills[name],
+      `${configPath}:skills.${name}`,
+      warnings,
+    );
+    if ((projectState ?? globalState ?? "disabled") === "enabled") {
+      activeSkills.add(name);
+    }
+  }
+  return { activeSkills, warnings };
+}
+
+export function filterWelcomeSkills(
+  resources: WelcomeResources,
+  activeSkills: ReadonlySet<string> | undefined,
+): WelcomeResources {
+  if (!activeSkills) return resources;
+  return {
+    ...resources,
+    skills: resources.skills.filter((name) => activeSkills.has(name)),
   };
 }
 
@@ -1459,6 +1545,9 @@ export function renderCenteredWelcome(
         DEFAULT_WELCOME_SETTINGS.showEstimate,
       showHealth:
         requestedSettings?.showHealth ?? DEFAULT_WELCOME_SETTINGS.showHealth,
+      skillGateOnlyActive:
+        requestedSettings?.skillGateOnlyActive ??
+        DEFAULT_WELCOME_SETTINGS.skillGateOnlyActive,
       sourcePathDisplay:
         requestedSettings?.sourcePathDisplay ??
         DEFAULT_WELCOME_SETTINGS.sourcePathDisplay,
@@ -1509,6 +1598,7 @@ class WelcomeHeader implements Component {
     private readonly theme: Theme,
     forceInitialRender: boolean,
     private readonly display: WelcomeDisplayContext,
+    private readonly activeSkillNames: ReadonlySet<string> | undefined,
   ) {
     // Resource discovery and the loaded-resource panel are finalized after
     // session_start. Search lazily so both regular and fullscreen TUI layouts
@@ -1548,7 +1638,7 @@ class WelcomeHeader implements Component {
     const resourcePanelIsComplete = Boolean(
       candidateResources?.extensions.some(isWelcomeScreenExtension),
     );
-    if (resourcePanelIsComplete && match) {
+    if (resourcePanelIsComplete && match && candidateResources) {
       const bridgeIndex = this.bridges.findIndex(
         (bridge) => bridge.panel === match.panel,
       );
@@ -1561,7 +1651,10 @@ class WelcomeHeader implements Component {
       );
       if (bridgeIndex === -1) this.bridges.push(bridge);
       else this.bridges[bridgeIndex] = bridge;
-      this.resources = candidateResources;
+      this.resources = filterWelcomeSkills(
+        candidateResources,
+        this.activeSkillNames,
+      );
       this.clearRenderCache();
       // Removing native rows changes the document height. Main-screen rendering
       // needs a full redraw or stale rows can survive below the retained startup
@@ -1629,6 +1722,9 @@ export default function (pi: ExtensionAPI) {
     if (ctx.mode !== "tui") return;
 
     const loaded = loadWelcomeSettings(ctx.cwd, ctx.isProjectTrusted());
+    const skillGate = loaded.settings.skillGateOnlyActive
+      ? loadSkillGateFilter(ctx.cwd)
+      : undefined;
     const display: WelcomeDisplayContext = {
       settings: loaded.settings,
       workspace: loaded.settings.showWorkspace
@@ -1637,12 +1733,18 @@ export default function (pi: ExtensionAPI) {
       estimate: loaded.settings.showEstimate
         ? buildWelcomeEstimate(pi, ctx)
         : undefined,
-      healthWarnings: loaded.warnings,
+      healthWarnings: [...loaded.warnings, ...(skillGate?.warnings ?? [])],
     };
 
     ctx.ui.setHeader(
       (tui, theme) =>
-        new WelcomeHeader(tui, theme, event.reason === "startup", display),
+        new WelcomeHeader(
+          tui,
+          theme,
+          event.reason === "startup",
+          display,
+          skillGate?.activeSkills,
+        ),
     );
   });
 }

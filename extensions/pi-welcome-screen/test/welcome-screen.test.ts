@@ -39,6 +39,8 @@ vi.mock("@earendil-works/pi-tui", () => ({
 const {
   buildWelcomeEstimate,
   default: welcomeScreen,
+  filterWelcomeSkills,
+  loadSkillGateFilter,
   loadWelcomeSettings,
   normalizeExtensionName,
   parseWelcomeResources,
@@ -98,6 +100,7 @@ describe("welcome settings", () => {
           showWorkspace: false,
           showEstimate: true,
           showHealth: true,
+          skillGateOnlyActive: false,
           sourcePathDisplay: "full",
           splitExtensionsAt: 180,
         },
@@ -121,6 +124,7 @@ describe("welcome settings", () => {
           showCounts: false,
           showWorkspace: true,
           showEstimate: false,
+          skillGateOnlyActive: true,
           sourcePathDisplay: "compact",
           splitExtensionsAt: false,
         },
@@ -143,6 +147,7 @@ describe("welcome settings", () => {
         showWorkspace: true,
         showEstimate: true,
         showHealth: false,
+        skillGateOnlyActive: true,
         sourcePathDisplay: "compact",
         splitExtensionsAt: false,
       });
@@ -151,6 +156,7 @@ describe("welcome settings", () => {
         showWorkspace: true,
         showEstimate: false,
         showHealth: true,
+        skillGateOnlyActive: true,
         sourcePathDisplay: "compact",
         splitExtensionsAt: false,
       });
@@ -167,6 +173,7 @@ describe("welcome settings", () => {
       JSON.stringify({
         welcomeScreen: {
           showCounts: "yes",
+          skillGateOnlyActive: "yes",
           sourcePathDisplay: "short",
           splitExtensionsAt: 12.5,
           extraNoise: true,
@@ -181,11 +188,13 @@ describe("welcome settings", () => {
         showWorkspace: false,
         showEstimate: true,
         showHealth: true,
+        skillGateOnlyActive: false,
         sourcePathDisplay: "full",
         splitExtensionsAt: 180,
       });
-      expect(loaded.warnings).toHaveLength(4);
+      expect(loaded.warnings).toHaveLength(5);
       expect(loaded.warnings.join("\n")).toContain("showCounts");
+      expect(loaded.warnings.join("\n")).toContain("skillGateOnlyActive");
       expect(loaded.warnings.join("\n")).toContain("sourcePathDisplay");
       expect(loaded.warnings.join("\n")).toContain("splitExtensionsAt");
       expect(loaded.warnings.join("\n")).toContain("extraNoise");
@@ -239,6 +248,69 @@ describe("welcome settings", () => {
         } as never,
       ),
     ).toBeUndefined();
+  });
+
+  test("loads skill-gate global state with exact project overrides", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-welcome-skill-gate-"));
+    const agentDir = join(root, "agent");
+    const cwd = join(root, "project");
+    mkdirSync(join(agentDir, "config"), { recursive: true });
+    writeFileSync(
+      join(agentDir, "config", "skill-gate.json"),
+      JSON.stringify({
+        skills: {
+          alpha: "enabled",
+          beta: "enabled",
+          invalid: "sometimes",
+        },
+        projects: {
+          [cwd]: {
+            skills: {
+              beta: "disabled",
+              delta: "enabled",
+            },
+          },
+        },
+      }),
+    );
+
+    try {
+      const loaded = loadSkillGateFilter(cwd, agentDir);
+      expect([...loaded.activeSkills].sort()).toEqual(["alpha", "delta"]);
+      expect(loaded.warnings.join("\n")).toContain("invalid");
+
+      const resources = {
+        context: [],
+        skills: ["alpha", "beta", "delta", "not-configured"],
+        prompts: [],
+        extensions: [],
+      };
+      expect(
+        filterWelcomeSkills(resources, loaded.activeSkills).skills,
+      ).toEqual(["alpha", "delta"]);
+      expect(filterWelcomeSkills(resources, undefined)).toBe(resources);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("treats missing or malformed skill-gate state as no active skills", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-welcome-skill-gate-"));
+    const agentDir = join(root, "agent");
+    mkdirSync(join(agentDir, "config"), { recursive: true });
+
+    try {
+      const missing = loadSkillGateFilter(join(root, "project"), agentDir);
+      expect([...missing.activeSkills]).toEqual([]);
+      expect(missing.warnings).toEqual([]);
+
+      writeFileSync(join(agentDir, "config", "skill-gate.json"), "{");
+      const malformed = loadSkillGateFilter(join(root, "project"), agentDir);
+      expect([...malformed.activeSkills]).toEqual([]);
+      expect(malformed.warnings).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

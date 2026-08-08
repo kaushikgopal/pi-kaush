@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add an opt-in pi-skill-gate integration that limits the welcome screen to effectively enabled global or project skills.
 - Add an optional compact source-path display and align wide local, package, and compact-source groups to the same responsive column count while preserving full paths for ambiguous duplicates.
 - Add namespaced `welcomeScreen` options in Pi's canonical global and trusted project settings files.
 - Show resource counts and split long package lists on very wide terminals, with optional workspace and settings-health details.
