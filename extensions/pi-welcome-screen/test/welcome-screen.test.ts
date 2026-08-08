@@ -98,6 +98,7 @@ describe("welcome settings", () => {
           showWorkspace: false,
           showEstimate: true,
           showHealth: true,
+          sourcePathDisplay: "full",
           splitExtensionsAt: 180,
         },
         warnings: [],
@@ -120,6 +121,7 @@ describe("welcome settings", () => {
           showCounts: false,
           showWorkspace: true,
           showEstimate: false,
+          sourcePathDisplay: "compact",
           splitExtensionsAt: false,
         },
       }),
@@ -141,6 +143,7 @@ describe("welcome settings", () => {
         showWorkspace: true,
         showEstimate: true,
         showHealth: false,
+        sourcePathDisplay: "compact",
         splitExtensionsAt: false,
       });
       expect(loadWelcomeSettings(cwd, false, agentDir).settings).toEqual({
@@ -148,6 +151,7 @@ describe("welcome settings", () => {
         showWorkspace: true,
         showEstimate: false,
         showHealth: true,
+        sourcePathDisplay: "compact",
         splitExtensionsAt: false,
       });
     } finally {
@@ -163,6 +167,7 @@ describe("welcome settings", () => {
       JSON.stringify({
         welcomeScreen: {
           showCounts: "yes",
+          sourcePathDisplay: "short",
           splitExtensionsAt: 12.5,
           extraNoise: true,
         },
@@ -176,10 +181,12 @@ describe("welcome settings", () => {
         showWorkspace: false,
         showEstimate: true,
         showHealth: true,
+        sourcePathDisplay: "full",
         splitExtensionsAt: 180,
       });
-      expect(loaded.warnings).toHaveLength(3);
+      expect(loaded.warnings).toHaveLength(4);
       expect(loaded.warnings.join("\n")).toContain("showCounts");
+      expect(loaded.warnings.join("\n")).toContain("sourcePathDisplay");
       expect(loaded.warnings.join("\n")).toContain("splitExtensionsAt");
       expect(loaded.warnings.join("\n")).toContain("extraNoise");
     } finally {
@@ -381,6 +388,60 @@ describe("welcome resource formatting", () => {
     expect(rendered).toContain("Source paths");
     expect(rendered).toContain(sourcePath);
     expect(rendered).not.toMatch(/• src\s*$/m);
+  });
+
+  test("optionally compacts source paths to their owning extension names", () => {
+    const sourcePaths = [
+      "~/.pi/agent/standalone/authentik",
+      "~/projects/contribute/pi-kaush/extensions/pi-welcome-screen/src",
+      "~/projects/pi-switch/packages/pi-attach-ctx/src/pi/extension.ts",
+      "~/projects/contribute/pohuy/extensions/pohuy.ts",
+    ];
+    const resources = {
+      context: [],
+      skills: [],
+      prompts: [],
+      extensions: sourcePaths,
+      packageExtensions: [],
+      sourceExtensions: sourcePaths,
+    };
+
+    const rendered = renderCenteredWelcome(
+      resources,
+      plainTheme as never,
+      160,
+      { settings: { sourcePathDisplay: "compact" } },
+    ).join("\n");
+
+    expect(rendered).toContain("• authentik");
+    expect(rendered).toContain("• pi-welcome-screen");
+    expect(rendered).toContain("• pi-attach-ctx");
+    expect(rendered).toContain("• pohuy");
+    for (const sourcePath of sourcePaths)
+      expect(rendered).not.toContain(sourcePath);
+  });
+
+  test("keeps full source paths when compact labels would collide", () => {
+    const sourcePaths = [
+      "~/work/alpha/extensions/shared/src",
+      "~/work/beta/extensions/shared/src",
+    ];
+    const rendered = renderCenteredWelcome(
+      {
+        context: [],
+        skills: [],
+        prompts: [],
+        extensions: sourcePaths,
+        packageExtensions: [],
+        sourceExtensions: sourcePaths,
+      },
+      plainTheme as never,
+      160,
+      { settings: { sourcePathDisplay: "compact" } },
+    ).join("\n");
+
+    expect(rendered).toContain(sourcePaths[0]);
+    expect(rendered).toContain(sourcePaths[1]);
   });
 
   test("keeps context files in load order and renders one item per row", () => {
@@ -680,6 +741,57 @@ describe("welcome resource formatting", () => {
     expect(
       packageRows(disabled).every((row) => (row.match(/•/g)?.length ?? 0) <= 1),
     ).toBe(true);
+  });
+
+  test("uses one consistent column count for wide extension groups", () => {
+    const local = Array.from(
+      { length: 14 },
+      (_, index) => `local-${index + 1}`,
+    );
+    const packages = Array.from(
+      { length: 14 },
+      (_, index) => `package-${index + 1}`,
+    );
+    const sourcePaths = Array.from(
+      { length: 14 },
+      (_, index) => `~/projects/extensions/source-${index + 1}/src`,
+    );
+    const lines = renderCenteredWelcome(
+      {
+        context: [],
+        skills: [],
+        prompts: [],
+        extensions: [...local, ...packages, ...sourcePaths],
+        packageExtensions: packages,
+        sourceExtensions: sourcePaths,
+      },
+      plainTheme as never,
+      200,
+      {
+        settings: {
+          sourcePathDisplay: "compact",
+          splitExtensionsAt: 180,
+        },
+      },
+    );
+    const groupRows = (title: string, nextTitle?: string) => {
+      const start = lines.findIndex((line) => line.trim() === title);
+      const end = nextTitle
+        ? lines.findIndex(
+            (line, index) => index > start && line.trim() === nextTitle,
+          )
+        : lines.length;
+      return lines.slice(start + 1, end).filter((line) => line.includes("•"));
+    };
+    const maxColumns = (rows: string[]) =>
+      Math.max(...rows.map((row) => row.match(/•/g)?.length ?? 0));
+
+    const localColumns = maxColumns(groupRows("Local", "Packages"));
+    expect(localColumns).toBe(2);
+    expect(maxColumns(groupRows("Packages", "Source paths"))).toBe(
+      localColumns,
+    );
+    expect(maxColumns(groupRows("Source paths"))).toBe(localColumns);
   });
 
   test("renders optional counts, workspace, and non-empty health information", () => {

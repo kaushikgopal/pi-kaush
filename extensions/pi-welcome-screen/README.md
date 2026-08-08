@@ -32,6 +32,7 @@ Configure the extension in Pi's canonical global `~/.pi/agent/settings.json` or 
     "showWorkspace": false,
     "showEstimate": true,
     "showHealth": true,
+    "sourcePathDisplay": "full",
     "splitExtensionsAt": 180
   }
 }
@@ -41,7 +42,8 @@ Configure the extension in Pi's canonical global `~/.pi/agent/settings.json` or 
 - `showWorkspace` adds the repository or directory name, relative working directory, and session start reason.
 - `showEstimate` adds the current model, context-window size, a local system-prompt estimate, and the active tool count. It uses measured Claude-family character ratios where they materially differ and an explicit characters-divided-by-four fallback elsewhere. Tool schemas are excluded because providers reshape them differently on the wire.
 - `showHealth` displays invalid `welcomeScreen` settings. Empty health information is omitted.
-- `splitExtensionsAt` is the terminal width at which package extensions flow into two columns. Set it to `false` to keep packages in one column.
+- `sourcePathDisplay` controls linked extension labels. Use `"compact"` to show the owning extension or package directory instead of the full path; ambiguous duplicate labels fall back to full paths. The default is `"full"`.
+- `splitExtensionsAt` is the terminal width at which package extensions and compact source paths join the local extensions' responsive column layout. All participating extension groups use the same two- or three-column count. Set it to `false` to keep non-local groups in one column.
 
 Only trusted project settings are read. Invalid fields are ignored individually, and valid global or default values remain active.
 

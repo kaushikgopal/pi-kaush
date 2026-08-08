@@ -37,6 +37,7 @@ export interface WelcomeSettings {
   showWorkspace: boolean;
   showEstimate: boolean;
   showHealth: boolean;
+  sourcePathDisplay: "full" | "compact";
   splitExtensionsAt: number | false;
 }
 
@@ -45,6 +46,7 @@ export const DEFAULT_WELCOME_SETTINGS: Readonly<WelcomeSettings> = {
   showWorkspace: false,
   showEstimate: true,
   showHealth: true,
+  sourcePathDisplay: "full",
   splitExtensionsAt: 180,
 };
 
@@ -174,6 +176,19 @@ function readWelcomeSettingsBlock(
       );
   }
 
+  if (raw.sourcePathDisplay !== undefined) {
+    if (
+      raw.sourcePathDisplay === "full" ||
+      raw.sourcePathDisplay === "compact"
+    ) {
+      result.sourcePathDisplay = raw.sourcePathDisplay;
+    } else {
+      warnings.push(
+        `${settingsPath}:${EXTENSION_SETTINGS_KEY}.sourcePathDisplay must be "full" or "compact".`,
+      );
+    }
+  }
+
   if (raw.splitExtensionsAt !== undefined) {
     if (
       raw.splitExtensionsAt === false ||
@@ -194,6 +209,7 @@ function readWelcomeSettingsBlock(
     "showWorkspace",
     "showEstimate",
     "showHealth",
+    "sourcePathDisplay",
     "splitExtensionsAt",
   ]);
   for (const field of Object.keys(raw)) {
@@ -970,6 +986,45 @@ function appendSection(
   else appendColumnRows(lines, body, theme, columnWidth, sharedColumnCount);
 }
 
+function compactSourcePath(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const segments = normalized.split("/").filter(Boolean);
+  for (const marker of ["extensions", "packages", "standalone"]) {
+    const markerIndex = segments.lastIndexOf(marker);
+    const owner = segments[markerIndex + 1];
+    if (markerIndex !== -1 && owner) {
+      return owner.replace(/\.(?:[cm]?[jt]s)$/, "");
+    }
+  }
+
+  const last = segments.at(-1) ?? normalized;
+  const fileStem = last.replace(/\.(?:[cm]?[jt]s)$/, "");
+  if (fileStem !== last && !/^(?:index|extension|main)$/.test(fileStem)) {
+    return fileStem;
+  }
+
+  const genericTail =
+    /^(?:src|lib|dist|index|extension|main)(?:\.[cm]?[jt]s)?$/;
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index];
+    if (segment && !genericTail.test(segment)) return segment;
+  }
+  return last;
+}
+
+function formatSourcePathLabels(
+  paths: string[],
+  display: WelcomeSettings["sourcePathDisplay"],
+): string[] {
+  if (display === "full") return paths;
+  const labels = paths.map(compactSourcePath);
+  const counts = new Map<string, number>();
+  for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+  return labels.map((label, index) =>
+    counts.get(label) === 1 ? label : (paths[index] ?? label),
+  );
+}
+
 function appendExtensionsSection(
   lines: string[],
   extensions: string[],
@@ -1011,14 +1066,27 @@ function appendExtensionsSection(
     },
     {
       title: "Source paths",
-      items: linkedSourceExtensions,
+      items: formatSourcePathLabels(
+        linkedSourceExtensions,
+        settings.sourcePathDisplay,
+      ),
     },
   ].filter(({ items }) => items.length > 0);
-
+  const splitNonLocalGroups =
+    settings.splitExtensionsAt !== false &&
+    terminalWidth >= settings.splitExtensionsAt;
+  const multiColumnGroups = groups.filter(
+    (group) =>
+      group.title === "Local" ||
+      (splitNonLocalGroups &&
+        (group.title === "Packages" ||
+          (group.title === "Source paths" &&
+            settings.sourcePathDisplay === "compact"))),
+  );
   for (const [index, group] of groups.entries()) {
     if (index > 0) lines.push("");
     lines.push(theme.fg("muted", `  ${group.title}`));
-    if (group.title === "Local") {
+    if (multiColumnGroups.includes(group)) {
       appendColumnRows(
         lines,
         group.items,
@@ -1026,12 +1094,6 @@ function appendExtensionsSection(
         columnWidth,
         sharedColumnCount,
       );
-    } else if (
-      group.title === "Packages" &&
-      settings.splitExtensionsAt !== false &&
-      terminalWidth >= settings.splitExtensionsAt
-    ) {
-      appendColumnRows(lines, group.items, theme, columnWidth, 2);
     } else {
       appendSingleColumnRows(lines, group.items, theme, columnWidth);
     }
@@ -1207,6 +1269,7 @@ function renderGridItem(
   resources: WelcomeResources,
   theme: Theme,
   columnWidth: number,
+  sharedColumnCount: 2 | 3,
   terminalWidth: number,
   display: WelcomeDisplayContext,
 ): string[] {
@@ -1214,7 +1277,6 @@ function renderGridItem(
     return renderBrandColumn(resources, theme, columnWidth, display);
 
   const lines: string[] = [];
-  const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
   appendResourceSection(
     lines,
     item,
@@ -1236,6 +1298,15 @@ function renderGridWelcome(
   terminalWidth: number,
   display: WelcomeDisplayContext,
 ): string[] {
+  const resourceColumnWidths = GRID_COLUMNS[columnCount].flatMap(
+    (items, column) =>
+      items.some((item) => item !== "Brand") ? [columnWidths[column] ?? 1] : [],
+  );
+  const sharedColumnCount = resourceColumnWidths.every(
+    (columnWidth) => getSharedMultiColumnCount(resources, columnWidth) === 3,
+  )
+    ? 3
+    : 2;
   const topAlignedColumns = GRID_COLUMNS[columnCount].map((items, column) =>
     items.flatMap((item, index) => [
       ...(index > 0 ? [""] : []),
@@ -1244,6 +1315,7 @@ function renderGridWelcome(
         resources,
         theme,
         columnWidths[column] ?? 1,
+        sharedColumnCount,
         terminalWidth,
         display,
       ),
@@ -1387,6 +1459,9 @@ export function renderCenteredWelcome(
         DEFAULT_WELCOME_SETTINGS.showEstimate,
       showHealth:
         requestedSettings?.showHealth ?? DEFAULT_WELCOME_SETTINGS.showHealth,
+      sourcePathDisplay:
+        requestedSettings?.sourcePathDisplay ??
+        DEFAULT_WELCOME_SETTINGS.sourcePathDisplay,
       splitExtensionsAt:
         requestedSettings?.splitExtensionsAt ??
         DEFAULT_WELCOME_SETTINGS.splitExtensionsAt,
