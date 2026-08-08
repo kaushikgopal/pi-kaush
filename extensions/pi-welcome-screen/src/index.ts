@@ -12,6 +12,7 @@ import { basename, dirname, join, relative } from "node:path";
 import {
   type Component,
   type Container,
+  Spacer,
   type TUI,
   truncateToWidth,
   visibleWidth,
@@ -522,6 +523,20 @@ function isExplicitSourcePath(label: string): boolean {
   );
 }
 
+function getLocalExtensionName(
+  path: string,
+  localExtensionNames: Set<string>,
+): string | undefined {
+  const normalizedPath = path.replace(/\\/g, "/");
+  const pathName = normalizedPath.match(
+    /(?:^|\/)\.pi\/(?:agent\/)?extensions\/([^/]+)(?:\/|$)/,
+  )?.[1];
+  if (pathName) return normalizeExtensionName(pathName);
+
+  const name = normalizeExtensionName(path);
+  return localExtensionNames.has(name) ? name : undefined;
+}
+
 function parseExpandedExtensionGroups(
   text: string | undefined,
   localExtensionNames: Set<string>,
@@ -563,17 +578,9 @@ function parseExpandedExtensionGroups(
     const path = line.match(/^ {4}(\S.*)$/)?.[1];
     if (!path || /^(?:project|user|path)$/.test(path)) continue;
 
-    const name = normalizeExtensionName(path);
-    if (
-      localExtensionNames.has(name) ||
-      /(?:^|\/)\.pi\/(?:agent\/)?extensions(?:\/|$)/.test(
-        path.replace(/\\/g, "/"),
-      )
-    ) {
-      localExtensions.push(name);
-    } else {
-      sourceExtensions.push(path.replace(/\\/g, "/"));
-    }
+    const localName = getLocalExtensionName(path, localExtensionNames);
+    if (localName) localExtensions.push(localName);
+    else sourceExtensions.push(path.replace(/\\/g, "/"));
     foundItem = true;
   }
 
@@ -740,9 +747,20 @@ function removeKnownResourceChildren(
 ): ResourceBridge {
   // Never clear and replay this container. Third-party startup components may
   // self-heal from a transient detach and insert the same logical block twice.
-  const removedChildren = knownChildren.filter((child) =>
-    panel.children.includes(child),
+  const currentChildren = [...panel.children];
+  const known = new Set(
+    knownChildren.filter((child) => currentChildren.includes(child)),
   );
+  const removedChildren = currentChildren.filter((child, index) => {
+    if (known.has(child)) return true;
+    if (!(child instanceof Spacer)) return false;
+    const previousChild = currentChildren[index - 1];
+    const nextChild = currentChildren[index + 1];
+    return Boolean(
+      (previousChild && known.has(previousChild)) ||
+        (nextChild && known.has(nextChild)),
+    );
+  });
   for (const child of removedChildren) panel.removeChild(child);
 
   if (!previous || previous.panel !== panel) return { panel, removedChildren };
@@ -753,17 +771,43 @@ function removeKnownResourceChildren(
   const replacementHeadings = new Set(
     removedChildren.flatMap((child) => [...getKnownChildHeadings(child)]),
   );
-  return {
-    panel,
-    removedChildren: [
-      ...previous.removedChildren.filter((child) =>
-        [...getKnownChildHeadings(child)].every(
-          (heading) => !replacementHeadings.has(heading),
+  const removedNewSpacers = removedChildren.some(
+    (child) => child instanceof Spacer,
+  );
+  if (removedNewSpacers) {
+    return {
+      panel,
+      removedChildren: [
+        ...previous.removedChildren.filter(
+          (child) =>
+            !(child instanceof Spacer) &&
+            [...getKnownChildHeadings(child)].every(
+              (heading) => !replacementHeadings.has(heading),
+            ),
         ),
-      ),
-      ...removedChildren,
-    ],
-  };
+        ...removedChildren,
+      ],
+    };
+  }
+
+  // A reload can replace just the collapsible component while leaving Pi's
+  // existing spacers detached in our bridge. Put the replacement back into the
+  // old component's slot so dispose() restores the native section spacing.
+  const replacementChildren = removedChildren.filter(
+    (child) => !(child instanceof Spacer),
+  );
+  let insertedReplacement = false;
+  const mergedChildren = previous.removedChildren.flatMap((child) => {
+    const replacesChild = [...getKnownChildHeadings(child)].some((heading) =>
+      replacementHeadings.has(heading),
+    );
+    if (!replacesChild) return [child];
+    if (insertedReplacement) return [];
+    insertedReplacement = true;
+    return replacementChildren;
+  });
+  if (!insertedReplacement) mergedChildren.push(...replacementChildren);
+  return { panel, removedChildren: mergedChildren };
 }
 
 function restoreResourcePanel(bridge: ResourceBridge | undefined): void {
@@ -1444,7 +1488,10 @@ class WelcomeHeader implements Component {
       else this.bridges[bridgeIndex] = bridge;
       this.resources = candidateResources;
       this.clearRenderCache();
-      this.tui.requestRender(forceInitialRender);
+      // Removing native rows changes the document height. Main-screen rendering
+      // needs a full redraw or stale rows can survive below the retained startup
+      // components and look like duplicated third-party blocks.
+      this.tui.requestRender(true);
     } else if (attempt === 0) {
       this.tui.requestRender(forceInitialRender);
     }

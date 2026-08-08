@@ -9,6 +9,13 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => "/tmp/pi-agent",
 }));
 vi.mock("@earendil-works/pi-tui", () => ({
+  Spacer: class Spacer {
+    constructor(private readonly height = 1) {}
+    invalidate() {}
+    render() {
+      return Array.from({ length: this.height }, () => "");
+    }
+  },
   truncateToWidth(text: string, width: number, suffix = "") {
     if (text.length <= width) return text;
     const clippedSuffix = suffix.slice(0, Math.max(0, width));
@@ -37,6 +44,7 @@ const {
   parseWelcomeResources,
   renderCenteredWelcome,
 } = await import("../src/index.ts");
+const { Spacer } = await import("@earendil-works/pi-tui");
 
 const plainTheme = {
   bold: (text: string) => text,
@@ -321,6 +329,23 @@ describe("welcome resource formatting", () => {
     expect(resources.packageExtensions).toEqual([
       "github.com/example/extensions zeta.ts alpha.ts",
     ]);
+  });
+
+  test("uses the owning local extension name for compiled entry points", () => {
+    const resources = parseWelcomeResources(
+      `[Extensions]\n  dist`,
+      new Set(["alpha", "beta"]),
+      [
+        "[Extensions]",
+        "  user",
+        "    ~/.pi/agent/extensions/alpha/dist",
+        "    ~/.pi/agent/extensions/beta/dist/index.js",
+      ].join("\n"),
+    );
+
+    expect(resources.extensions).toEqual(["alpha", "beta"]);
+    expect(resources.packageExtensions).toEqual([]);
+    expect(resources.sourceExtensions).toEqual([]);
   });
 
   test("uses expanded provenance to separate local, package, and source extensions", () => {
@@ -990,9 +1015,12 @@ describe("welcome resource-panel bridge", () => {
         this.children.splice(0);
       },
     };
+    const renderRequests: boolean[] = [];
     const tui = {
       children: [documentContainer],
-      requestRender() {},
+      requestRender(force?: boolean) {
+        renderRequests.push(force ?? false);
+      },
     };
 
     const header = headerFactory?.(tui, plainTheme);
@@ -1001,9 +1029,11 @@ describe("welcome resource-panel bridge", () => {
     expect(loadingRender).not.toContain("[Context]");
     expect(loadingRender).not.toContain("(none)");
     await new Promise((resolve) => setTimeout(resolve, 0));
+    renderRequests.length = 0;
     panel.children.push(resourceComponent, themeComponent);
     expect(header?.render(80).join("\n")).not.toContain("[Context]");
     await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(renderRequests).toContain(true);
     const firstRender = header?.render(80);
     expect(firstRender?.join("\n")).toContain("• AGENTS.md");
     expect(firstRender?.join("\n")).toContain("[Estimate]");
@@ -1031,6 +1061,7 @@ describe("welcome resource-panel bridge", () => {
     heading?: string;
     repairsWhenCleared?: boolean;
     rebuildsResourceAfterCapture?: boolean;
+    renderWidth?: number;
   }) {
     let sessionStart: ((event: unknown, context: any) => void) | undefined;
     welcomeScreen({
@@ -1074,9 +1105,15 @@ describe("welcome resource-panel bridge", () => {
         ].join("\n");
       },
     };
-    const spacer = emptyComponent();
+    const leadingSpacer = new Spacer(1);
+    const trailingSpacer = new Spacer(1);
     const originalPanelChildren = options.nativeComponent
-      ? [resourceComponent, spacer, options.nativeComponent]
+      ? [
+          leadingSpacer,
+          resourceComponent,
+          trailingSpacer,
+          options.nativeComponent,
+        ]
       : [];
     const panel = {
       children: [] as any[],
@@ -1141,7 +1178,8 @@ describe("welcome resource-panel bridge", () => {
       await new Promise((resolve) => setTimeout(resolve, 80));
     }
 
-    const renderedHeader = header?.render(80).join("\n") ?? "";
+    const renderedHeader =
+      header?.render(options.renderWidth ?? 80).join("\n") ?? "";
     expect(renderedHeader).toContain("█████████");
     expect(renderedHeader).toContain("[Context]");
     expect(renderedHeader).toContain(
@@ -1151,7 +1189,7 @@ describe("welcome resource-panel bridge", () => {
     );
     expect(tui.children[1]).toBe(panel);
     expect(panel.children).toEqual(
-      options.nativeComponent ? [spacer, options.nativeComponent] : [spacer],
+      options.nativeComponent ? [options.nativeComponent] : [],
     );
     if (options.nativeComponent) {
       expect(
@@ -1167,11 +1205,12 @@ describe("welcome resource-panel bridge", () => {
     expect(panel.children).toEqual(
       options.nativeComponent
         ? [
-            spacer,
             options.nativeComponent,
+            leadingSpacer,
             options.rebuildsResourceAfterCapture
               ? rebuiltResourceComponent
               : resourceComponent,
+            trailingSpacer,
           ]
         : [
             options.rebuildsResourceAfterCapture
@@ -1209,6 +1248,7 @@ describe("welcome resource-panel bridge", () => {
       nativeComponent: contextimate,
       heading: "[Contextimate]",
       repairsWhenCleared: true,
+      renderWidth: 24,
     });
   });
 
