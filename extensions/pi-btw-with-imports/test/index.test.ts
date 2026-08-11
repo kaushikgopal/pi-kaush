@@ -363,6 +363,7 @@ function createMergeHarness(
   }
 
   const pi = {
+    events: { on: () => () => undefined, emit: () => undefined },
     registerCommand(name: string, definition: any) {
       commandNames.push(name);
       if (name === "btw") btwHandler = definition.handler;
@@ -532,6 +533,7 @@ function createChildMergeHarness(
       const id = `sent-user-${++userEntryCount}`;
       branch.push(userEntry(id, branch.at(-1)?.id ?? null, message));
     },
+    events: { on: () => () => undefined, emit: () => undefined },
     appendEntry(type: string, data: unknown) {
       const id = `custom-${++customEntryCount}`;
       appendedEntries.push({ type, data });
@@ -632,6 +634,7 @@ function createSplitHarness(
       if (name === "btw") btwHandler = definition.handler;
     },
     exec,
+    events: { on: () => () => undefined, emit: () => undefined },
     appendEntry(type: string, data: unknown) {
       appendAttempts.push({ type, data });
       if (options.appendError) throw options.appendError;
@@ -1642,6 +1645,7 @@ describe("btw launch dispatch", () => {
       registerCommand(name: string, definition: any) {
         if (name === "btw") btwHandler = definition.handler;
       },
+      events: { on: () => () => undefined, emit: () => undefined },
       sendUserMessage(message: string) {
         sentUserMessages.push(message);
       },
@@ -1686,6 +1690,7 @@ describe("btw launch dispatch", () => {
       registerCommand(name: string, definition: any) {
         if (name === "btw") btwHandler = definition.handler;
       },
+      events: { on: () => () => undefined, emit: () => undefined },
       sendUserMessage(message: string) {
         sentUserMessages.push(message);
       },
@@ -1707,6 +1712,7 @@ describe("btw launch dispatch", () => {
       registerCommand(name: string, definition: any) {
         if (name === "btw") btwHandler = definition.handler;
       },
+      events: { on: () => () => undefined, emit: () => undefined },
       sendUserMessage: () => {
         throw new Error("must not send a message outside a child");
       },

@@ -62,7 +62,28 @@ After a chooser is cancelled or one item is chosen, the unchanged remaining hand
 ```
 
 Imports are deduped by merge request id, so resuming or re-running `/btw merge` never re-imports the same handoff.
-Imports are deduped by merge request id, so resuming or re-running `/btw merge` never re-imports the same handoff.
+
+## Intercom live conversation (optional)
+
+When [pi-intercom](https://github.com/nicobailon/pi-intercom) is installed and running, the parent and side sessions discover each other deterministically and can exchange live messages while both stay active. This is an optional enhancement: `/btw` launches, merges, polls, and recovers exactly as before when Intercom is absent, disabled, or disconnected. There is no hard dependency and no broker requirement.
+
+At `/btw` launch the extension generates one split identity (`btw-<short split id>`), persists it in both the parent's split record and the child's session marker, names the child session before either backend starts, and derives the exact Intercom target of the other side. Exact child targeting is recorded only when the parent's Intercom id equals its Pi session id and no machine-global `PI_INTERCOM_STABLE_ID` override exists; otherwise routing keeps the generated unique name and never guesses an id. Projections are ephemeral (`before_agent_start`) and audience-specific, so a later split never inherits an older split's routing.
+
+Guidance is projected only when the Intercom runtime initialized and the `intercom` tool is active for the current agent; agent tool allowlists are never widened. The extension registers an observational `pi-btw-presence/v1` extension channel that only reports connection/presence for advisory liveness labels. It never publishes control payloads, commits shared state, triggers turns, or participates in merge authority.
+
+Live conversation examples:
+
+```text
+intercom({ action: "send", to: "<side split target>", message: "Context update: ..." })
+intercom({ action: "ask",   to: "<side split target>", message: "Do you see the failure?" })
+intercom({ action: "reply", to: "<side split target>", message: "..." })
+```
+
+Use `send` for progress updates and extra context, `ask` only when you need a blocking answer, and `reply` to answer a question from the other side. `/btw merge` remains the authoritative final handoff: live conversation is contextual, never the imported artifact. The main session imports only the child's validated handoff, never the raw side transcript or latest ordinary answer.
+
+Both sides share the same working directory, so live coordination does not provide filesystem isolation; simultaneous edits can still affect each other.
+
+If Intercom is absent or the broker is unreachable, the exact same launch, merge, polling, and manual-import workflow applies as before. A first `intercom` tool call attempts a lazy connection; any send/ask failure is surfaced normally and remains authoritative over liveness labels.
 
 ## Unified parent merge
 
@@ -107,6 +128,7 @@ Under Herdr the user prompt never appears in process argv. `/btw` embeds the pro
 - Exactly one pending merge auto-imports; multiple pending merges auto-open the chooser. An unchanged remainder is deferred to manual `/btw merge`, but a newly completed handoff reopens the chooser with all pending items.
 - Parent `/btw merge` falls back to merge candidates when no completed handoff is pending. A candidate is a recorded side session with a settled terminal answer after its child marker and latest merge request and no pending intent; already-requested or already-imported children without later side work are skipped. Under Herdr the parent resolves the live child by exact session file (a target stored on the split record at launch, else `herdr agent list` matched on `agent_session.value`) and submits the constant `/btw merge` command. The child authors the handoff and the poll imports it; the raw latest answer is never imported. New split records store their Herdr agent target for later dispatch.
 - Uses Pi's session files and custom entries for branch boundaries, child markers, pending merge requests, and processed merge results.
+- Optionally records an Intercom split identity (split id, generated child name, exact parent/child targets in default identity mode) in split records and child markers, projects ephemeral routing guidance per audience, and observes connection/presence through an optional extension channel. The channel is observational only.
 - The side agent authors the handoff; the main session never receives the raw side transcript.
 - Merge intents, pending requests, and processed merges are durable in session entries/messages and deduped by request id. Parent import revalidates that the recorded terminal answer follows the intent's exact handoff prompt.
 - Multiple pending merges remain selectable with a small TUI chooser.

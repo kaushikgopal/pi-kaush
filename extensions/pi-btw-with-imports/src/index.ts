@@ -69,6 +69,34 @@ type ForkMessage = {
 type ForkSession = {
   sessionFile: string;
   baseLeafId: string | null;
+  // Child Pi session id captured from the created session manager so the
+  // exact child can be targeted before any asynchronous name registration.
+  sessionId?: string;
+  // Finalized Intercom identity when the runtime was initialized.
+  intercom?: SplitIntercomIdentity;
+};
+
+// Optional, version-tolerant per-split Intercom contact identity. Shared by
+// the parent's SplitRecord and the child's SplitChild marker so both sides
+// know each other deterministically. All fields are optional when reading old
+// records; absent identity simply means the split predates Intercom support
+// or Intercom was not initialized at launch time.
+type SplitIntercomIdentity = {
+  splitId: string;
+  parentTarget?: string;
+  childTarget?: string;
+  childName: string;
+  defaultIdentityMode: boolean;
+};
+
+// Pre-launch identity plan. The exact child Pi session id is only known after
+// the child session exists, so it is captured separately by finalization.
+type SplitIdentityPlan = {
+  splitId: string;
+  childName: string;
+  herdrAgentName: string;
+  defaultIdentityMode: boolean;
+  parentTarget?: string;
 };
 
 const SPLIT_RECORD_TYPE = "split-fork-record";
@@ -78,6 +106,15 @@ const SPLIT_MERGE_REQUEST_TYPE = "split-merge-request";
 const SPLIT_MERGE_RESULT_TYPE = "split-merge-result";
 const HERDR_EXEC_TIMEOUT_MS = 15000;
 const HERDR_AGENT_START_RETRY_DELAY_MS = 100;
+
+// Observational Intercom extension-channel contract. The event names and
+// registration shape match pi-intercom's extension-api; structural local
+// types keep this package free of any runtime dependency on pi-intercom.
+const INTERCOM_EXTENSION_REGISTER_EVENT = "intercom:extension-register";
+const INTERCOM_EXTENSION_REGISTRY_READY_EVENT =
+  "intercom:extension-registry-ready";
+const BTW_PRESENCE_NAMESPACE = "pi-btw-presence/v1";
+const MAX_PROJECTED_ROSTER = 6;
 const HERDR_AGENT_START_MAX_ATTEMPTS = 30;
 
 const SPLIT_HANDOFF_PROMPT = `Prepare the final handoff from this side split for the main coding-agent session.
@@ -97,6 +134,8 @@ type SplitRecord = {
   // Optional Herdr agent name captured at launch so a later parent-side
   // `/btw merge` can dispatch to the live child without querying `agent list`.
   herdrTarget?: string;
+  // Optional Intercom contact identity recorded when the runtime initialized.
+  intercom?: SplitIntercomIdentity;
 };
 
 // Marker appended to every child session. The prompt is embedded here so the
@@ -106,6 +145,7 @@ type SplitChild = {
   baseLeafId: string | null;
   prompt?: string;
   parentPaneId?: string;
+  intercom?: SplitIntercomIdentity;
 };
 
 // Durable intent written before the handoff prompt is submitted. If the child
@@ -350,10 +390,123 @@ function buildChildData(
   baseLeafId: string | null,
   prompt: string,
   parentPaneId: string | undefined,
+  intercom: SplitIntercomIdentity | undefined,
 ): SplitChild {
   const data: SplitChild = { baseLeafId, prompt };
   if (parentPaneId) data.parentPaneId = parentPaneId;
+  if (intercom) data.intercom = intercom;
   return data;
+}
+
+function parseSplitIntercomIdentity(
+  value: unknown,
+): SplitIntercomIdentity | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const data = value as Record<string, unknown>;
+  if (
+    typeof data.splitId !== "string" ||
+    typeof data.childName !== "string" ||
+    typeof data.defaultIdentityMode !== "boolean"
+  ) {
+    return undefined;
+  }
+  if (data.parentTarget !== undefined && typeof data.parentTarget !== "string")
+    return undefined;
+  if (data.childTarget !== undefined && typeof data.childTarget !== "string")
+    return undefined;
+  const identity: SplitIntercomIdentity = {
+    splitId: data.splitId,
+    childName: data.childName,
+    defaultIdentityMode: data.defaultIdentityMode,
+  };
+  if (typeof data.parentTarget === "string")
+    identity.parentTarget = data.parentTarget;
+  if (typeof data.childTarget === "string")
+    identity.childTarget = data.childTarget;
+  return identity;
+}
+
+// Build the pre-launch identity when the Intercom runtime initialized. A
+// non-empty PI_INTERCOM_SESSION_ID is initialization/identity, not proof of a
+// live broker socket. Default identity mode holds only when the parent's
+// Intercom id equals its Pi session id and no stable override is configured;
+// that equality is what makes child Pi session ids valid Intercom targets.
+function buildSplitIdentityPlan(
+  ctx: ExtensionContext,
+): SplitIdentityPlan | undefined {
+  const intercomSessionId = process.env.PI_INTERCOM_SESSION_ID;
+  if (!intercomSessionId) return undefined;
+  const splitId = randomUUID();
+  const shortId = splitId.slice(0, 8);
+  const defaultIdentityMode =
+    !process.env.PI_INTERCOM_STABLE_ID &&
+    intercomSessionId !== "" &&
+    ctx.sessionManager.getSessionId() === intercomSessionId;
+  const plan: SplitIdentityPlan = {
+    splitId,
+    childName: `btw-${shortId}`,
+    herdrAgentName: `pi-btw-${shortId}`,
+    defaultIdentityMode,
+  };
+  if (defaultIdentityMode) plan.parentTarget = intercomSessionId;
+  return plan;
+}
+
+// Exact child targeting is only recorded in proven default identity mode.
+// Otherwise keep the unique generated name and never guess a target.
+function finalizeSplitIntercomIdentity(
+  plan: SplitIdentityPlan,
+  childSessionId: string | undefined,
+): SplitIntercomIdentity {
+  const identity: SplitIntercomIdentity = {
+    splitId: plan.splitId,
+    childName: plan.childName,
+    defaultIdentityMode: plan.defaultIdentityMode,
+  };
+  if (plan.defaultIdentityMode) {
+    if (plan.parentTarget) identity.parentTarget = plan.parentTarget;
+    if (childSessionId) identity.childTarget = childSessionId;
+  }
+  return identity;
+}
+
+// Best-effort pre-launch naming: append the generated session name so it is
+// available when Intercom registers the child, instead of waiting for
+// asynchronous name polling. Naming failure must never fail the fork.
+function applyChildIntercomName(
+  sessionManager: SessionManager,
+  plan: SplitIdentityPlan | undefined,
+): string | undefined {
+  if (!plan) return undefined;
+  try {
+    sessionManager.appendSessionInfo(plan.childName);
+  } catch {
+    // Best-effort naming only.
+  }
+  return sessionManager.getSessionId();
+}
+
+// Backend-independent child bootstrap: reassert the persisted btw-* session
+// name on startup. Idempotent, best-effort, and never blocking for side work
+// or merge recovery.
+function bootstrapSplitChild(ctx: ExtensionContext, child: SplitChild): void {
+  const identity = child.intercom
+    ? parseSplitIntercomIdentity(child.intercom)
+    : undefined;
+  if (!identity) return;
+  try {
+    const sessionFile = ctx.sessionManager.getSessionFile();
+    if (!sessionFile || !existsSync(sessionFile)) return;
+    const manager = SessionManager.open(
+      sessionFile,
+      ctx.sessionManager.getSessionDir(),
+    );
+    if (manager.getSessionName() !== identity.childName) {
+      manager.appendSessionInfo(identity.childName);
+    }
+  } catch {
+    // Best-effort: naming must never suppress the side prompt or block merge.
+  }
 }
 
 async function createForkSession(
@@ -362,6 +515,7 @@ async function createForkSession(
   leafId: string | null,
   prompt: string,
   parentPaneId: string | undefined,
+  identityPlan: SplitIdentityPlan | undefined,
 ): Promise<ForkSession> {
   const sessionDir = ctx.sessionManager.getSessionDir();
   const sessionManager = leafId
@@ -374,10 +528,14 @@ async function createForkSession(
     : sessionManager.getSessionFile();
   if (!sessionFile) throw new Error("Failed to create split session");
   const baseLeafId = sessionManager.getLeafId();
+  const sessionId = applyChildIntercomName(sessionManager, identityPlan);
+  const intercom = identityPlan
+    ? finalizeSplitIntercomIdentity(identityPlan, sessionId)
+    : undefined;
   try {
     sessionManager.appendCustomEntry(
       SPLIT_CHILD_TYPE,
-      buildChildData(baseLeafId, prompt, parentPaneId),
+      buildChildData(baseLeafId, prompt, parentPaneId, intercom),
     );
     await ensureSessionFileWritten(sessionManager, sessionFile);
   } catch (error) {
@@ -388,7 +546,12 @@ async function createForkSession(
         : errorMessage(error),
     );
   }
-  return { sessionFile, baseLeafId };
+  return {
+    sessionFile,
+    baseLeafId,
+    ...(sessionId ? { sessionId } : {}),
+    ...(intercom ? { intercom } : {}),
+  };
 }
 
 // First-turn snapshot: the source session is not persisted (in-memory), so we
@@ -401,6 +564,7 @@ async function createSnapshotForkSession(
   forkLeafId: string | null,
   prompt: string,
   parentPaneId: string | undefined,
+  identityPlan: SplitIdentityPlan | undefined,
 ): Promise<ForkSession> {
   const sessionDir = ctx.sessionManager.getSessionDir();
   const entries = ctx.sessionManager.getEntries();
@@ -437,12 +601,21 @@ async function createSnapshotForkSession(
     child.appendThinkingLevelChange(context.thinkingLevel);
 
     const baseLeafId = child.getLeafId();
+    const sessionId = applyChildIntercomName(child, identityPlan);
+    const intercom = identityPlan
+      ? finalizeSplitIntercomIdentity(identityPlan, sessionId)
+      : undefined;
     child.appendCustomEntry(
       SPLIT_CHILD_TYPE,
-      buildChildData(baseLeafId, prompt, parentPaneId),
+      buildChildData(baseLeafId, prompt, parentPaneId, intercom),
     );
     await ensureSessionFileWritten(child, sessionFile);
-    return { sessionFile, baseLeafId };
+    return {
+      sessionFile,
+      baseLeafId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(intercom ? { intercom } : {}),
+    };
   } catch (error) {
     const cleanupError = await deleteSplitSessionFile(sessionFile);
     throw new Error(
@@ -459,6 +632,7 @@ async function createForkAtSelectedMessage(
   entryId: string,
   prompt: string,
   parentPaneId: string | undefined,
+  identityPlan: SplitIdentityPlan | undefined,
 ): Promise<ForkSession> {
   const selectedEntry = ctx.sessionManager.getEntry(entryId);
   if (
@@ -474,6 +648,7 @@ async function createForkAtSelectedMessage(
     selectedEntry.parentId,
     prompt,
     parentPaneId,
+    identityPlan,
   );
 }
 
@@ -505,6 +680,7 @@ async function launchHerdrSplit(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   launch: PiSessionLaunch,
+  agentName: string,
 ): Promise<LaunchResult> {
   const herdrBin = process.env.HERDR_BIN_PATH || "herdr";
   const paneId = process.env.HERDR_PANE_ID;
@@ -516,8 +692,6 @@ async function launchHerdrSplit(
       canDeleteSession: true,
     };
   }
-  const agentName = `pi-btw-${randomUUID().slice(0, 8)}`;
-
   // Step 1: split the current pane to the right. A definite failure here
   // happens before any child exists, so the copied session can be deleted.
   let splitResult: ExecResult;
@@ -798,8 +972,9 @@ async function launchSplit(
   backend: SplitBackend,
   launch: PiSessionLaunch,
   prompt: string,
+  agentName: string,
 ): Promise<LaunchResult> {
-  if (backend === "herdr") return launchHerdrSplit(pi, ctx, launch);
+  if (backend === "herdr") return launchHerdrSplit(pi, ctx, launch, agentName);
   return launchGhosttySplit(pi, ctx, launch, prompt);
 }
 
@@ -1250,6 +1425,7 @@ function recordSplit(
   baseLeafId: string | null,
   label: string,
   herdrTarget?: string,
+  intercom?: SplitIntercomIdentity,
 ): string | undefined {
   try {
     const data: SplitRecord = {
@@ -1258,6 +1434,7 @@ function recordSplit(
       label: label.replace(/\s+/g, " ").trim().slice(0, 80),
     };
     if (herdrTarget) data.herdrTarget = herdrTarget;
+    if (intercom) data.intercom = intercom;
     pi.appendEntry(SPLIT_RECORD_TYPE, data);
     return undefined;
   } catch (error) {
@@ -1582,6 +1759,16 @@ async function runBtwSplit(
   const parentPaneId =
     host.backend === "herdr" ? process.env.HERDR_PANE_ID : undefined;
 
+  // One collision-resistant split identity for the whole split operation,
+  // generated before any child exists. When the Intercom runtime did not
+  // initialize, no identity is recorded and the split behaves exactly as
+  // before.
+  const identityPlan = buildSplitIdentityPlan(ctx);
+  const herdrAgentName =
+    identityPlan?.herdrAgentName ?? `pi-btw-${randomUUID().slice(0, 8)}`;
+
+  let splitIntercomIdentity: SplitIntercomIdentity | undefined;
+
   let splitSessionFile: string | undefined;
   let baseLeafId: string | null = null;
   let recordLabel = "";
@@ -1603,25 +1790,33 @@ async function runBtwSplit(
           );
           return;
         }
-        ({ sessionFile: splitSessionFile, baseLeafId } =
-          await createForkSession(
-            ctx,
-            sourceSessionFile!,
-            forkLeafId,
-            prompt,
-            parentPaneId,
-          ));
+        ({
+          sessionFile: splitSessionFile,
+          baseLeafId,
+          intercom: splitIntercomIdentity,
+        } = await createForkSession(
+          ctx,
+          sourceSessionFile!,
+          forkLeafId,
+          prompt,
+          parentPaneId,
+          identityPlan,
+        ));
       } else {
         // First turn: the source session is not persisted. Snapshot the
         // in-memory context into a normal persisted child.
-        ({ sessionFile: splitSessionFile, baseLeafId } =
-          await createSnapshotForkSession(
-            ctx,
-            sourceSessionFile,
-            forkLeafId,
-            prompt,
-            parentPaneId,
-          ));
+        ({
+          sessionFile: splitSessionFile,
+          baseLeafId,
+          intercom: splitIntercomIdentity,
+        } = await createSnapshotForkSession(
+          ctx,
+          sourceSessionFile,
+          forkLeafId,
+          prompt,
+          parentPaneId,
+          identityPlan,
+        ));
       }
       piLaunch = buildPiSessionLaunch(splitSessionFile!);
       recordLabel = prompt;
@@ -1645,23 +1840,31 @@ async function runBtwSplit(
       }
       const forkLeafId = selectedEntry.parentId;
       if (sourcePersisted) {
-        ({ sessionFile: splitSessionFile, baseLeafId } =
-          await createForkAtSelectedMessage(
-            ctx,
-            sourceSessionFile!,
-            selected.entryId,
-            selected.text,
-            parentPaneId,
-          ));
+        ({
+          sessionFile: splitSessionFile,
+          baseLeafId,
+          intercom: splitIntercomIdentity,
+        } = await createForkAtSelectedMessage(
+          ctx,
+          sourceSessionFile!,
+          selected.entryId,
+          selected.text,
+          parentPaneId,
+          identityPlan,
+        ));
       } else {
-        ({ sessionFile: splitSessionFile, baseLeafId } =
-          await createSnapshotForkSession(
-            ctx,
-            sourceSessionFile,
-            forkLeafId,
-            selected.text,
-            parentPaneId,
-          ));
+        ({
+          sessionFile: splitSessionFile,
+          baseLeafId,
+          intercom: splitIntercomIdentity,
+        } = await createSnapshotForkSession(
+          ctx,
+          sourceSessionFile,
+          forkLeafId,
+          selected.text,
+          parentPaneId,
+          identityPlan,
+        ));
       }
       piLaunch = buildPiSessionLaunch(splitSessionFile!);
       recordLabel = selected.text;
@@ -1676,6 +1879,7 @@ async function runBtwSplit(
       host.backend,
       piLaunch,
       launchPrompt,
+      herdrAgentName,
     );
     if (!launch.ok) {
       let reason = launch.reason;
@@ -1706,6 +1910,7 @@ async function runBtwSplit(
       baseLeafId,
       recordLabel,
       herdrTarget,
+      splitIntercomIdentity,
     );
     if (trackingError) {
       ctx.ui.notify(
@@ -1714,8 +1919,11 @@ async function runBtwSplit(
       );
       return;
     }
+    const intercomNote = splitIntercomIdentity
+      ? `; intercom contact: ${splitIntercomIdentity.childName}`
+      : "";
     ctx.ui.notify(
-      `Opened split in a ${launch.backend} right split${target} and sent prompt.`,
+      `Opened split in a ${launch.backend} right split${target} and sent prompt${intercomNote}.`,
       "info",
     );
     if (forkedBeforeInFlight) {
@@ -1737,6 +1945,231 @@ async function runBtwSplit(
 // Live merge detection runs only under Herdr. Ghostty remains an explicit
 // switch-back-and-import workflow.
 const MERGE_POLL_INTERVAL_MS = 2500;
+
+// --- Observational Intercom presence ---------------------------------------
+
+// Structural local types for pi-intercom's extension channel. This package
+// never publishes control payloads, commits shared state, triggers turns, or
+// participates in merge authority through this channel.
+type BtwPresenceStatus = "connecting" | "live" | "disconnected";
+
+type IntercomExtensionChannelLike = {
+  snapshot(): {
+    connected: boolean;
+    supported: boolean;
+    owner?: unknown;
+    state?: unknown;
+  };
+  listSessions(): Promise<Array<{ id: string; name?: string }>>;
+};
+
+type IntercomExtensionEventLike = {
+  type: string;
+  connected?: boolean;
+  sessionId?: string;
+  session?: { id?: string; name?: string };
+};
+
+type IntercomPresenceState = {
+  channel: IntercomExtensionChannelLike | undefined;
+  statuses: Map<string, BtwPresenceStatus>;
+  nameToId: Map<string, string>;
+};
+
+function handlePresenceEvent(
+  event: IntercomExtensionEventLike,
+  presence: IntercomPresenceState,
+): void {
+  switch (event.type) {
+    case "connection":
+      if (event.connected === false) {
+        presence.statuses.clear();
+      }
+      break;
+    case "session_joined": {
+      const session = event.session;
+      if (session?.id) {
+        presence.statuses.set(session.id, "connecting");
+        if (session.name) presence.nameToId.set(session.name, session.id);
+      }
+      break;
+    }
+    case "presence_update": {
+      const session = event.session;
+      if (session?.id) {
+        presence.statuses.set(session.id, "live");
+        if (session.name) presence.nameToId.set(session.name, session.id);
+      }
+      break;
+    }
+    case "session_left": {
+      const sessionId = event.sessionId;
+      if (sessionId) presence.statuses.set(sessionId, "disconnected");
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function presenceConnected(presence: IntercomPresenceState): boolean {
+  return presence.channel?.snapshot().connected === true;
+}
+
+// Advisory liveness label only; actual send/ask results stay authoritative.
+function describeChildLiveness(
+  identity: SplitIntercomIdentity,
+  presence: IntercomPresenceState,
+): string | undefined {
+  if (!presenceConnected(presence)) return undefined;
+  const sessionId =
+    identity.childTarget ?? presence.nameToId.get(identity.childName);
+  const status = sessionId ? presence.statuses.get(sessionId) : undefined;
+  return status;
+}
+
+// --- Intercom routing guidance ---------------------------------------------
+
+// Ephemeral, idempotent, audience-specific routing guidance projected into
+// before_agent_start. Never persisted as model-context messages, because a
+// future split copies its parent's branch and would inherit stale routing.
+// Added only when the Intercom runtime initialized and the intercom tool is
+// active for the current agent; never widens agent tool allowlists.
+function buildIntercomGuidance(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  presence: IntercomPresenceState,
+): string | undefined {
+  if (!process.env.PI_INTERCOM_SESSION_ID) return undefined;
+  if (!pi.getActiveTools().includes("intercom")) return undefined;
+
+  const child = getSplitChildData(ctx);
+  if (!child) return buildParentIntercomGuidance(ctx, presence);
+  return buildChildIntercomGuidance(child, presence);
+}
+
+function buildParentIntercomGuidance(
+  ctx: ExtensionContext,
+  presence: IntercomPresenceState,
+): string | undefined {
+  const rostered: Array<{
+    record: SplitRecord;
+    identity: SplitIntercomIdentity;
+  }> = [];
+  for (const record of getSplitRecords(ctx).slice(-MAX_PROJECTED_ROSTER)) {
+    const identity = record.intercom
+      ? parseSplitIntercomIdentity(record.intercom)
+      : undefined;
+    if (identity) rostered.push({ record, identity });
+  }
+  if (rostered.length === 0) return undefined;
+
+  const lines = [
+    "## Live side splits (Intercom)",
+    "You can message these side splits directly for live conversation.",
+  ];
+  for (const { record, identity } of rostered) {
+    const target = identity.childTarget;
+    const liveness = describeChildLiveness(identity, presence);
+    const livenessLabel = liveness ? ` (${liveness})` : "";
+    if (target) {
+      lines.push(
+        `- "${record.label}" is "${identity.childName}" at "${target}"${livenessLabel}`,
+      );
+    } else {
+      lines.push(
+        `- "${record.label}" is "${identity.childName}"${livenessLabel}`,
+      );
+    }
+  }
+  lines.push(
+    'Use intercom({ action: "send", to: "<target>", message: "..." }) for progress updates; use ask only when you need a blocking answer; use reply for side questions. "/btw merge" remains the final clean handoff.',
+  );
+  return lines.join("\n");
+}
+
+function buildChildIntercomGuidance(
+  child: SplitChild,
+  presence: IntercomPresenceState,
+): string | undefined {
+  const identity = child.intercom
+    ? parseSplitIntercomIdentity(child.intercom)
+    : undefined;
+  if (!identity) return undefined;
+
+  const lines = [
+    "## Main-session contact (Intercom)",
+    `You are side split "${identity.childName}" (split ${identity.splitId}).`,
+  ];
+  if (identity.parentTarget) {
+    lines.push(`The main session is reachable at "${identity.parentTarget}".`);
+    lines.push(
+      'Example update: intercom({ action: "send", to: "<main session>", message: "..." })',
+    );
+  } else {
+    lines.push(
+      "The main session is not addressable by an exact id in this setup; locate it from /intercom and never guess an id.",
+    );
+  }
+  lines.push(
+    "Use send for meaningful progress updates, ask only when you are blocked and need a blocking answer, and reply to answer a main-session ask.",
+  );
+  lines.push(
+    'Finish through "/btw merge", which remains the authoritative handoff; conversation is not the imported artifact.',
+  );
+  if (!presenceConnected(presence)) {
+    lines.push(
+      "The broker may not be connected yet; a first intercom tool call attempts a lazy connection and failures are authoritative.",
+    );
+  }
+  return lines.join("\n");
+}
+
+// --- Observational channel registration ------------------------------------
+
+// Register the silent observational channel with pi-intercom. Attach the
+// registry-ready listener at factory time (covers any load order) and also
+// attempt registration on session_start when the ready event was missed.
+function tryRegisterPresenceChannel(
+  pi: ExtensionAPI,
+  presence: IntercomPresenceState,
+): void {
+  try {
+    pi.events.emit(INTERCOM_EXTENSION_REGISTER_EVENT, {
+      namespace: BTW_PRESENCE_NAMESPACE,
+      ownerEligible: false,
+      onEvent: (event: unknown) => {
+        handlePresenceEvent(event as IntercomExtensionEventLike, presence);
+      },
+      onReady: (channel: unknown) => {
+        const candidate = channel as IntercomExtensionChannelLike | undefined;
+        if (!candidate || typeof candidate.snapshot !== "function") return;
+        presence.channel = candidate;
+        // Seed exact id/name mapping without committing any shared state.
+        void candidate
+          .listSessions()
+          .then((sessions) => {
+            for (const session of sessions) {
+              presence.statuses.set(session.id, "live");
+              if (session.name) presence.nameToId.set(session.name, session.id);
+            }
+          })
+          .catch(() => undefined);
+      },
+    });
+  } catch {
+    // Already registered, unsupported, or intercom absent: degrade silently.
+  }
+}
+
+function attachPresenceRegistryListener(
+  pi: ExtensionAPI,
+  presence: IntercomPresenceState,
+): void {
+  pi.events.on(INTERCOM_EXTENSION_REGISTRY_READY_EVENT, (_payload) => {
+    tryRegisterPresenceChannel(pi, presence);
+  });
+}
 
 // Decide what to do with the current pending merges. Exactly one new pending
 // is auto-imported; multiple new pendings auto-show the selector. Request ids
@@ -1786,6 +2219,16 @@ export default function btwWithImports(pi: ExtensionAPI) {
   let pollGeneration = 0;
   let pollInFlightGeneration: number | undefined;
   let presentedMergeRequestIds = new Set<string>();
+
+  // Optional observational Intercom presence state. Ephemeral and advisory
+  // only; actual send/ask results and durable session records are always
+  // authoritative.
+  const presence: IntercomPresenceState = {
+    channel: undefined,
+    statuses: new Map(),
+    nameToId: new Map(),
+  };
+  attachPresenceRegistryListener(pi, presence);
 
   const isCurrentGeneration = (generation: number) =>
     pollActive && pollGeneration === generation;
@@ -1861,8 +2304,16 @@ export default function btwWithImports(pi: ExtensionAPI) {
     // Fresh per-session state: a resumed session should re-evaluate multi
     // pending merges rather than inherit a prior suppression.
     presentedMergeRequestIds = new Set();
+    // Cover the case where pi-intercom loaded before this extension's
+    // registry-ready listener was attached; duplicate registration is caught
+    // and degrades silently.
+    tryRegisterPresenceChannel(pi, presence);
     const child = getSplitChildData(ctx);
     if (child) {
+      // Backend-independent child bootstrap first: reassert the persisted
+      // btw-* session name. Best-effort and idempotent; merge recovery below
+      // keeps its exact association rules.
+      bootstrapSplitChild(ctx, child);
       await finalizePendingChildMerge(pi, ctx, child);
       return;
     }
@@ -1871,6 +2322,17 @@ export default function btwWithImports(pi: ExtensionAPI) {
     const generation = pollGeneration;
     // Immediate check on session start, then recurring live detection.
     void runMergePollTick(ctx, generation);
+  });
+
+  // Ephemeral, audience-specific Intercom routing guidance. No extra turn is
+  // triggered and the original side prompt is never held or reordered while
+  // waiting for the broker.
+  pi.on("before_agent_start", (event, ctx) => {
+    const guidance = buildIntercomGuidance(pi, ctx, presence);
+    if (!guidance) return;
+    return {
+      systemPrompt: `${event.systemPrompt}\n\n${guidance}`,
+    };
   });
 
   pi.on("agent_settled", async (_event, ctx) => {

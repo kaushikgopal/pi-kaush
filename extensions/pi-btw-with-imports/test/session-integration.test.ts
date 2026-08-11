@@ -86,6 +86,7 @@ function herdrExec(_command: string, args: string[]) {
 
 function buildPi(sessionManager: SessionManagerInstance) {
   return {
+    events: { on: () => () => undefined, emit: () => undefined },
     registerCommand(
       _name: string,
       definition: { handler: (args: string, ctx: any) => Promise<void> },
