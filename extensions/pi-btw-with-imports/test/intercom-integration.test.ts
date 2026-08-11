@@ -570,37 +570,44 @@ describe("/btw Intercom awareness", () => {
   });
 
   test("Ghostty with initialized but disconnected Intercom does not delay the initial prompt", async () => {
+    const isDarwin = process.platform === "darwin";
     const parent = createPersistedParent();
     process.env.PI_INTERCOM_SESSION_ID = parent.getSessionId();
     const harness = createHarness(parent);
 
-    // No HERDR_ENV on darwin routes to Ghostty: "open -Ra Ghostty" then the
-    // startup input is built and submitted immediately with the real prompt,
-    // never held for the broker.
+    // No HERDR_ENV routes to Ghostty on darwin (and fails cleanly elsewhere):
+    // the startup input is built and submitted immediately with the real
+    // prompt and never held for the broker.
     await harness.btw("Ghostty approach", harness.ctx);
 
-    expect(
-      harness.execCalls.some(
-        (call) => call.command === "open" && call.args[0] === "-Ra",
-      ),
-    ).toBe(true);
-    const osascriptCall = harness.execCalls.find(
-      (call) => call.command === "osascript",
-    );
-    expect(osascriptCall).toBeDefined();
-    expect(osascriptCall!.args.join(" ")).toContain("Ghostty approach");
-    expect(
-      harness.execCalls.some(
-        (call) => call.args[0] === "agent" && call.args[1] === "start",
-      ),
-    ).toBe(false);
-    expect(harness.records()).toHaveLength(1);
-    const identity = (
-      harness.records()[0]!.data as {
-        intercom: Record<string, unknown>;
-      }
-    ).intercom;
-    expect(identity.childName).toMatch(/^btw-[a-f0-9]{8}$/);
+    if (isDarwin) {
+      const osascriptCall = harness.execCalls.find(
+        (call) => call.command === "osascript",
+      );
+      expect(osascriptCall).toBeDefined();
+      expect(osascriptCall!.args.join(" ")).toContain("Ghostty approach");
+      expect(
+        harness.execCalls.some(
+          (call) => call.args[0] === "agent" && call.args[1] === "start",
+        ),
+      ).toBe(false);
+      expect(harness.records()).toHaveLength(1);
+      const identity = (
+        harness.records()[0]!.data as {
+          intercom: Record<string, unknown>;
+        }
+      ).intercom;
+      expect(identity.childName).toMatch(/^btw-[a-f0-9]{8}$/);
+    } else {
+      // Non-darwin hosts fail cleanly before copying anything: no launch, no
+      // record, no identity, and the error is surfaced.
+      expect(harness.records()).toHaveLength(0);
+      expect(
+        harness.notifications.some(({ message }) =>
+          message.includes("Cannot split"),
+        ),
+      ).toBe(true);
+    }
   });
 
   test("observational channel registration is load-order tolerant and never publishes control traffic", async () => {
