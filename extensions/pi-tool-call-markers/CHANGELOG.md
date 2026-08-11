@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Compose capped in-progress rows before the Box paints its background, fixing elapsed tails leaking outside the tool background and restoring the block's bottom padding.
+
 - Render in-progress calls as a single header line (elapsed time inline for `bash`) that settles into the final summary at the same height, so the transcript flows downwards without jumping.
 - Show the real duration in successful bash summaries (`→ done · 2.3s`) instead of dropping the elapsed time on completion.
 - Keep a call's settled shape stable once rendered: batches that settle next to an active sibling stay as individual one-liners instead of regrouping afterwards, which removes the second jump when a parallel batch completes.

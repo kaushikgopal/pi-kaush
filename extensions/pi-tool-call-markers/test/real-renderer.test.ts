@@ -144,6 +144,71 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(renderPlain(chat)).toContain("FULL test failure");
   });
 
+  test("caps a live row to one line with elapsed inside the background", () => {
+    const chat = new Container();
+    const row = createBashRow(
+      "npm run a-very-long-command-that-keeps-going-for-a-while",
+    );
+    (
+      row as unknown as { rendererState: { startedAt?: number } }
+    ).rendererState.startedAt = Date.now() - 2000;
+    chat.addChild(row);
+    row.updateResult(
+      {
+        content: [{ type: "text", text: "partial output line" }],
+        details: {},
+        isError: false,
+      },
+      true,
+    );
+
+    const lines = chat.render(50);
+    const visible = lines.filter((line) => line.replace(ANSI_RE, "").trim());
+    expect(visible).toHaveLength(1);
+
+    const header = visible[0]!;
+    const plain = header.replace(ANSI_RE, "");
+    expect(plain).toContain("… · 2.0s");
+    expect(plain).not.toContain("partial output line");
+    expect(plain.trimEnd().length).toBeLessThanOrEqual(50);
+
+    // The elapsed tail must sit inside the tool background, which the Box
+    // paints edge to edge after composition; the final reset closes the line.
+    const tailIndex = header.indexOf("2.0s");
+    const finalReset = header.lastIndexOf("\x1b[0m");
+    expect(tailIndex).toBeGreaterThan(-1);
+    expect(finalReset).toBeGreaterThan(tailIndex);
+    expect(header.slice(finalReset + "\x1b[0m".length).trim()).toBe("");
+  });
+
+  test("keeps live and settled blocks at the same padded height", () => {
+    const make = () => {
+      const chat = new Container();
+      const row = createBashRow("npm test");
+      chat.addChild(row);
+      return { chat, row };
+    };
+
+    const live = make();
+    live.row.updateResult(
+      {
+        content: [{ type: "text", text: "streaming output" }],
+        details: {},
+        isError: false,
+      },
+      true,
+    );
+    const liveLines = live.chat.render(60);
+
+    const settled = make();
+    settle(settled.row, "all tests passed");
+    const settledLines = settled.chat.render(60);
+
+    // spacer + top padding + header + bottom padding at every stage
+    expect(liveLines).toHaveLength(4);
+    expect(settledLines).toHaveLength(4);
+  });
+
   test("groups real settled rows with one-line outcome bullets", () => {
     const chat = new Container();
     const first = createBashRow("npm test");

@@ -266,44 +266,77 @@ function isLiveRow(row: ToolExecutionRow): boolean {
   );
 }
 
-// While a call streams or runs, pin it to a single header line with the
-// elapsed time inline, so the block never grows and never collapses on
-// completion; the header text simply settles into the outcome summary.
-function renderLiveRow(
+function liveTailText(
   row: ToolExecutionRow,
-  lines: string[],
-  width: number,
+  droppedVisible: boolean,
   theme?: ThemeLike,
-): string[] {
-  const decorated = decorateHeader(row, lines, width, theme);
-  const headerIndex = decorated.findIndex(hasVisibleContent);
-  if (headerIndex === -1) return decorated;
-
-  let end = headerIndex + 1;
-  while (end < decorated.length && !hasVisibleContent(decorated[end] ?? ""))
-    end++;
-  const kept = decorated.slice(0, end);
-  const droppedVisible = decorated.slice(end).some(hasVisibleContent);
-
+): string | undefined {
+  if (!theme) return undefined;
   const elapsed = liveElapsedText(row);
-  if (!theme || (!droppedVisible && !elapsed)) return kept;
-
+  if (!droppedVisible && !elapsed) return undefined;
   const parts: string[] = [];
   if (droppedVisible) parts.push("…");
   if (elapsed) parts.push("·", elapsed);
-  const tail = theme.fg("muted", parts.join(" "));
+  return theme.fg("muted", parts.join(" "));
+}
 
-  const header = kept[headerIndex] ?? "";
+function fitLiveHeader(
+  header: string,
+  tail: string,
+  width: number,
+  droppedVisible: boolean,
+): string {
   const max = Math.max(1, width);
-  if (visibleWidth(header) + visibleWidth(tail) + 1 <= max) {
-    kept[headerIndex] = `${header} ${tail}`;
-    return kept;
-  }
+  const head = header.trimEnd();
+  if (visibleWidth(head) + visibleWidth(tail) + 1 <= max)
+    return `${head} ${tail}`;
   const headWidth = Math.max(1, max - visibleWidth(tail) - 1);
   const headSuffix = droppedVisible ? "" : "…";
-  kept[headerIndex] =
-    `${truncateToWidth(header, headWidth, headSuffix, false)} ${tail}`;
-  return kept;
+  return `${truncateToWidth(head, headWidth, headSuffix, false)} ${tail}`;
+}
+
+// While a call streams or runs, pin it to a single header line with the
+// elapsed time inline, so the block never grows and never collapses on
+// completion; the header text simply settles into the outcome summary. The
+// cap is composed before the Box applies background and padding, so the live
+// line keeps the tool background edge to edge and the block's bottom padding.
+function capLiveRowDisplay(row: ToolExecutionRow, theme?: ThemeLike): void {
+  if (row.hasRendererDefinition?.()) {
+    const container = row.contentBox;
+    if (!container || !Array.isArray(container.children)) return;
+    const hadExtraChildren = container.children.length > 1;
+    removeResultComponent(container);
+    const original = container.children[0] as ComponentLike | undefined;
+    if (!original || typeof original.render !== "function") return;
+    container.children[0] = {
+      render(width: number): string[] {
+        const lines = original.render(width);
+        const headerIndex = lines.findIndex(hasVisibleContent);
+        if (headerIndex === -1) return lines;
+        const header = lines[headerIndex] ?? "";
+        const droppedVisible =
+          hadExtraChildren ||
+          lines.slice(headerIndex + 1).some(hasVisibleContent);
+        const tail = liveTailText(row, droppedVisible, theme);
+        return [
+          tail ? fitLiveHeader(header, tail, width, droppedVisible) : header,
+        ];
+      },
+      invalidate() {
+        original.invalidate();
+      },
+    };
+    return;
+  }
+
+  const text = row.contentText;
+  if (typeof text?.text !== "string" || typeof text.setText !== "function")
+    return;
+  const lines = text.text.split("\n");
+  const title = lines[0] ?? "";
+  const droppedVisible = lines.slice(1).some((line) => line.trim().length > 0);
+  const tail = liveTailText(row, droppedVisible, theme);
+  text.setText(tail ? `${title} ${tail}` : title);
 }
 
 function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
@@ -989,7 +1022,8 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       }
       state.originalUpdateDisplay.call(this);
       try {
-        collapseSuccessfulResult(this, state.theme);
+        if (isLiveRow(this)) capLiveRowDisplay(this, state.theme);
+        else collapseSuccessfulResult(this, state.theme);
       } catch {
         // Presentation is cosmetic; preserve Pi's renderer if its internals change.
       }
@@ -1000,8 +1034,6 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     ): string[] {
       const lines = state.originalRender.call(this, width);
       try {
-        if (isLiveRow(this))
-          return renderLiveRow(this, lines, width, state.theme);
         return decorateHeader(this, lines, width, state.theme);
       } catch {
         return lines;
