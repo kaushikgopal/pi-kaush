@@ -692,6 +692,15 @@ afterEach(() => {
   lastMergeHarnessShutdown?.();
   lastMergeHarnessShutdown = undefined;
   vi.useRealTimers();
+  // The host Pi session may export Intercom runtime env vars; keep these
+  // tests hermetic so launch behavior is exactly the intercom-absent path.
+  delete process.env.PI_INTERCOM_SESSION_ID;
+  delete process.env.PI_INTERCOM_STABLE_ID;
+});
+
+beforeEach(() => {
+  delete process.env.PI_INTERCOM_SESSION_ID;
+  delete process.env.PI_INTERCOM_STABLE_ID;
 });
 
 function setHerdrIdentity(paneId = "pane-1"): () => void {

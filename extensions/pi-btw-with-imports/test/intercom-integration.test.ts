@@ -617,37 +617,81 @@ describe("/btw Intercom awareness", () => {
     process.env.PI_INTERCOM_SESSION_ID = parent.getSessionId();
     const harness = createHarness(parent);
 
-    // Intercom loads AFTER this extension: the ready event reaches the
-    // factory-time listener.
-    harness.bus.emit(INTERCOM_REGISTRY_READY_EVENT, { version: 1 });
-    const registrations = harness.bus.emitted.filter(
-      (entry) => entry.channel === INTERCOM_REGISTER_EVENT,
-    );
-    expect(registrations.length).toBeGreaterThanOrEqual(1);
-    const registration = registrations[0]!.data as {
-      namespace: string;
-      ownerEligible: boolean;
-      onEvent: (event: unknown) => void;
-      onReady: (channel: unknown) => void;
-    };
-    expect(registration.namespace).toBe("pi-btw-presence/v1");
-    expect(registration.ownerEligible).toBe(false);
-
-    // A session_start retry when the ready event was missed must not throw on
-    // duplicate registration.
+    // Fake pi-intercom with its real duplicate-namespace guard: registering
+    // twice throws, exactly like pi-intercom's registerLocalExtension, so a
+    // duplicate attempt would surface as a reload-time event error.
+    const registeredNamespaces = new Set<string>();
     const channel = {
       snapshot: () => ({ connected: true, supported: true }),
       publish: () => {},
       commitState: () => {},
       listSessions: async () => [],
     };
-    registration.onReady(channel);
-    for (const canvas of [
-      () => harness.sessionStart(harness.ctx),
-      () => harness.sessionStart(harness.ctx),
-    ]) {
-      await expect(canvas()).resolves.toBeUndefined();
-    }
+    const fakeIntercomRegister = (data: unknown) => {
+      const registration = data as {
+        namespace: string;
+        onReady: (channel: unknown) => void;
+      };
+      if (registeredNamespaces.has(registration.namespace)) {
+        throw new Error(
+          `Intercom extension namespace already registered: ${registration.namespace}`,
+        );
+      }
+      registeredNamespaces.add(registration.namespace);
+      registration.onReady(channel);
+    };
+
+    // Intercom loads AFTER this extension: the ready event reaches the
+    // factory-time listener and registers exactly once.
+    harness.bus.on(INTERCOM_REGISTER_EVENT, fakeIntercomRegister);
+    harness.bus.emit(INTERCOM_REGISTRY_READY_EVENT, { version: 1 });
+    const registration = [...harness.bus.emitted]
+      .reverse()
+      .find((entry) => entry.channel === INTERCOM_REGISTER_EVENT)!.data as {
+      namespace: string;
+      ownerEligible: boolean;
+      onEvent: (event: unknown) => void;
+    };
+    expect(registration.namespace).toBe("pi-btw-presence/v1");
+    expect(registration.ownerEligible).toBe(false);
+
+    // Reload-style session starts must not attempt a duplicate registration.
+    await harness.sessionStart(harness.ctx);
+    await harness.sessionStart(harness.ctx);
+    expect(registeredNamespaces).toEqual(new Set(["pi-btw-presence/v1"]));
+    expect(
+      harness.bus.emitted.filter(
+        (entry) => entry.channel === INTERCOM_REGISTER_EVENT,
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("a missed registry-ready event still registers once at session_start", async () => {
+    process.env.HERDR_ENV = "1";
+    process.env.HERDR_PANE_ID = "parent-pane";
+    const parent = createPersistedParent();
+    process.env.PI_INTERCOM_SESSION_ID = parent.getSessionId();
+    const harness = createHarness(parent);
+
+    // Intercom loaded BEFORE this extension: its register listener is already
+    // attached and no ready event will reach the factory-time listener.
+    const registeredNamespaces = new Set<string>();
+    harness.bus.on(INTERCOM_REGISTER_EVENT, (data: unknown) => {
+      const registration = data as { namespace: string };
+      if (registeredNamespaces.has(registration.namespace)) {
+        throw new Error("Intercom extension namespace already registered");
+      }
+      registeredNamespaces.add(registration.namespace);
+    });
+
+    await harness.sessionStart(harness.ctx);
+    await harness.sessionStart(harness.ctx);
+    expect(registeredNamespaces).toEqual(new Set(["pi-btw-presence/v1"]));
+    expect(
+      harness.bus.emitted.filter(
+        (entry) => entry.channel === INTERCOM_REGISTER_EVENT,
+      ),
+    ).toHaveLength(1);
   });
 
   test("joined/left/presence events update only ephemeral liveness labels", async () => {

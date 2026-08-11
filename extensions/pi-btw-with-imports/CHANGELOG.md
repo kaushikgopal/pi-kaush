@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Fix reload-time "Intercom extension namespace already registered" event error by making presence-channel registration exactly-once per extension factory while keeping both load orders (registry-ready event and session_start fallback).
+- Keep `/btw` tests hermetic against a host Pi session that exports `PI_INTERCOM_SESSION_ID`.
+
 ## 0.2.0
 
 - Add optional Intercom awareness: `/btw` splits generate a persisted split identity (generated `btw-*` child name, split id, and exact parent/child targets in proven default identity mode), name the child session before either backend starts, and reassert the name idempotently on startup.

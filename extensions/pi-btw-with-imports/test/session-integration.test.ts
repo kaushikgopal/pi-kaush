@@ -6,7 +6,7 @@ import {
   buildSessionContext,
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
 import registerSplitSession from "../src/index.ts";
 
 type SessionManagerInstance = ReturnType<typeof SessionManager.create>;
@@ -20,6 +20,17 @@ mkdirSync(cwd, { recursive: true });
 mkdirSync(sessionDir, { recursive: true });
 
 afterAll(() => rmSync(rootDir, { recursive: true, force: true }));
+
+beforeEach(() => {
+  // The host Pi session may export Intercom runtime env vars; keep these
+  // integration tests hermetic.
+  delete process.env.PI_INTERCOM_SESSION_ID;
+  delete process.env.PI_INTERCOM_STABLE_ID;
+});
+afterEach(() => {
+  delete process.env.PI_INTERCOM_SESSION_ID;
+  delete process.env.PI_INTERCOM_STABLE_ID;
+});
 
 function userMessage(text: string) {
   return {

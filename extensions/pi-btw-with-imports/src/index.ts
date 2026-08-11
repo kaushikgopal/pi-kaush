@@ -1974,6 +1974,11 @@ type IntercomPresenceState = {
   channel: IntercomExtensionChannelLike | undefined;
   statuses: Map<string, BtwPresenceStatus>;
   nameToId: Map<string, string>;
+  // Exactly-once registration per factory instance. pi-intercom throws on a
+  // duplicate namespace inside its own event handler, which Pi surfaces as a
+  // noisy "Event handler error" on reload, so the retry paths (registry-ready
+  // event AND session_start for the missed-event case) must never both fire.
+  registered: boolean;
 };
 
 function handlePresenceEvent(
@@ -2134,6 +2139,8 @@ function tryRegisterPresenceChannel(
   pi: ExtensionAPI,
   presence: IntercomPresenceState,
 ): void {
+  if (presence.registered) return;
+  presence.registered = true;
   try {
     pi.events.emit(INTERCOM_EXTENSION_REGISTER_EVENT, {
       namespace: BTW_PRESENCE_NAMESPACE,
@@ -2227,6 +2234,7 @@ export default function btwWithImports(pi: ExtensionAPI) {
     channel: undefined,
     statuses: new Map(),
     nameToId: new Map(),
+    registered: false,
   };
   attachPresenceRegistryListener(pi, presence);
 
