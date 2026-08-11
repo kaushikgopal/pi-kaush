@@ -68,6 +68,7 @@ class MockToolExecutionComponent extends MockContainer {
   args: { label: string };
   expanded = false;
   isPartial = true;
+  rendererState?: { startedAt?: number; endedAt?: number };
   result?: {
     isError: boolean;
     output: string;
@@ -404,7 +405,7 @@ describe("tool-call-markers grouping", () => {
     );
   });
 
-  test("keeps an active call separate, then merges it after success", () => {
+  test("keeps rows that settled during a live batch individual forever", () => {
     const chat = new MockContainer();
     const first = succeeded("read", "one.md");
     const active = new MockToolExecutionComponent("read", "two.md");
@@ -415,12 +416,13 @@ describe("tool-call-markers grouping", () => {
 
     active.updateResult({ isError: false, output: "result:two.md" });
     const output = renderPlain(chat);
-    expect(output.match(/⚙️/g)).toHaveLength(1);
-    expect(output).toContain("• one.md");
-    expect(output).toContain("• two.md");
+    expect(output.match(/⚙️/g)).toHaveLength(2);
+    expect(output).toContain("⚙️ read one.md → 1 line");
+    expect(output).toContain("⚙️ read two.md → 1 line");
+    expect(output).not.toContain("•");
   });
 
-  test("does not group settled prefixes or suffixes while a parallel call is active", () => {
+  test("never regroups settled prefixes or suffixes after a parallel call settles", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("edit", "one.ts"));
     chat.addChild(succeeded("edit", "two.ts"));
@@ -433,13 +435,14 @@ describe("tool-call-markers grouping", () => {
 
     active.updateResult({ isError: false, output: "result:three.ts" });
     const output = renderPlain(chat);
-    expect(output.match(/⚙️/g)).toHaveLength(1);
-    expect(output).toContain("• one.ts");
-    expect(output).toContain("• three.ts");
-    expect(output).toContain("• five.ts");
+    expect(output.match(/⚙️/g)).toHaveLength(5);
+    expect(output).toContain("⚙️ edit one.ts → applied");
+    expect(output).toContain("⚙️ edit three.ts → applied");
+    expect(output).toContain("⚙️ edit five.ts → applied");
+    expect(output).not.toContain("•");
   });
 
-  test("keeps settled batches stable while a later batch runs, then merges", () => {
+  test("keeps decided groups stable while a later batch runs and settles", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("edit", "one.ts"));
     chat.addChild(succeeded("edit", "two.ts"));
@@ -454,10 +457,10 @@ describe("tool-call-markers grouping", () => {
 
     active.updateResult({ isError: false, output: "result:three.ts" });
     const settledOutput = renderPlain(chat);
-    expect(settledOutput.match(/⚙️/g)).toHaveLength(1);
+    expect(settledOutput.match(/⚙️/g)).toHaveLength(2);
     expect(settledOutput).toContain("• one.ts");
     expect(settledOutput).toContain("• two.ts");
-    expect(settledOutput).toContain("• three.ts");
+    expect(settledOutput).toContain("⚙️ edit three.ts → applied");
   });
 
   test("merges settled batches across empty assistant messages", () => {
@@ -499,13 +502,48 @@ describe("tool-call-markers grouping", () => {
     expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(4);
   });
 
-  test("keeps partial results visible", () => {
+  test("caps in-progress rows to their header line", () => {
     const chat = new MockContainer();
     const partial = new MockToolExecutionComponent("custom", "streaming");
     partial.updateResult({ isError: false, output: "partial progress" }, true);
     chat.addChild(partial);
 
-    expect(renderPlain(chat)).toContain("partial progress");
+    const output = renderPlain(chat);
+    expect(output).toContain("⚙️ custom streaming …");
+    expect(output).not.toContain("partial progress");
+  });
+
+  test("shows inline elapsed while running and duration after success", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("bash", "npm test");
+    row.rendererState = { startedAt: Date.now() - 2000 };
+    chat.addChild(row);
+
+    const running = renderPlain(chat);
+    expect(running).toContain("⚙️ $ npm test · 2.0s");
+    expect(running.match(/⚙️/g)).toHaveLength(1);
+
+    row.rendererState.endedAt = (row.rendererState.startedAt ?? 0) + 2400;
+    row.updateResult({ isError: false, output: "ok" });
+    const output = renderPlain(chat);
+    expect(output).toContain("⚙️ $ npm test → done · 2.4s");
+  });
+
+  test("keeps in-progress rows and settled rows at the same height", () => {
+    const make = () => {
+      const chat = new MockContainer();
+      const row = new MockToolExecutionComponent("bash", "npm test");
+      chat.addChild(row);
+      return { chat, row };
+    };
+
+    const running = make();
+    const runningHeight = running.chat.render(100).length;
+
+    const settled = make();
+    settled.row.updateResult({ isError: false, output: "ok" });
+    const settledHeight = settled.chat.render(100).length;
+    expect(runningHeight).toBe(settledHeight);
   });
 
   test("uses only the header line for self-rendered summaries", () => {

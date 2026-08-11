@@ -50,6 +50,7 @@ type ToolExecutionRow = {
     content?: Array<{ type?: unknown; text?: unknown }>;
     details?: Record<string, unknown>;
   };
+  rendererState?: { startedAt?: unknown; endedAt?: unknown };
   contentBox?: ComponentContainer;
   contentText?: TextComponent;
   selfRenderContainer?: ComponentContainer;
@@ -66,6 +67,10 @@ type PresentationPatchState = {
   theme?: ThemeLike;
   groupCache: WeakMap<ToolExecutionRow, GroupRenderCache>;
   rowVersions: WeakMap<ToolExecutionRow, number>;
+  // A row's settled shape is decided the first time it renders settled and
+  // never changes afterwards, so live output only ever grows downwards.
+  rowModes: WeakMap<ToolExecutionRow, "individual" | ToolExecutionRow[]>;
+  rowSignatures: WeakMap<ToolExecutionRow, string>;
   originalRender: (width: number) => string[];
   originalUpdateDisplay: () => void;
   patchedRender?: (width: number) => string[];
@@ -227,6 +232,80 @@ function hasImageResult(row: ToolExecutionRow): boolean {
   );
 }
 
+function formatDuration(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function bashDurationText(row: ToolExecutionRow): string | undefined {
+  const startedAt = row.rendererState?.startedAt;
+  const endedAt = row.rendererState?.endedAt;
+  if (
+    typeof startedAt !== "number" ||
+    typeof endedAt !== "number" ||
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(endedAt)
+  )
+    return undefined;
+  return formatDuration(Math.max(0, endedAt - startedAt));
+}
+
+function liveElapsedText(row: ToolExecutionRow): string | undefined {
+  if (row.toolName !== "bash") return undefined;
+  const startedAt = row.rendererState?.startedAt;
+  if (typeof startedAt !== "number" || !Number.isFinite(startedAt))
+    return undefined;
+  return formatDuration(Math.max(0, Date.now() - startedAt));
+}
+
+function isLiveRow(row: ToolExecutionRow): boolean {
+  return (
+    row.expanded === false &&
+    (row.isPartial !== false || !row.result) &&
+    row.getRenderShell?.() !== "self" &&
+    !hasImageResult(row)
+  );
+}
+
+// While a call streams or runs, pin it to a single header line with the
+// elapsed time inline, so the block never grows and never collapses on
+// completion; the header text simply settles into the outcome summary.
+function renderLiveRow(
+  row: ToolExecutionRow,
+  lines: string[],
+  width: number,
+  theme?: ThemeLike,
+): string[] {
+  const decorated = decorateHeader(row, lines, width, theme);
+  const headerIndex = decorated.findIndex(hasVisibleContent);
+  if (headerIndex === -1) return decorated;
+
+  let end = headerIndex + 1;
+  while (end < decorated.length && !hasVisibleContent(decorated[end] ?? ""))
+    end++;
+  const kept = decorated.slice(0, end);
+  const droppedVisible = decorated.slice(end).some(hasVisibleContent);
+
+  const elapsed = liveElapsedText(row);
+  if (!theme || (!droppedVisible && !elapsed)) return kept;
+
+  const parts: string[] = [];
+  if (droppedVisible) parts.push("…");
+  if (elapsed) parts.push("·", elapsed);
+  const tail = theme.fg("muted", parts.join(" "));
+
+  const header = kept[headerIndex] ?? "";
+  const max = Math.max(1, width);
+  if (visibleWidth(header) + visibleWidth(tail) + 1 <= max) {
+    kept[headerIndex] = `${header} ${tail}`;
+    return kept;
+  }
+  const headWidth = Math.max(1, max - visibleWidth(tail) - 1);
+  const headSuffix = droppedVisible ? "" : "…";
+  kept[headerIndex] =
+    `${truncateToWidth(header, headWidth, headSuffix, false)} ${tail}`;
+  return kept;
+}
+
 function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
   return (
     row.expanded === false &&
@@ -348,8 +427,10 @@ function outcomeSummary(row: ToolExecutionRow): string | undefined {
 
   const text = resultText(row);
   switch (row.toolName) {
-    case "bash":
-      return "done";
+    case "bash": {
+      const duration = bashDurationText(row);
+      return duration ? `done · ${duration}` : "done";
+    }
     case "read": {
       const lines = readLineCount(row, text);
       return `${lines} ${lines === 1 ? "line" : "lines"}`;
@@ -719,7 +800,41 @@ function renderContainerWithToolGroups(
       lines.push(...renderAt(index));
       continue;
     }
+    const decided = presentation.rowModes.get(child);
+    if (decided === "individual") {
+      lines.push(...renderAt(index));
+      continue;
+    }
+    if (Array.isArray(decided)) {
+      // A decided group is sticky, but transient states like Ctrl+O expansion
+      // still render members in full until they become collapsible again.
+      if (!decided.every(isCollapsibleSuccess)) {
+        lines.push(...renderAt(index));
+        continue;
+      }
+      const lastMember = decided[decided.length - 1];
+      let lastMemberIndex = index;
+      for (
+        let candidateIndex = index + 1;
+        candidateIndex < children.length;
+        candidateIndex++
+      ) {
+        if (children[candidateIndex] === lastMember) {
+          lastMemberIndex = candidateIndex;
+          break;
+        }
+      }
+      lines.push(...renderGroupedToolRows(child, decided, width, presentation));
+      index = lastMemberIndex;
+      continue;
+    }
+
+    // Undecided row: pick its settled shape once. A row that first settles
+    // next to an active sibling stays individual forever, so live batches
+    // never regroup after the fact; only batches that are fully settled on
+    // first render (e.g. restored history) become groups.
     if (hasUnsettledToolInBatch(children, index, renderAt)) {
+      presentation.rowModes.set(child, "individual");
       lines.push(...renderAt(index));
       continue;
     }
@@ -738,6 +853,7 @@ function renderContainerWithToolGroups(
       }
       if (isToolExecutionRow(candidate)) {
         if (!isCollapsibleSuccess(candidate)) break;
+        if (presentation.rowModes.has(candidate)) break;
         group.push(candidate);
         lastMemberIndex = candidateIndex;
         continue;
@@ -746,10 +862,12 @@ function renderContainerWithToolGroups(
     }
 
     if (group.length === 1) {
+      presentation.rowModes.set(child, "individual");
       lines.push(...renderAt(index));
       continue;
     }
 
+    for (const member of group) presentation.rowModes.set(member, group);
     lines.push(...renderGroupedToolRows(child, group, width, presentation));
     index = lastMemberIndex;
   }
@@ -849,14 +967,26 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     const state: PresentationPatchState = {
       groupCache: new WeakMap(),
       rowVersions: new WeakMap(),
+      rowModes: new WeakMap(),
+      rowSignatures: new WeakMap(),
       originalRender: proto.render,
       originalUpdateDisplay: proto.updateDisplay,
     };
     const patchedUpdateDisplay = function updateDisplayWithCollapsedResult(
       this: ToolExecutionRow,
     ): void {
-      state.rowVersions.set(this, (state.rowVersions.get(this) ?? 0) + 1);
-      state.groupCache.delete(this);
+      // Group members always bump so their leader's cache refreshes; other
+      // rows only bump on state transitions, so bash's per-second invalidate
+      // ticks and resize invalidations stop busting caches.
+      const signature = `${this.isPartial}|${this.expanded}|${this.result ? 1 : 0}|${this.result?.isError ? 1 : 0}`;
+      if (
+        Array.isArray(state.rowModes.get(this)) ||
+        state.rowSignatures.get(this) !== signature
+      ) {
+        state.rowSignatures.set(this, signature);
+        state.rowVersions.set(this, (state.rowVersions.get(this) ?? 0) + 1);
+        state.groupCache.delete(this);
+      }
       state.originalUpdateDisplay.call(this);
       try {
         collapseSuccessfulResult(this, state.theme);
@@ -870,6 +1000,8 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     ): string[] {
       const lines = state.originalRender.call(this, width);
       try {
+        if (isLiveRow(this))
+          return renderLiveRow(this, lines, width, state.theme);
         return decorateHeader(this, lines, width, state.theme);
       } catch {
         return lines;

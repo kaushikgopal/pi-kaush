@@ -10,9 +10,10 @@ When several tool calls of the same type succeed in a row, Pi normally renders e
 - **Bulleted call summaries.** Each call in a group becomes one bullet with a short summary and, for common tools, a compact outcome such as `→ done`, `→ 42 lines`, or `→ +2/-1`.
 - **Vertical spacing between tool types.** A blank line separates one tool group from the next.
 - **One-line, width-safe summaries.** Long targets truncate before their useful outcome tail instead of wrapping into taller blocks.
-- **Tool batches settle before grouping.** A tool batch stays ungrouped while any sibling call is active. Earlier groups remain stable while a later batch runs, then visually adjacent settled calls merge across assistant turns that rendered no prose.
+- **Running calls stay one line.** While a call streams or executes, it renders as a single header line (with elapsed time inline for `bash`), so the transcript only grows downwards; the same line settles into the final `→ done · 2.3s`-style summary without changing height.
+- **Settled shapes never re-render.** A call's settled shape is decided the first time it renders settled and never changes afterwards. Batches that finish while a sibling is still active stay as individual one-liners instead of regrouping later; batches already settled on first render (e.g. restored history) still merge into groups across assistant turns that rendered no prose.
 - **Self-rendered tools keep their shell.** Tools that own their framing keep singleton previews intact. Grouped summaries use only their stable header instead of scraping preview or diff lines.
-- **Partial and image results stay visible.** Streaming progress and image-bearing results are not collapsed into text-only groups.
+- **Image results stay visible.** Image-bearing results are not collapsed into text-only groups. Partial text output is held back while a call runs and surfaces through the final summary.
 - **Errors stay compact and visibly failed.** A failed call keeps its own error-colored block and native collapsed detail until expanded.
 - **Ctrl+O restores full blocks.** Expanding tools (`setToolsExpanded(true)`) brings back Pi's individual full blocks, including complete error details and successful results.
 

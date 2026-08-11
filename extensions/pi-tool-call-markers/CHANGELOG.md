@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Render in-progress calls as a single header line (elapsed time inline for `bash`) that settles into the final summary at the same height, so the transcript flows downwards without jumping.
+- Show the real duration in successful bash summaries (`→ done · 2.3s`) instead of dropping the elapsed time on completion.
+- Keep a call's settled shape stable once rendered: batches that settle next to an active sibling stay as individual one-liners instead of regrouping afterwards, which removes the second jump when a parallel batch completes.
+- Only invalidate grouped-render caches on real state transitions, so bash's per-second ticks and resize invalidations stop busting them.
+
 - Keep failed calls collapsed by default while retaining their native error background and Ctrl+O expansion.
 - Add compact result tails for common successful tools in singleton and grouped summaries.
 - Keep grouped bullets to one line and preserve the useful result tail on narrow terminals.
