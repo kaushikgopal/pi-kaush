@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-btw-with-imports",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Open persisted Pi side sessions with /btw and import child-authored handoffs with /btw merge.",
   "license": "MIT",
   "author": "Kaushik Gopal",
