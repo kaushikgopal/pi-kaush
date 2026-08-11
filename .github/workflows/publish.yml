@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-btw-with-imports-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-text-verbosity-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
+    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-btw-with-imports-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-text-verbosity-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -31,6 +31,11 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           case "$RELEASE_TAG" in
+            pi-agent-mode-v*)
+              workspace="@pi-kaush/pi-agent-mode"
+              directory="extensions/pi-agent-mode"
+              prefix="pi-agent-mode-v"
+              ;;
             pi-double-paste-v*)
               workspace="@pi-kaush/pi-double-paste"
               directory="extensions/pi-double-paste"

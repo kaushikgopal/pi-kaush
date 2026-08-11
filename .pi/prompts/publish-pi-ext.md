@@ -5,7 +5,7 @@ argument-hint: "[package-name] [version]"
 
 Publish a new version of a pi-kaush extension.
 
-Known publishable packages: `pi-btw-with-imports`, `pi-double-paste`, `pi-inline-skill-identifier`, `pi-openai-compaction`, `pi-openai-text-verbosity`, `pi-tool-call-markers`, `pi-welcome-screen`.
+Known publishable packages: `pi-agent-mode`, `pi-btw-with-imports`, `pi-double-paste`, `pi-inline-skill-identifier`, `pi-openai-compaction`, `pi-openai-text-verbosity`, `pi-tool-call-markers`, `pi-welcome-screen`.
 
 This is only for packages that already exist on npm with a trusted OIDC publisher. For a first-time release, do a manual `npm publish` with 2FA instead.
 

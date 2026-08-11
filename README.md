@@ -6,6 +6,7 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 
 | Package                                                                           | Description                                                                                |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)                           | Activate a configured Pi agent as a persistent mode in the current session.                |
 | [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)                       | Paste the same large block twice to expand Pi's paste markers into editable text.          |
 | [`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) | Highlight and route Codex-style `$skill-name` references through Pi's native skills.       |
 | [`@pi-kaush/pi-openai-text-verbosity`](./extensions/pi-openai-text-verbosity)     | Configure OpenAI Responses text verbosity from Pi's model configuration.                   |
@@ -24,6 +25,7 @@ Install an extension globally through Pi's package manager:
 
 ```sh
 pi install npm:@pi-kaush/pi-double-paste
+pi install npm:@pi-kaush/pi-agent-mode
 pi install npm:@pi-kaush/pi-inline-skill-identifier
 pi install npm:@pi-kaush/pi-openai-text-verbosity
 pi install npm:@pi-kaush/pi-openai-compaction
@@ -49,6 +51,7 @@ Then launch Pi from any project and point `-e` at the extension's entry file, re
 
 ```sh
 pi -e ~/path/to/pi-kaush/extensions/pi-double-paste/src/index.ts
+pi -e ~/path/to/pi-kaush/extensions/pi-agent-mode/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-inline-skill-identifier/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-openai-text-verbosity/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-openai-compaction/index.ts
@@ -76,6 +79,7 @@ Create a GitHub release whose tag identifies the workspace and exactly matches i
 
 ```text
 pi-double-paste-v0.1.0
+pi-agent-mode-v0.1.0
 pi-inline-skill-identifier-v0.1.0
 pi-openai-text-verbosity-v0.1.0
 pi-openai-compaction-v0.1.0

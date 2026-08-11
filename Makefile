@@ -7,6 +7,7 @@ check:
 # Publish an extension to npm via GitHub Actions OIDC.
 #
 #   make publish PACKAGE=pi-btw-with-imports               # patch bump
+#   make publish PACKAGE=pi-agent-mode                     # patch bump
 #   make publish PACKAGE=pi-btw-with-imports VERSION=0.2.0 # explicit version
 #
 # Bumps the version, runs checks, commits, pushes to main, and creates a
