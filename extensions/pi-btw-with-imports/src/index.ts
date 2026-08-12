@@ -394,28 +394,6 @@ async function createSnapshotForkSession(
   }
 }
 
-async function createForkAtSelectedMessage(
-  ctx: ExtensionContext,
-  sourceSessionFile: string,
-  entryId: string,
-  prompt: string,
-): Promise<ForkSession> {
-  const selectedEntry = ctx.sessionManager.getEntry(entryId);
-  if (
-    !selectedEntry ||
-    selectedEntry.type !== "message" ||
-    selectedEntry.message.role !== "user"
-  ) {
-    throw new Error("Invalid message selected for split");
-  }
-  return createForkSession(
-    ctx,
-    sourceSessionFile,
-    selectedEntry.parentId,
-    prompt,
-  );
-}
-
 function promptedForkLeaf(ctx: ExtensionContext): string | null {
   const branch = ctx.sessionManager.getBranch();
   let boundary = ctx.sessionManager.getLeafId();
@@ -520,25 +498,24 @@ async function launchHerdrSplit(
   // Step 3: start the pi agent in the new pane. A successful pane split can
   // return before its shell reaches the interactive prompt required by
   // `agent start`, so retry only that transient structured failure.
+  const agentStartArgs = [
+    "agent",
+    "start",
+    agentName,
+    "--kind",
+    "pi",
+    "--pane",
+    newPaneId,
+    "--timeout",
+    "10000",
+    "--",
+    ...launch.args,
+  ];
   let startResult: ExecResult;
   try {
-    startResult = await pi.exec(
-      herdrBin,
-      [
-        "agent",
-        "start",
-        agentName,
-        "--kind",
-        "pi",
-        "--pane",
-        newPaneId,
-        "--timeout",
-        "10000",
-        "--",
-        ...launch.args,
-      ],
-      { timeout: HERDR_EXEC_TIMEOUT_MS },
-    );
+    startResult = await pi.exec(herdrBin, agentStartArgs, {
+      timeout: HERDR_EXEC_TIMEOUT_MS,
+    });
     for (
       let attempt = 1;
       attempt < HERDR_AGENT_START_MAX_ATTEMPTS &&
@@ -548,23 +525,9 @@ async function launchHerdrSplit(
       attempt++
     ) {
       await wait(HERDR_AGENT_START_RETRY_DELAY_MS);
-      startResult = await pi.exec(
-        herdrBin,
-        [
-          "agent",
-          "start",
-          agentName,
-          "--kind",
-          "pi",
-          "--pane",
-          newPaneId,
-          "--timeout",
-          "10000",
-          "--",
-          ...launch.args,
-        ],
-        { timeout: HERDR_EXEC_TIMEOUT_MS },
-      );
+      startResult = await pi.exec(herdrBin, agentStartArgs, {
+        timeout: HERDR_EXEC_TIMEOUT_MS,
+      });
     }
   } catch (error) {
     return {
@@ -847,10 +810,10 @@ async function runBtwSplit(
       }
       const forkLeafId = selectedEntry.parentId;
       if (sourcePersisted) {
-        ({ sessionFile: splitSessionFile } = await createForkAtSelectedMessage(
+        ({ sessionFile: splitSessionFile } = await createForkSession(
           ctx,
           sourceSessionFile!,
-          selected.entryId,
+          forkLeafId,
           selected.text,
         ));
       } else {
