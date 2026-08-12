@@ -1,17 +1,15 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   SessionManager,
-  buildSessionContext,
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { afterAll, afterEach, beforeEach, expect, test } from "vitest";
+import { afterAll, expect, test } from "vitest";
 import registerSplitSession from "../src/index.ts";
 
 type SessionManagerInstance = ReturnType<typeof SessionManager.create>;
 type CustomEntry = Extract<SessionEntry, { type: "custom" }>;
-type CustomMessageEntry = Extract<SessionEntry, { type: "custom_message" }>;
 
 const rootDir = join(tmpdir(), `pi-split-fork-integration-${process.pid}`);
 const cwd = join(rootDir, "project");
@@ -20,17 +18,6 @@ mkdirSync(cwd, { recursive: true });
 mkdirSync(sessionDir, { recursive: true });
 
 afterAll(() => rmSync(rootDir, { recursive: true, force: true }));
-
-beforeEach(() => {
-  // The host Pi session may export Intercom runtime env vars; keep these
-  // integration tests hermetic.
-  delete process.env.PI_INTERCOM_SESSION_ID;
-  delete process.env.PI_INTERCOM_STABLE_ID;
-});
-afterEach(() => {
-  delete process.env.PI_INTERCOM_SESSION_ID;
-  delete process.env.PI_INTERCOM_STABLE_ID;
-});
 
 function userMessage(text: string) {
   return {
@@ -86,16 +73,11 @@ function herdrExec(_command: string, args: string[]) {
       stderr: "",
     });
   }
-  if (
-    (args[0] === "agent" && args[1] === "focus") ||
-    (args[0] === "pane" && args[1] === "close")
-  ) {
-    return Promise.resolve({ code: 0, stdout: "", stderr: "" });
-  }
   return Promise.resolve({ code: 0, stdout: "", stderr: "" });
 }
 
 function buildPi(sessionManager: SessionManagerInstance) {
+  const execCalls: Array<{ command: string; args: string[] }> = [];
   return {
     events: { on: () => () => undefined, emit: () => undefined },
     registerCommand(
@@ -107,42 +89,27 @@ function buildPi(sessionManager: SessionManagerInstance) {
     appendEntry(customType: string, data: unknown) {
       sessionManager.appendCustomEntry(customType, data);
     },
-    sendMessage(message: {
-      customType: string;
-      content: string;
-      display: boolean;
-      details?: unknown;
-    }) {
-      sessionManager.appendCustomMessageEntry(
-        message.customType,
-        message.content,
-        message.display,
-        message.details,
-      );
-    },
     sendUserMessage(content: string) {
       sessionManager.appendMessage(userMessage(content));
     },
-    exec: herdrExec,
+    exec: async (command: string, args: string[]) => {
+      execCalls.push({ command, args });
+      return herdrExec(command, args);
+    },
     on: () => {},
+    execCalls,
   } as any;
 }
 
-function contextFor(
-  sessionManager: SessionManagerInstance,
-  options?: {
-    hasUI?: boolean;
-  },
-) {
+function contextFor(sessionManager: SessionManagerInstance) {
   return {
     cwd,
-    hasUI: options?.hasUI ?? true,
+    hasUI: true,
     mode: "tui" as const,
     isIdle: () => true,
     waitForIdle: async () => {},
     sessionManager,
     ui: {
-      select: async (_title: string, _choices: string[]) => undefined,
       notify: () => {},
     },
   } as any;
@@ -174,17 +141,20 @@ test("first-turn snapshot preserves exact in-memory messages and model state int
 
     await btw("Investigate the side approach", contextFor(parent));
 
-    const records = parent
-      .getBranch()
-      .filter(
-        (entry): entry is CustomEntry =>
-          entry.type === "custom" && entry.customType === "split-fork-record",
-      );
-    expect(records).toHaveLength(1);
-    const childFile = (records[0]!.data as { sessionFile: string }).sessionFile;
-    expect(existsSync(childFile)).toBe(true);
+    // The child session file is known only to the launch itself: it is passed
+    // as the `--session` argument of the Herdr `agent start` command.
+    const execCalls: Array<{ command: string; args: string[] }> = pi.execCalls;
+    const startCall = execCalls.find(
+      (call) => call.args[0] === "agent" && call.args[1] === "start",
+    );
+    const sessionFlag = startCall?.args.indexOf("--session");
+    const childFile = sessionFlag
+      ? startCall!.args[sessionFlag + 1]!
+      : undefined;
+    expect(childFile).toBeDefined();
+    expect(existsSync(childFile!)).toBe(true);
 
-    const child = SessionManager.open(childFile, sessionDir);
+    const child = SessionManager.open(childFile!, sessionDir);
     // The snapshot preserves the exact messages from the in-memory context.
     const childMessages = child
       .getBranch()
@@ -211,6 +181,14 @@ test("first-turn snapshot preserves exact in-memory messages and model state int
     expect((childMarker!.data as { prompt: string }).prompt).toBe(
       "Investigate the side approach",
     );
+    // The constant launch command is submitted instead of the raw prompt.
+    const promptCall = execCalls.find(
+      (call) =>
+        call.args[0] === "agent" &&
+        call.args[1] === "prompt" &&
+        call.args[3] === "/btw --launch",
+    );
+    expect(promptCall).toBeDefined();
   } finally {
     for (const [key, value] of [
       ["HERDR_ENV", previousHerdr.env],
@@ -221,111 +199,3 @@ test("first-turn snapshot preserves exact in-memory messages and model state int
     }
   }
 });
-
-test("round-trips a side handoff through merge request, durable pending state, and parent import", async () => {
-  const previousHerdr = {
-    env: process.env.HERDR_ENV,
-    pane: process.env.HERDR_PANE_ID,
-  };
-  process.env.HERDR_ENV = "1";
-  process.env.HERDR_PANE_ID = "integration-parent-pane";
-
-  try {
-    let parent = SessionManager.create(cwd, sessionDir);
-    parent.appendMessage(userMessage("Set up the main task"));
-    parent.appendMessage(assistantMessage("Main task is ready"));
-    const parentFile = parent.getSessionFile();
-    if (!parentFile) throw new Error("Parent session was not persisted");
-
-    const pi = buildPi(parent);
-    registerSplitSession(pi);
-    const btw = (parent as any).__btwHandler as (
-      args: string,
-      ctx: any,
-    ) => Promise<void>;
-
-    // Fork a side session from the persisted parent.
-    await btw("Investigate the approach", contextFor(parent));
-
-    const records = parent
-      .getBranch()
-      .filter(
-        (entry): entry is CustomEntry =>
-          entry.type === "custom" && entry.customType === "split-fork-record",
-      );
-    expect(records).toHaveLength(1);
-    const childFile = (records[0]!.data as { sessionFile: string }).sessionFile;
-
-    // Inside the child: append the same durable intent -> exact user prompt ->
-    // completed assistant -> merge request chain used by the extension.
-    const child = SessionManager.open(childFile, sessionDir);
-    child.appendMessage(userMessage("Investigate the approach"));
-    child.appendMessage(assistantMessage("Side answer is ready"));
-    const handoffPrompt = "Prepare the exact integration handoff";
-    const intentEntryId = child.appendCustomEntry("split-merge-intent", {
-      requestId: "req-integration",
-      handoffPrompt,
-    });
-    const promptEntryId = child.appendMessage(userMessage(handoffPrompt));
-    const answerEntryId = child.appendMessage(
-      assistantMessage("Validated integration handoff"),
-    );
-    child.appendCustomEntry("split-merge-request", {
-      requestId: "req-integration",
-      intentEntryId,
-      promptEntryId,
-      answerEntryId,
-    });
-
-    // Back in the parent: manually process the pending merge.
-    parent = SessionManager.open(parentFile, sessionDir);
-    await btw("merge", contextFor(parent, { hasUI: false }));
-
-    const reopenedParent = SessionManager.open(parentFile, sessionDir);
-    const importedResults = reopenedParent
-      .getBranch()
-      .filter(
-        (entry): entry is CustomMessageEntry =>
-          entry.type === "custom_message" &&
-          entry.customType === "split-merge-result",
-      );
-    expect(importedResults).toHaveLength(1);
-    const imported = importedResults[0]!;
-    expect(imported.content).toContain("Validated integration handoff");
-    expect(imported.content).not.toContain("Side answer is ready");
-    expect(imported.content).not.toContain("Investigate the approach");
-    expect(imported.details).toMatchObject({
-      requestId: "req-integration",
-      sessionFile: childFile,
-    });
-
-    // Dedupe: re-running /btw merge finds nothing new (same requestId).
-    await btw(
-      "merge",
-      contextFor(SessionManager.open(parentFile, sessionDir), {
-        hasUI: false,
-      }),
-    );
-    const reopenedParent2 = SessionManager.open(parentFile, sessionDir);
-    const importedResults2 = reopenedParent2
-      .getBranch()
-      .filter(
-        (entry): entry is CustomMessageEntry =>
-          entry.type === "custom_message" &&
-          entry.customType === "split-merge-result",
-      );
-    expect(importedResults2).toHaveLength(1);
-  } finally {
-    for (const [key, value] of [
-      ["HERDR_ENV", previousHerdr.env],
-      ["HERDR_PANE_ID", previousHerdr.pane],
-    ] as const) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  }
-});
-
-// Reference the imported buildSessionContext so the import stays used even if
-// future edits change the snapshot path; it documents the public API choice.
-void buildSessionContext;

@@ -11,7 +11,7 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 | [`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) | Highlight and route Codex-style `$skill-name` references through Pi's native skills.       |
 | [`@pi-kaush/pi-openai-text-verbosity`](./extensions/pi-openai-text-verbosity)     | Configure OpenAI Responses text verbosity from Pi's model configuration.                   |
 | [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction)             | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns.        |
-| [`@pi-kaush/pi-btw-with-imports`](./extensions/pi-btw-with-imports)               | Open persisted side sessions and import child-authored handoffs through `/btw`.            |
+| [`@pi-kaush/pi-btw-with-imports`](./extensions/pi-btw-with-imports)               | Fork the current conversation into a persisted right-hand `/btw` side session.             |
 | [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers)             | Collapse adjacent successful tool calls into one compact, gear-headed block per tool type. |
 | [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)                   | Show a responsive startup header with Pi's loaded resources.                               |
 
