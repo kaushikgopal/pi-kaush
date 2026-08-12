@@ -21,4 +21,4 @@ To release a new version of an extension (only when explicitly asked):
 4. The release event triggers `.github/workflows/publish.yml`, which verifies the tag matches the package version, then publishes to npm via OIDC.
 5. Monitor with `gh run watch` and verify with `npm view @pi-kaush/<package> version`.
 
-Known publishable packages: `pi-agent-mode`, `pi-btw-with-imports`, `pi-double-paste`, `pi-inline-skill-identifier`, `pi-openai-compaction`, `pi-openai-text-verbosity`, `pi-tool-call-markers`, `pi-welcome-screen`. A package's first release must be bootstrapped with a manual `npm publish` (which requires browser 2FA) before its trusted publisher can be configured; subsequent releases use `make publish`.
+Known publishable packages: `pi-agent-mode`, `pi-btw-with-imports`, `pi-double-paste`, `pi-inline-skill-identifier`, `pi-openai-compaction`, `pi-tool-call-markers`, `pi-welcome-screen`. A package's first release must be bootstrapped with a manual `npm publish` (which requires browser 2FA) before its trusted publisher can be configured; subsequent releases use `make publish`.

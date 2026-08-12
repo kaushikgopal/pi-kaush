@@ -1,48 +1,41 @@
-# @pi-kaush/pi-openai-text-verbosity
+# @pi-kaush/pi-openai-text-verbosity (retired)
 
-Configure OpenAI Responses `text.verbosity` per provider or model from Pi's `models.json`.
+This extension is retired. Pi 0.84.1 and newer support generic `samplingParams` in `models.json`, which can set OpenAI Responses `text.verbosity` without an extension.
 
-## Usage
+## Migration
 
-Load the extension from a local checkout:
+Remove the package from Pi:
 
-```json
-{
-  "extensions": [
-    "~/dev/oss/pi-kaush/extensions/pi-openai-text-verbosity/src/index.ts"
-  ]
-}
+```sh
+pi remove npm:@pi-kaush/pi-openai-text-verbosity
 ```
 
-Then add `textVerbosity` to a model in `~/.pi/agent/models.json`:
+Replace the extension-specific `textVerbosity` field on each affected model:
 
 ```json
 {
-  "providers": {
-    "openai": {
-      "models": [
-        {
-          "id": "gpt-5.6-sol",
-          "textVerbosity": "low"
-        }
-      ]
+  "id": "gpt-5.6-sol",
+  "samplingParams": {
+    "text": {
+      "verbosity": "low"
     }
   }
 }
 ```
 
-Valid values are `low`, `medium`, and `high`. Remove the field to use the provider default.
-
-The extension also accepts a provider default or a built-in model override:
+For a built-in model, use the same value in `modelOverrides`:
 
 ```json
 {
   "providers": {
     "openai": {
-      "textVerbosity": "low",
       "modelOverrides": {
         "gpt-5.6-sol": {
-          "textVerbosity": "medium"
+          "samplingParams": {
+            "text": {
+              "verbosity": "low"
+            }
+          }
         }
       }
     }
@@ -50,11 +43,6 @@ The extension also accepts a provider default or a built-in model override:
 }
 ```
 
-Precedence is model entry, model override, then provider default.
+Valid verbosity values remain `low`, `medium`, and `high`. Pi applies `samplingParams` to `openai-responses`, `azure-openai-responses`, and `openai-completions` request bodies.
 
-## Behavior
-
-- Applies only to Pi's standard `openai-responses` API. Codex Responses already has a native verbosity default.
-- Preserves existing `text` request options.
-- Reads `models.json` for every provider request, so configuration changes apply without restarting Pi.
-- Skips an in-flight request when Pi's selected model no longer matches the payload model.
+The extension was never published to npm. Older Pi installations can recover the `0.1.0` source from Git history if needed.

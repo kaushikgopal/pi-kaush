@@ -9,13 +9,16 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 | [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)                           | Activate a configured Pi agent as a persistent mode in the current session.                |
 | [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)                       | Paste the same large block twice to expand Pi's paste markers into editable text.          |
 | [`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) | Highlight and route Codex-style `$skill-name` references through Pi's native skills.       |
-| [`@pi-kaush/pi-openai-text-verbosity`](./extensions/pi-openai-text-verbosity)     | Configure OpenAI Responses text verbosity from Pi's model configuration.                   |
 | [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction)             | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns.        |
 | [`@pi-kaush/pi-btw-with-imports`](./extensions/pi-btw-with-imports)               | Fork the current conversation into a persisted right-hand `/btw` side session.             |
 | [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers)             | Collapse adjacent successful tool calls into one compact, gear-headed block per tool type. |
 | [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)                   | Show a responsive startup header with Pi's loaded resources.                               |
 
 Every package is independently versioned and published to npm. Runtime source is readable TypeScript, and packages avoid runtime dependencies where practical.
+
+### Retired packages
+
+[`@pi-kaush/pi-openai-text-verbosity`](./extensions/pi-openai-text-verbosity) is retired. Pi 0.84.1 and newer can set OpenAI Responses `text.verbosity` directly through model `samplingParams`.
 
 ## Use an extension
 
@@ -27,7 +30,6 @@ Install an extension globally through Pi's package manager:
 pi install npm:@pi-kaush/pi-double-paste
 pi install npm:@pi-kaush/pi-agent-mode
 pi install npm:@pi-kaush/pi-inline-skill-identifier
-pi install npm:@pi-kaush/pi-openai-text-verbosity
 pi install npm:@pi-kaush/pi-openai-compaction
 pi install npm:@pi-kaush/pi-btw-with-imports
 pi install npm:@pi-kaush/pi-tool-call-markers
@@ -53,7 +55,6 @@ Then launch Pi from any project and point `-e` at the extension's entry file, re
 pi -e ~/path/to/pi-kaush/extensions/pi-double-paste/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-agent-mode/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-inline-skill-identifier/src/index.ts
-pi -e ~/path/to/pi-kaush/extensions/pi-openai-text-verbosity/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-openai-compaction/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-btw-with-imports/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-tool-call-markers/src/index.ts
@@ -81,7 +82,6 @@ Create a GitHub release whose tag identifies the workspace and exactly matches i
 pi-double-paste-v0.1.0
 pi-agent-mode-v0.1.0
 pi-inline-skill-identifier-v0.1.0
-pi-openai-text-verbosity-v0.1.0
 pi-openai-compaction-v0.1.0
 pi-btw-with-imports-v0.1.0
 pi-tool-call-markers-v0.1.0
