@@ -34,10 +34,35 @@ import {
   isNativeCompactionDetails,
   NATIVE_COMPACTION_DISPLAY_MESSAGE_TYPE,
   NATIVE_COMPACTION_DISPLAY_TEXT,
+  type NativeCompactionIdentity,
   type NativeCompactionRequestMeta,
 } from "./types";
 
 let restoringPreviousModel = false;
+
+function hasSameNativeCompactionIdentity(
+  left: NativeCompactionIdentity,
+  right: NativeCompactionIdentity,
+): boolean {
+  return (
+    left.provider === right.provider &&
+    left.api === right.api &&
+    left.model === right.model &&
+    left.baseUrl === right.baseUrl
+  );
+}
+
+async function restoreModel(
+  pi: ExtensionAPI,
+  model: Model<Api>,
+): Promise<boolean> {
+  restoringPreviousModel = true;
+  try {
+    return await pi.setModel(model);
+  } finally {
+    restoringPreviousModel = false;
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -398,12 +423,7 @@ async function materializePortableSummary(
     const details = latestNative.entry.details;
     if (!isNativeCompactionDetails(details))
       return { ok: false, reason: "invalid-checkpoint" };
-    if (
-      details.provider !== runtime.provider ||
-      details.api !== runtime.api ||
-      details.model !== runtime.model ||
-      details.baseUrl !== runtime.baseUrl
-    ) {
+    if (!hasSameNativeCompactionIdentity(details, runtime)) {
       return { ok: false, reason: "source-identity-mismatch" };
     }
 
@@ -462,13 +482,7 @@ async function handleModelSelect(
 ): Promise<void> {
   if (restoringPreviousModel || !event.previousModel) return;
   if (!ctx.isIdle()) {
-    restoringPreviousModel = true;
-    let restored = false;
-    try {
-      restored = await pi.setModel(event.previousModel);
-    } finally {
-      restoringPreviousModel = false;
-    }
+    const restored = await restoreModel(pi, event.previousModel);
     if (ctx.hasUI) {
       ctx.ui.notify(
         restored
@@ -495,10 +509,7 @@ async function handleModelSelect(
   });
   if (
     target.ok &&
-    latestDetails.provider === target.runtime.provider &&
-    latestDetails.api === target.runtime.api &&
-    latestDetails.model === target.runtime.model &&
-    latestDetails.baseUrl === target.runtime.baseUrl
+    hasSameNativeCompactionIdentity(latestDetails, target.runtime)
   ) {
     return;
   }
@@ -506,13 +517,7 @@ async function handleModelSelect(
   const result = await materializePortableSummary(pi, ctx, event.previousModel);
   if (result.ok) return;
 
-  restoringPreviousModel = true;
-  let restored = false;
-  try {
-    restored = await pi.setModel(event.previousModel);
-  } finally {
-    restoringPreviousModel = false;
-  }
+  const restored = await restoreModel(pi, event.previousModel);
   if (ctx.hasUI) {
     ctx.ui.notify(
       restored
@@ -547,10 +552,7 @@ async function handleSessionStart(
   if (
     !existingPortable &&
     target.ok &&
-    details.provider === target.runtime.provider &&
-    details.api === target.runtime.api &&
-    details.model === target.runtime.model &&
-    details.baseUrl === target.runtime.baseUrl
+    hasSameNativeCompactionIdentity(details, target.runtime)
   ) {
     return;
   }
@@ -573,10 +575,7 @@ async function handleSessionStart(
   });
   if (
     !sourceResolution.ok ||
-    details.provider !== sourceResolution.runtime.provider ||
-    details.api !== sourceResolution.runtime.api ||
-    details.model !== sourceResolution.runtime.model ||
-    details.baseUrl !== sourceResolution.runtime.baseUrl
+    !hasSameNativeCompactionIdentity(details, sourceResolution.runtime)
   ) {
     if (ctx.hasUI)
       ctx.ui.notify(
@@ -588,13 +587,7 @@ async function handleSessionStart(
   const result = await materializePortableSummary(pi, ctx, sourceModel);
   if (result.ok) return;
 
-  restoringPreviousModel = true;
-  let restored = false;
-  try {
-    restored = await pi.setModel(sourceModel);
-  } finally {
-    restoringPreviousModel = false;
-  }
+  const restored = await restoreModel(pi, sourceModel);
   if (ctx.hasUI) {
     ctx.ui.notify(
       restored
