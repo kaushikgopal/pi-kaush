@@ -148,14 +148,8 @@ export function discoverAgents(
 
   const agentMap = new Map<string, AgentConfig>();
 
-  if (scope === "both") {
-    for (const agent of userAgents) agentMap.set(agent.name, agent);
-    for (const agent of projectAgents) agentMap.set(agent.name, agent);
-  } else if (scope === "user") {
-    for (const agent of userAgents) agentMap.set(agent.name, agent);
-  } else {
-    for (const agent of projectAgents) agentMap.set(agent.name, agent);
-  }
+  for (const agent of userAgents) agentMap.set(agent.name, agent);
+  for (const agent of projectAgents) agentMap.set(agent.name, agent);
 
   return { agents: Array.from(agentMap.values()), projectAgentsDir };
 }
