@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-btw-with-imports",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Fork persisted Pi side sessions with /btw into a Herdr or Ghostty right split.",
   "license": "MIT",
   "author": "Kaushik Gopal",
