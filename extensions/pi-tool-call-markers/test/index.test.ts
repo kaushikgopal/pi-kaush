@@ -185,6 +185,9 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 const { default: toolCallMarkers } = await import("../src/index.ts");
 
+const COLLAPSE_PARALLEL_ENV = "PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL";
+const originalCollapseParallel = process.env[COLLAPSE_PARALLEL_ENV];
+
 const sessionHandlers: Array<(event: unknown, ctx: unknown) => void> = [];
 const shutdownHandlers: Array<() => void> = [];
 const theme = {
@@ -224,14 +227,25 @@ function install(): void {
   }
 }
 
+function reinstallWithCollapseParallel(value: string): void {
+  for (const handler of shutdownHandlers.splice(0)) handler();
+  sessionHandlers.length = 0;
+  process.env[COLLAPSE_PARALLEL_ENV] = value;
+  install();
+}
+
 beforeEach(() => {
   sessionHandlers.length = 0;
   shutdownHandlers.length = 0;
+  delete process.env[COLLAPSE_PARALLEL_ENV];
   install();
 });
 
 afterEach(() => {
   for (const handler of shutdownHandlers) handler();
+  if (originalCollapseParallel === undefined)
+    delete process.env[COLLAPSE_PARALLEL_ENV];
+  else process.env[COLLAPSE_PARALLEL_ENV] = originalCollapseParallel;
 });
 
 describe("tool-call-markers grouping", () => {
@@ -405,24 +419,28 @@ describe("tool-call-markers grouping", () => {
     );
   });
 
-  test("keeps rows that settled during a live batch individual forever", () => {
+  test("groups a live batch before settlement without changing height on success", () => {
     const chat = new MockContainer();
     const first = succeeded("read", "one.md");
     const active = new MockToolExecutionComponent("read", "two.md");
     chat.addChild(first);
     chat.addChild(active);
 
-    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(2);
+    const liveHeight = chat.render(100).length;
+    const liveOutput = renderPlain(chat);
+    expect(liveOutput.match(/⚙️/g)).toHaveLength(1);
+    expect(liveOutput).toContain("• one.md → 1 line");
+    expect(liveOutput).toContain("• two.md …");
 
     active.updateResult({ isError: false, output: "result:two.md" });
     const output = renderPlain(chat);
-    expect(output.match(/⚙️/g)).toHaveLength(2);
-    expect(output).toContain("⚙️ read one.md → 1 line");
-    expect(output).toContain("⚙️ read two.md → 1 line");
-    expect(output).not.toContain("•");
+    expect(chat.render(100)).toHaveLength(liveHeight);
+    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output).toContain("• one.md → 1 line");
+    expect(output).toContain("• two.md → 1 line");
   });
 
-  test("never regroups settled prefixes or suffixes after a parallel call settles", () => {
+  test("keeps a parallel group at the same height while it settles", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("edit", "one.ts"));
     chat.addChild(succeeded("edit", "two.ts"));
@@ -431,18 +449,19 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("edit", "four.ts"));
     chat.addChild(succeeded("edit", "five.ts"));
 
-    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(5);
+    const liveHeight = chat.render(100).length;
+    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(1);
 
     active.updateResult({ isError: false, output: "result:three.ts" });
     const output = renderPlain(chat);
-    expect(output.match(/⚙️/g)).toHaveLength(5);
-    expect(output).toContain("⚙️ edit one.ts → applied");
-    expect(output).toContain("⚙️ edit three.ts → applied");
-    expect(output).toContain("⚙️ edit five.ts → applied");
-    expect(output).not.toContain("•");
+    expect(chat.render(100)).toHaveLength(liveHeight);
+    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output).toContain("• one.ts → applied");
+    expect(output).toContain("• three.ts → applied");
+    expect(output).toContain("• five.ts → applied");
   });
 
-  test("keeps decided groups stable while a later batch runs and settles", () => {
+  test("extends a group when a later quiet-turn call appears", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("edit", "one.ts"));
     chat.addChild(succeeded("edit", "two.ts"));
@@ -451,16 +470,58 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(active);
 
     const pendingOutput = renderPlain(chat);
-    expect(pendingOutput.match(/⚙️/g)).toHaveLength(2);
+    const pendingHeight = chat.render(100).length;
+    expect(pendingOutput.match(/⚙️/g)).toHaveLength(1);
     expect(pendingOutput).toContain("• one.ts");
     expect(pendingOutput).toContain("• two.ts");
+    expect(pendingOutput).toContain("• three.ts …");
 
     active.updateResult({ isError: false, output: "result:three.ts" });
     const settledOutput = renderPlain(chat);
-    expect(settledOutput.match(/⚙️/g)).toHaveLength(2);
+    expect(chat.render(100)).toHaveLength(pendingHeight);
+    expect(settledOutput.match(/⚙️/g)).toHaveLength(1);
     expect(settledOutput).toContain("• one.ts");
     expect(settledOutput).toContain("• two.ts");
-    expect(settledOutput).toContain("⚙️ edit three.ts → applied");
+    expect(settledOutput).toContain("• three.ts → applied");
+  });
+
+  test("merges a later live call across an empty assistant message immediately", () => {
+    const chat = new MockContainer();
+    chat.addChild(succeeded("read", "one.md"));
+    const singletonHeight = chat.render(100).length;
+    expect(renderPlain(chat)).toContain("⚙️ read one.md → 1 line");
+
+    chat.addChild(new MockAssistantMessageComponent());
+    const next = new MockToolExecutionComponent("read", "two.md");
+    chat.addChild(next);
+    const liveHeight = chat.render(100).length;
+    expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
+    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(1);
+
+    next.updateResult({ isError: false, output: "result:two.md" });
+    const output = renderPlain(chat);
+    expect(chat.render(100)).toHaveLength(liveHeight);
+    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output).toContain("• one.md");
+    expect(output).toContain("• two.md");
+  });
+
+  test("can keep same-turn parallel calls individual via environment", () => {
+    reinstallWithCollapseParallel("0");
+
+    const parallel = new MockContainer();
+    parallel.addChild(succeeded("read", "one.md"));
+    parallel.addChild(succeeded("read", "two.md"));
+    expect(renderPlain(parallel).match(/⚙️/g)).toHaveLength(2);
+    expect(renderPlain(parallel)).not.toContain("•");
+
+    const sequential = new MockContainer();
+    sequential.addChild(succeeded("read", "one.md"));
+    sequential.addChild(new MockAssistantMessageComponent());
+    sequential.addChild(succeeded("read", "two.md"));
+    expect(renderPlain(sequential).match(/⚙️/g)).toHaveLength(1);
+    expect(renderPlain(sequential)).toContain("• one.md");
+    expect(renderPlain(sequential)).toContain("• two.md");
   });
 
   test("merges settled batches across empty assistant messages", () => {
@@ -499,7 +560,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(failed);
     chat.addChild(new MockToolExecutionComponent("read", "pending.md"));
 
-    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(4);
+    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(3);
   });
 
   test("caps in-progress rows to their header line", () => {

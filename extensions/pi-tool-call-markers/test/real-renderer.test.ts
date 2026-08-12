@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+  AssistantMessageComponent,
   initTheme,
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -207,6 +208,30 @@ describe("tool-call-markers with Pi's real renderer", () => {
     // spacer + top padding + header + bottom padding at every stage
     expect(liveLines).toHaveLength(4);
     expect(settledLines).toHaveLength(4);
+  });
+
+  test("merges real rows as a quiet-turn call appears without settlement reflow", () => {
+    const chat = new Container();
+    const first = createBashRow("npm test");
+    chat.addChild(first);
+    settle(first, "tests passed");
+    const singletonHeight = chat.render(100).length;
+    expect(renderPlain(chat)).toContain("⚙️ $ npm test → done");
+
+    chat.addChild(new AssistantMessageComponent());
+    const second = createBashRow("npm run lint");
+    chat.addChild(second);
+    const liveHeight = chat.render(100).length;
+    expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
+    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(1);
+    expect(renderPlain(chat)).toContain("• npm run lint");
+
+    settle(second, "lint passed");
+    const output = renderPlain(chat);
+    expect(chat.render(100)).toHaveLength(liveHeight);
+    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output).toContain("• npm test → done");
+    expect(output).toContain("• npm run lint → done");
   });
 
   test("groups real settled rows with one-line outcome bullets", () => {

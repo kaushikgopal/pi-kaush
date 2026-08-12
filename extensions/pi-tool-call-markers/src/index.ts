@@ -18,6 +18,7 @@ const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
 const ANSI_RE = /\u001b\[[0-9;]*m/g;
 const BOLD_ON_RE = /\u001b\[1m/g;
+const COLLAPSE_PARALLEL_ENV = "PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL";
 
 type ThemeLike = {
   bold(text: string): string;
@@ -65,11 +66,11 @@ type ToolExecutionRow = {
 
 type PresentationPatchState = {
   theme?: ThemeLike;
+  collapseParallel: boolean;
   groupCache: WeakMap<ToolExecutionRow, GroupRenderCache>;
+  liveRenderedRows: WeakSet<ToolExecutionRow>;
   rowVersions: WeakMap<ToolExecutionRow, number>;
-  // A row's settled shape is decided the first time it renders settled and
-  // never changes afterwards, so live output only ever grows downwards.
-  rowModes: WeakMap<ToolExecutionRow, "individual" | ToolExecutionRow[]>;
+  rowGroups: WeakMap<ToolExecutionRow, ToolExecutionRow[]>;
   rowSignatures: WeakMap<ToolExecutionRow, string>;
   originalRender: (width: number) => string[];
   originalUpdateDisplay: () => void;
@@ -90,6 +91,14 @@ type GroupRenderCache = {
   themeSample: string;
   width: number;
 };
+
+function envEnabled(name: string, defaultValue: boolean): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return defaultValue;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return defaultValue;
+}
 
 function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, "");
@@ -353,7 +362,7 @@ function isSettledToolRow(row: ToolExecutionRow): boolean {
   return row.isPartial === false && !!row.result;
 }
 
-function hasUnsettledToolInBatch(
+function hasToolSiblingInAssistantBatch(
   children: unknown[],
   index: number,
   renderAt: (index: number) => string[],
@@ -366,14 +375,29 @@ function hasUnsettledToolInBatch(
     ) {
       const candidate = children[candidateIndex];
       if (isAssistantMessageRow(candidate)) break;
-      if (isToolExecutionRow(candidate)) {
-        if (!isSettledToolRow(candidate)) return true;
-        continue;
-      }
+      if (isToolExecutionRow(candidate)) return true;
       if (renderAt(candidateIndex).some(hasVisibleContent)) break;
     }
   }
   return false;
+}
+
+function isGroupableToolRow(
+  row: ToolExecutionRow,
+  children: unknown[],
+  index: number,
+  renderAt: (index: number) => string[],
+  state: PresentationPatchState,
+): boolean {
+  if (!isLiveRow(row) && !isCollapsibleSuccess(row)) return false;
+  // Self-rendered tools can change height while active. Keep live instances
+  // individual so settling never collapses an already-painted preview.
+  if (row.getRenderShell?.() === "self" && state.liveRenderedRows.has(row))
+    return false;
+  return (
+    state.collapseParallel ||
+    !hasToolSiblingInAssistantBatch(children, index, renderAt)
+  );
 }
 
 function renderComponent(component: unknown, width: number): string[] {
@@ -500,6 +524,17 @@ function renderedOutcome(
   const summary = outcomeSummary(row);
   if (!summary) return undefined;
   return `${theme.fg("muted", "→")} ${theme.fg("success", summary)}`;
+}
+
+function renderedGroupedOutcome(
+  row: ToolExecutionRow,
+  theme: ThemeLike,
+): string | undefined {
+  const outcome = renderedOutcome(row, theme);
+  if (outcome) return outcome;
+  if (!isLiveRow(row)) return undefined;
+  const elapsed = liveElapsedText(row);
+  return theme.fg("muted", elapsed ? `· ${elapsed}` : "…");
 }
 
 function truncatePlain(text: string, width: number, suffix = "…"): string {
@@ -678,7 +713,7 @@ function groupedCallComponent(
           previousToolName = row.toolName;
         }
         const call = renderedCallSummary(row, Math.max(1, width - 4), theme);
-        const outcome = renderedOutcome(row, theme);
+        const outcome = renderedGroupedOutcome(row, theme);
         lines.push(compactBulletLine(call, outcome, width, theme));
       }
       return lines;
@@ -742,9 +777,12 @@ function renderGroupedToolRows(
   const themeSample =
     theme.fg("toolTitle", "x") +
     theme.fg("muted", "x") +
+    theme.bg("toolPendingBg", "x") +
     theme.bg("toolSuccessBg", "x");
   const cached = state.groupCache.get(row);
+  const hasLiveMembers = rows.some(isLiveRow);
   if (
+    !hasLiveMembers &&
     cached &&
     cached.width === width &&
     cached.themeSample === themeSample &&
@@ -802,13 +840,17 @@ function renderGroupedToolRows(
   }
 
   const decorated = decorateHeader(row, lines, width, theme);
-  state.groupCache.set(row, {
-    lines: decorated,
-    members: [...rows],
-    memberVersions: rows.map((member) => state.rowVersions.get(member) ?? 0),
-    themeSample,
-    width,
-  });
+  if (hasLiveMembers) {
+    state.groupCache.delete(row);
+  } else {
+    state.groupCache.set(row, {
+      lines: decorated,
+      members: [...rows],
+      memberVersions: rows.map((member) => state.rowVersions.get(member) ?? 0),
+      themeSample,
+      width,
+    });
+  }
   return decorated;
 }
 
@@ -829,45 +871,10 @@ function renderContainerWithToolGroups(
 
   for (let index = 0; index < children.length; index++) {
     const child = children[index];
-    if (!isToolExecutionRow(child) || !isCollapsibleSuccess(child)) {
-      lines.push(...renderAt(index));
-      continue;
-    }
-    const decided = presentation.rowModes.get(child);
-    if (decided === "individual") {
-      lines.push(...renderAt(index));
-      continue;
-    }
-    if (Array.isArray(decided)) {
-      // A decided group is sticky, but transient states like Ctrl+O expansion
-      // still render members in full until they become collapsible again.
-      if (!decided.every(isCollapsibleSuccess)) {
-        lines.push(...renderAt(index));
-        continue;
-      }
-      const lastMember = decided[decided.length - 1];
-      let lastMemberIndex = index;
-      for (
-        let candidateIndex = index + 1;
-        candidateIndex < children.length;
-        candidateIndex++
-      ) {
-        if (children[candidateIndex] === lastMember) {
-          lastMemberIndex = candidateIndex;
-          break;
-        }
-      }
-      lines.push(...renderGroupedToolRows(child, decided, width, presentation));
-      index = lastMemberIndex;
-      continue;
-    }
-
-    // Undecided row: pick its settled shape once. A row that first settles
-    // next to an active sibling stays individual forever, so live batches
-    // never regroup after the fact; only batches that are fully settled on
-    // first render (e.g. restored history) become groups.
-    if (hasUnsettledToolInBatch(children, index, renderAt)) {
-      presentation.rowModes.set(child, "individual");
+    if (
+      !isToolExecutionRow(child) ||
+      !isGroupableToolRow(child, children, index, renderAt, presentation)
+    ) {
       lines.push(...renderAt(index));
       continue;
     }
@@ -885,8 +892,16 @@ function renderContainerWithToolGroups(
         continue;
       }
       if (isToolExecutionRow(candidate)) {
-        if (!isCollapsibleSuccess(candidate)) break;
-        if (presentation.rowModes.has(candidate)) break;
+        if (
+          !isGroupableToolRow(
+            candidate,
+            children,
+            candidateIndex,
+            renderAt,
+            presentation,
+          )
+        )
+          break;
         group.push(candidate);
         lastMemberIndex = candidateIndex;
         continue;
@@ -895,13 +910,16 @@ function renderContainerWithToolGroups(
     }
 
     if (group.length === 1) {
-      presentation.rowModes.set(child, "individual");
       lines.push(...renderAt(index));
       continue;
     }
 
-    for (const member of group) presentation.rowModes.set(member, group);
-    lines.push(...renderGroupedToolRows(child, group, width, presentation));
+    for (const member of group) presentation.rowGroups.set(member, group);
+    // An active member supplies the pending background. Once every call
+    // settles, the first member supplies the success background. Either way,
+    // the grouped row keeps the same number of lines.
+    const shellRow = group.find(isLiveRow) ?? child;
+    lines.push(...renderGroupedToolRows(shellRow, group, width, presentation));
     index = lastMemberIndex;
   }
 
@@ -998,9 +1016,11 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       return undefined;
 
     const state: PresentationPatchState = {
+      collapseParallel: envEnabled(COLLAPSE_PARALLEL_ENV, true),
       groupCache: new WeakMap(),
+      liveRenderedRows: new WeakSet(),
       rowVersions: new WeakMap(),
-      rowModes: new WeakMap(),
+      rowGroups: new WeakMap(),
       rowSignatures: new WeakMap(),
       originalRender: proto.render,
       originalUpdateDisplay: proto.updateDisplay,
@@ -1013,7 +1033,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       // ticks and resize invalidations stop busting caches.
       const signature = `${this.isPartial}|${this.expanded}|${this.result ? 1 : 0}|${this.result?.isError ? 1 : 0}`;
       if (
-        Array.isArray(state.rowModes.get(this)) ||
+        state.rowGroups.has(this) ||
         state.rowSignatures.get(this) !== signature
       ) {
         state.rowSignatures.set(this, signature);
@@ -1032,6 +1052,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       this: ToolExecutionRow,
       width: number,
     ): string[] {
+      if (!isSettledToolRow(this)) state.liveRenderedRows.add(this);
       const lines = state.originalRender.call(this, width);
       try {
         return decorateHeader(this, lines, width, state.theme);

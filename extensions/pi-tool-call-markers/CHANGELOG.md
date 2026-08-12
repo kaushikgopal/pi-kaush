@@ -6,13 +6,14 @@
 
 - Render in-progress calls as a single header line (elapsed time inline for `bash`) that settles into the final summary at the same height, so the transcript flows downwards without jumping.
 - Show the real duration in successful bash summaries (`→ done · 2.3s`) instead of dropping the elapsed time on completion.
-- Keep a call's settled shape stable once rendered: batches that settle next to an active sibling stay as individual one-liners instead of regrouping afterwards, which removes the second jump when a parallel batch completes.
+- Group adjacent calls while they are still running, so new bullets grow downward and successful settlement updates outcomes in place without upward reflow.
+- Add `PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL`, enabled by default, to keep same-assistant-message calls individual while still grouping sequential calls across quiet turns.
 - Only invalidate grouped-render caches on real state transitions, so bash's per-second ticks and resize invalidations stop busting them.
 
 - Keep failed calls collapsed by default while retaining their native error background and Ctrl+O expansion.
 - Add compact result tails for common successful tools in singleton and grouped summaries.
 - Keep grouped bullets to one line and preserve the useful result tail on narrow terminals.
-- Merge settled calls across assistant turns when no visible prose separates them, without reopening earlier groups while a later batch is active.
+- Merge calls across assistant turns as soon as they appear when no visible prose or thinking separates them.
 - Move adjacent thinking-block merging to a separate extension entrypoint bundled in this package.
 
 ## 0.1.2

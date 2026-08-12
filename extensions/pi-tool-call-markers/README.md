@@ -4,14 +4,14 @@ Collapse Pi's adjacent successful tool calls into one compact, gear-headed block
 
 ## What it changes
 
-When several tool calls of the same type succeed in a row, Pi normally renders each one as its own expanded block. This extension groups them:
+When several tool calls run in a row, Pi normally renders each one as its own expanded block. This extension groups them:
 
 - **One gear header per contiguous tool type.** A run of `read` calls shares a single `⚙️ read` header; the following `write` run gets its own `⚙️ write` header.
 - **Bulleted call summaries.** Each call in a group becomes one bullet with a short summary and, for common tools, a compact outcome such as `→ done`, `→ 42 lines`, or `→ +2/-1`.
 - **Vertical spacing between tool types.** A blank line separates one tool group from the next.
 - **One-line, width-safe summaries.** Long targets truncate before their useful outcome tail instead of wrapping into taller blocks.
-- **Running calls stay one line.** While a call streams or executes, it renders as a single header line (with elapsed time inline for `bash`), so the transcript only grows downwards; the same line settles into the final `→ done · 2.3s`-style summary without changing height.
-- **Settled shapes never re-render.** A call's settled shape is decided the first time it renders settled and never changes afterwards. Batches that finish while a sibling is still active stay as individual one-liners instead of regrouping later; batches already settled on first render (e.g. restored history) still merge into groups across assistant turns that rendered no prose.
+- **Running calls group immediately.** Adjacent calls become bullets as they appear, and each pending marker or elapsed `bash` time updates to the final outcome in place. Successful settlement does not shrink the block, so the transcript only grows downwards.
+- **Sequential calls merge across quiet turns.** A later call joins the existing group immediately when no visible prose or thinking separates it; visible assistant content remains a hard boundary.
 - **Self-rendered tools keep their shell.** Tools that own their framing keep singleton previews intact. Grouped summaries use only their stable header instead of scraping preview or diff lines.
 - **Image results stay visible.** Image-bearing results are not collapsed into text-only groups. Partial text output is held back while a call runs and surfaces through the final summary.
 - **Errors stay compact and visibly failed.** A failed call keeps its own error-colored block and native collapsed detail until expanded.
@@ -38,6 +38,17 @@ pi \
   -e ./extensions/pi-tool-call-markers/src/index.ts \
   -e ./extensions/pi-tool-call-markers/src/thinking-block-merger.ts
 ```
+
+## Configuration
+
+Grouping calls from the same assistant message is enabled by default. Pi normally executes those calls in parallel. To keep those same-message calls as individual compact rows while continuing to group sequential calls across quiet turns, start Pi with:
+
+```fish
+set -lx PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL 0
+pi
+```
+
+`0`, `false`, `no`, and `off` disable parallel grouping. `1`, `true`, `yes`, and `on` enable it. The value is read when the extension loads.
 
 ## Compatibility and risk
 
