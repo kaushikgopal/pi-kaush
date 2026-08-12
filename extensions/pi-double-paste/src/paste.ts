@@ -30,9 +30,7 @@ export function normalizePaste(text: string): string {
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .replace(/\t/g, "    ")
-    .split("")
-    .filter((character) => character === "\n" || character.charCodeAt(0) >= 32)
-    .join("");
+    .replace(/[\x00-\x09\x0B-\x1F]/g, "");
 }
 
 export function isLongPaste(text: string): boolean {
