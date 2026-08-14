@@ -53,7 +53,8 @@
     "access": "public"
   },
   "scripts": {
-    "package:check": "node ./scripts/check-package.mjs"
+    "package:check": "node ./scripts/check-package.mjs",
+    "bench": "node ./bench/run.mjs"
   },
   "sideEffects": false
 }

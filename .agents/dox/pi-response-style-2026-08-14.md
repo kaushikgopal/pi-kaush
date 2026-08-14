@@ -203,7 +203,7 @@ Voice: plain, direct, no hype. README is a deliverable — length as needed, but
   interactive switch cost is usually zero. cacheWrite reported 0 throughout (provider
   accounting), so write premium unmeasurable from this data. Results in README.
 
-### WP8 — Eval harness (last work item, after WP6)
+### WP8 — Eval harness ✅ (done 2026-08-14, proof run: 38 calls, 0 errors, 196s)
 
 Adapted from attention-span's approach (reimplemented, not copied), so "the work is
 unchanged" and "output is shorter/skimmable" are measured, not asserted:
