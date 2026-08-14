@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-response-style",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Switch the chat response style of the Pi agent from a picker; styles inject at the system-prompt level and leave thinking traces alone.",
   "license": "MIT",
   "author": "Kaushik Gopal",

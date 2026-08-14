@@ -183,6 +183,24 @@ The guardrail-instruction approach is the right default. The trigger to revisit:
 if the guardrail empirically leaks style into reasoning often enough to matter,
 post-hoc rewriting becomes worth its cost.
 
+## Benchmarks
+
+The repo ships an opt-in eval harness (not published to npm) that measures
+the style's effect instead of asserting it: output length and skimmability,
+deliverable purity, and work-equivalence via hidden coding tests. Every pi
+call runs fully isolated in a temp agent dir; nothing touches your live pi
+setup. Details in [bench/README.md](bench/README.md).
+
+```sh
+npm run bench                          # readability + deliverable (+ coding when fast)
+BENCH_STYLE=hemingway npm run bench    # benchmark a different style
+BENCH_MODEL=openai/gpt-4o-mini npm run bench
+```
+
+Latest run (simplicity, kimi-k3-fast): output 33% shorter, answer in the
+first line 50% to 100%, deliverable purity 0% to 100%, hidden coding tests
+5/5 with the style off and on.
+
 ## Development
 
 ```sh
