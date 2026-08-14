@@ -219,7 +219,7 @@ unchanged" and "output is shorter/skimmable" are measured, not asserted:
   model, opt-in via an explicit command (e.g. `npm run bench` in the package), so it
   never slows or clobbers normal pi usage.
 
-### WP9 — npm publish bootstrap (one-time, before first release)
+### WP9 — npm publish bootstrap ✅ (done 2026-08-14: @pi-kaush/pi-response-style@0.1.0 live; settings swapped back to npm package)
 
 Per repo README/AGENTS.md, a package's first release must be bootstrapped
 interactively before Trusted Publishing works:
