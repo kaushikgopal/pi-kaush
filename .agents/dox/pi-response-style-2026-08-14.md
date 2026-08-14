@@ -194,10 +194,14 @@ Voice: plain, direct, no hype. README is a deliverable — length as needed, but
 - Manual smoke: reload pi, run `/response-style`, pick a style, confirm footer status
   and that the next reply follows the style; restart and confirm default/last-used
   restoration; confirm thinking traces are unstyled; Esc-cancel keeps the current style.
-- `/compact` sanity: pick survives compaction (or is re-persisted).
-- Cache-spike claim: record usage deltas (`/session` or `after_provider_response`)
-  around a style switch on a long session to verify one-time spike + re-cache, and
-  whether the AI Gateway reports cache hits at all. Feed results into the README.
+- `/compact` sanity: pick survives compaction (or is re-persisted). Unit-tested; one
+  live run still open.
+- Cache-spike claim ✅ (2026-08-14, measured on KG's ~150k live session through the AI
+  Gateway): pick at turn 116 → exactly one full re-read (146k, cacheRead 0) → cache
+  refilled. cacheRead healthy every other turn (145k–197k), so caching survives the
+  gateway. Bonus finding: TTL-driven re-reads every ~5–10 min of wall time anyway, so
+  interactive switch cost is usually zero. cacheWrite reported 0 throughout (provider
+  accounting), so write premium unmeasurable from this data. Results in README.
 
 ### WP8 — Eval harness (last work item, after WP6)
 

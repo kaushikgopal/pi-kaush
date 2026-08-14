@@ -123,7 +123,14 @@ the model re-reads the conversation once to rebuild the cache. That is a one-tim
 spike in cost and latency on the switch. After that the new prefix re-caches and
 later turns are cheap again.
 
-For occasional switching this is fine. You pay once per switch, not once per turn.
+For occasional switching this is fine. You pay once per switch, not once per
+turn. Measured on a real ~150k-token session through an AI gateway: one style
+switch caused exactly one full re-read (146k tokens, cache read 0), then the
+cache refilled and later turns read from it again. The same session showed
+full re-reads every five to ten minutes of wall time regardless, because the
+prompt cache expires between turns while you read and type. So in interactive
+use the marginal cost of a switch is often zero: the cache was going to lapse
+before your next turn anyway.
 
 If you find yourself switching many times in a single session, the tail-message
 injection above is the documented escape hatch. It preserves the cache across
@@ -132,8 +139,9 @@ most.
 
 One honest caveat: prompt caching only helps if it survives the trip through
 whatever sits between you and the model. If you route through an AI gateway or
-proxy, caching works only when the gateway preserves the cache headers. Worth
-verifying on your own setup before you count on it.
+proxy, caching works only when the gateway preserves the cache headers. The
+measurement above confirms it can work through a gateway, but verify on your
+own setup before you count on it.
 
 ### Instruction is the only channel
 
