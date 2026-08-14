@@ -21,6 +21,11 @@ import {
   type AgentConfig,
 } from "./agent-discovery.ts";
 import { parseAgentModelSpec, type ThinkingLevel } from "./model-spec.ts";
+import {
+  buildAgentPickerItems,
+  NONE_VALUE,
+  showAgentPicker,
+} from "./agent-picker.ts";
 
 interface ModelReference {
   provider: string;
@@ -272,13 +277,29 @@ export function registerAgentMode(pi: ExtensionAPI) {
           );
           return;
         }
-        const choices = agents.map(
-          (candidate) =>
-            `${formatAgentDisplayName(candidate)} — ${candidate.description}`,
-        );
-        const choice = await ctx.ui.select("Activate agent:", choices);
-        if (!choice) return;
-        agent = agents[choices.indexOf(choice)];
+        let picked: string | null;
+        if (ctx.mode === "tui") {
+          picked = await showAgentPicker(
+            ctx,
+            buildAgentPickerItems(agents, activeAgent?.agent.name),
+          );
+        } else {
+          const items = buildAgentPickerItems(agents, activeAgent?.agent.name);
+          const labels = items.map(
+            (item) => `${item.label} — ${item.description}`,
+          );
+          const choice = await ctx.ui.select("Activate agent:", labels);
+          picked =
+            choice === undefined
+              ? null
+              : (items[labels.indexOf(choice)]?.value ?? null);
+        }
+        if (!picked) return;
+        if (picked === NONE_VALUE) {
+          await clearActiveAgent(ctx);
+          return;
+        }
+        agent = agents.find((candidate) => candidate.name === picked);
       }
 
       if (!agent || !(await confirmProjectAgent(agent, ctx))) return;

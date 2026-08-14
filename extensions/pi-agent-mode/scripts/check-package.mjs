@@ -16,6 +16,7 @@ const expected = [
   "README.md",
   "package.json",
   "src/agent-discovery.ts",
+  "src/agent-picker.ts",
   "src/index.ts",
   "src/model-spec.ts",
 ].sort();
