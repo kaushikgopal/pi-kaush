@@ -188,14 +188,14 @@ Voice: plain, direct, no hype. README is a deliverable — length as needed, but
 - Note: "make default" writes `config.json` into KG's live dotfiles worktree — that's
   deliberate and user-controlled; documented in README.
 
-### WP7 — Validation (partial: `npm run check` green; headless smoke green 2026-08-14)
+### WP7 — Validation ✅ (done 2026-08-14)
 
 - `npm run check` at repo root (prettier, tsc, vitest, package:check).
 - Manual smoke: reload pi, run `/response-style`, pick a style, confirm footer status
   and that the next reply follows the style; restart and confirm default/last-used
   restoration; confirm thinking traces are unstyled; Esc-cancel keeps the current style.
-- `/compact` sanity: pick survives compaction (or is re-persisted). Unit-tested; one
-  live run still open.
+- `/compact` sanity ✅ (2026-08-14, RPC-driven live run): pick pirate → build history
+  → compact (compaction_end) → next reply still pirate-styled, pick entry intact.
 - Cache-spike claim ✅ (2026-08-14, measured on KG's ~150k live session through the AI
   Gateway): pick at turn 116 → exactly one full re-read (146k, cacheRead 0) → cache
   refilled. cacheRead healthy every other turn (145k–197k), so caching survives the
@@ -218,6 +218,23 @@ unchanged" and "output is shorter/skimmable" are measured, not asserted:
   config, sessions, or the aikado styles dir; sequential requests on a cheap/fast
   model, opt-in via an explicit command (e.g. `npm run bench` in the package), so it
   never slows or clobbers normal pi usage.
+
+### WP9 — npm publish bootstrap (one-time, before first release)
+
+Per repo README/AGENTS.md, a package's first release must be bootstrapped
+interactively before Trusted Publishing works:
+
+1. Bump `package.json` to 0.1.0 (currently 0.0.0) and run `npm run check`.
+2. Interactive first publish (local npm login + browser 2FA):
+   `npm publish --workspace @pi-kaush/pi-response-style --access public`.
+3. Configure the Trusted Publisher on npmjs.com for `@pi-kaush/pi-response-style`:
+   GitHub Actions provider, org `kaushikgopal`, repo `pi-kaush`, workflow
+   `publish.yml`, environment `npm`, allowed action `npm publish`.
+4. All later releases use `make publish PACKAGE=pi-response-style` (bumps version,
+   runs checks, tags `pi-response-style-v<x.y.z>`, GitHub release triggers the OIDC
+   publish; verify with `gh run watch` and `npm view @pi-kaush/pi-response-style version`).
+5. After the npm release, swap global settings.json back from the local path to
+   `npm:@pi-kaush/pi-response-style` (the `/publish-pi-ext` flow's closing step).
 
 ## Blockers / open questions
 
