@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
+  createBashToolDefinition,
   initTheme,
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -31,6 +32,21 @@ function install(): void {
   for (const handler of sessionHandlers) {
     handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
   }
+}
+
+function createNativeBashRow(
+  command: string,
+  timeout?: number,
+): ToolExecutionComponent {
+  return new ToolExecutionComponent(
+    "bash",
+    `native-bash-${command}`,
+    { command, timeout },
+    {},
+    createBashToolDefinition(process.cwd()),
+    { requestRender() {} } as never,
+    process.cwd(),
+  );
 }
 
 function createBashRow(label: string): ToolExecutionComponent {
@@ -130,6 +146,57 @@ describe("tool-call-markers with Pi's real renderer", () => {
       .find((line) => line.replace(ANSI_RE, "").includes("→"));
     expect(rawLine).toBeDefined();
     expect(rawLine!.slice(0, rawLine!.indexOf("→"))).not.toContain("\x1b[0m");
+  });
+
+  test("compacts a settled multiline command and restores it when expanded", () => {
+    const chat = new Container();
+    const command = [
+      "printf one",
+      "printf two",
+      "printf three",
+      "printf four",
+    ].join("\n");
+    const row = createNativeBashRow(command);
+    chat.addChild(row);
+    settle(row, "command output");
+
+    const collapsed = renderPlain(chat);
+    expect(collapsed).toContain(
+      "⚙️ $ printf one · printf two · printf three · … → done",
+    );
+    expect(collapsed.split("\n")).toHaveLength(1);
+    expect(collapsed).not.toContain("printf four");
+    expect(collapsed).not.toContain("command output");
+
+    row.setExpanded(true);
+    const expanded = renderPlain(chat);
+    for (const line of command.split("\n")) expect(expanded).toContain(line);
+    expect(expanded).toContain("command output");
+  });
+
+  test("keeps a multiline timeout command on one line after settlement", () => {
+    const chat = new Container();
+    const row = createNativeBashRow("sleep 1\nprintf finished", 30);
+    chat.addChild(row);
+
+    row.updateResult(
+      {
+        content: [{ type: "text", text: "partial output" }],
+        details: {},
+        isError: false,
+      },
+      true,
+    );
+    const liveHeight = chat.render(100).length;
+    expect(renderPlain(chat).split("\n")).toHaveLength(1);
+
+    settle(row, "finished");
+    const settled = renderPlain(chat);
+    expect(chat.render(100)).toHaveLength(liveHeight);
+    expect(settled).toContain(
+      "⚙️ $ sleep 1 · printf finished (timeout 30s) → done",
+    );
+    expect(settled.split("\n")).toHaveLength(1);
   });
 
   test("keeps a failed singleton collapsed until Pi expands it", () => {

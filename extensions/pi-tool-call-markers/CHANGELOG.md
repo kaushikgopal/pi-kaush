@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Compact multiline singleton calls into one width-safe summary after settlement, including timeout metadata, while preserving the full native call under Ctrl+O.
 - Compose capped in-progress rows before the Box paints its background, fixing elapsed tails leaking outside the tool background and restoring the block's bottom padding.
 
 - Render in-progress calls as a single header line (elapsed time inline for `bash`) that settles into the final summary at the same height, so the transcript flows downwards without jumping.

@@ -574,17 +574,17 @@ function decorateSuccessfulCall(
   row.contentBox.children[0] = {
     render(width: number): string[] {
       const lines = original.render(width);
-      const lineIndex = lines.findIndex(hasVisibleContent);
-      if (lineIndex === -1) return lines;
-      const line = lines[lineIndex];
+      const visibleLines = lines.filter(hasVisibleContent);
+      const line = visibleLines[0];
       if (line === undefined) return lines;
-      const next = [...lines];
-      next[lineIndex] = fitSummaryTail(
-        trimRenderedLine(line),
-        outcome,
-        Math.max(1, width - BADGE_WIDTH),
-      );
-      return next;
+
+      const rendered = visibleLines.slice(0, 3).map(trimRenderedLine);
+      if (visibleLines.length > rendered.length)
+        rendered.push(theme.fg("muted", "…"));
+      const summary = rendered.join(theme.fg("muted", " · "));
+      return [
+        fitSummaryTail(summary, outcome, Math.max(1, width - BADGE_WIDTH)),
+      ];
     },
     invalidate() {
       original.invalidate();
