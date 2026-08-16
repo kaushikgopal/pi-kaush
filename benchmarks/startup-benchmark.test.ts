@@ -1,11 +1,19 @@
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
+  EXPECT_SCRIPT,
   extensionName,
   isWelcomeScreenPath,
   median,
   parseStartupTiming,
   renderBenchmarkReport,
 } from "./startup-benchmark";
+
+const HAS_EXPECT =
+  spawnSync("expect", ["-v"], { stdio: "ignore" }).status === 0;
 
 describe("Pi startup benchmark parsing", () => {
   test("parses main totals and extension import timings from PTY output", () => {
@@ -69,6 +77,50 @@ describe("Pi startup benchmark parsing", () => {
     ).toBe(true);
     expect(isWelcomeScreenPath("/tmp/extensions/custom-footer.ts")).toBe(false);
   });
+});
+
+describe("Pi startup benchmark process control", () => {
+  test.skipIf(!HAS_EXPECT)(
+    "finishes after Pi prints timings even when background handles remain open",
+    () => {
+      const directory = mkdtempSync(join(tmpdir(), "pi-startup-benchmark-"));
+      const fakePi = join(directory, "pi");
+      writeFileSync(
+        fakePi,
+        `#!/usr/bin/env node
+console.log(\`--- Startup Timings: main ---
+  TOTAL: 10ms
+-----------------------------
+
+--- Startup Timings: extensions ---
+  TOTAL: 5ms
+-----------------------------------\`);
+setInterval(() => {}, 1_000);
+`,
+      );
+      chmodSync(fakePi, 0o755);
+
+      try {
+        const result = spawnSync("expect", ["-c", EXPECT_SCRIPT], {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${directory}${delimiter}${process.env.PATH ?? ""}`,
+            PI_BENCH_TIMEOUT_SECONDS: "5",
+            PI_BENCH_NO_EXTENSIONS: "0",
+            PI_BENCH_EXTENSION: "",
+          },
+          timeout: 2_000,
+        });
+
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("Startup Timings: extensions");
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("Pi startup benchmark reporting", () => {

@@ -51,8 +51,9 @@ interface RunOptions {
   extensionPath?: string;
 }
 
-const EXPECT_SCRIPT = `
+export const EXPECT_SCRIPT = `
 set timeout $env(PI_BENCH_TIMEOUT_SECONDS)
+match_max 1000000
 set command [list env PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_TIMING=1 PI_STARTUP_BENCHMARK=1 pi]
 if {$env(PI_BENCH_NO_EXTENSIONS) eq "1"} {
   lappend command --no-extensions
@@ -61,9 +62,33 @@ if {$env(PI_BENCH_EXTENSION) ne ""} {
   lappend command --extension $env(PI_BENCH_EXTENSION)
 }
 spawn -noecho {*}$command
+set saw_extension_timings 0
+set completed 0
 expect {
+  -re {--- Startup Timings: extensions ---} {
+    set saw_extension_timings 1
+    exp_continue
+  }
+  -re {\\r?\\n-+\\r?\\n} {
+    if {$saw_extension_timings} {
+      set completed 1
+    } else {
+      exp_continue
+    }
+  }
   timeout { exit 124 }
   eof {}
+}
+if {$completed} {
+  # Extensions can leave background handles open after Pi finishes startup.
+  # Stop the process once the complete timing report has reached the PTY.
+  catch {exec kill -TERM [exp_pid]}
+  expect {
+    eof {}
+    timeout {}
+  }
+  catch {wait}
+  exit 0
 }
 set result [wait]
 exit [lindex $result 3]
