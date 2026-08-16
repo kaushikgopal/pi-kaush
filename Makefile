@@ -1,8 +1,14 @@
-.PHONY: check publish
+ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+
+.PHONY: bench-pi check publish
 
 # Run the full repository check (format, typecheck, test, package check).
 check:
 	npm run check
+
+# Benchmark Pi startup in the current directory and home.
+bench-pi:
+	@bun run "$(ROOT)/benchmarks/startup-benchmark.ts"
 
 # Publish an extension to npm via GitHub Actions OIDC.
 #
