@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-btw",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Ask a question in a fork of the current Pi conversation.",
   "license": "MIT",
   "author": "Kaushik Gopal",
