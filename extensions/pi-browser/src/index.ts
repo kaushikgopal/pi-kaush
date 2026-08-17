@@ -8,15 +8,21 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerCommands } from "./commands.ts";
 import { closeForShutdown } from "./core/connection.ts";
+import { registerCaptureTools } from "./tools/capture.ts";
 import { registerInteractionTools } from "./tools/interaction.ts";
 import { registerReadTools } from "./tools/read.ts";
+import { registerScriptTool } from "./tools/script.ts";
 import { registerTabTools } from "./tools/tabs.ts";
 
 export default function piBrowser(pi: ExtensionAPI) {
   registerReadTools(pi);
   registerInteractionTools(pi);
   registerTabTools(pi);
+  registerCaptureTools(pi);
+  registerScriptTool(pi);
+  registerCommands(pi);
 
   pi.on("session_shutdown", async () => {
     await closeForShutdown();
