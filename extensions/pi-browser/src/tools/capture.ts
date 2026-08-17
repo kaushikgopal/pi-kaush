@@ -1,13 +1,31 @@
 /**
- * Capture query tools: network requests and console output recorded on the
- * current tab since attach.
+ * Capture query tools: network requests and console output recorded by the
+ * daemon on the current tab since attach.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { queryConsole, queryNetwork } from "../core/capture.ts";
-import { cdpFor, getPage } from "../core/connection.ts";
+import { request } from "../core/client.ts";
 import { textResult } from "./shared.ts";
+
+interface NetworkRecordOut {
+  seq: number;
+  requestId: string;
+  url: string;
+  method: string;
+  resourceType: string;
+  status?: number;
+  failed?: string;
+  time: number;
+  responseBody?: string;
+}
+
+interface ConsoleRecordOut {
+  seq: number;
+  level: string;
+  text: string;
+  time: number;
+}
 
 export function registerCaptureTools(pi: ExtensionAPI) {
   pi.registerTool({
@@ -63,9 +81,7 @@ export function registerCaptureTools(pi: ExtensionAPI) {
         includeResponseBodies?: boolean;
       },
     ) {
-      const page = await getPage();
-      const client = await cdpFor(page);
-      const records = await queryNetwork(client, page, params);
+      const records = await request<NetworkRecordOut[]>("networkQuery", params);
       if (records.length === 0)
         return textResult("no matching requests captured");
       return textResult(
@@ -74,9 +90,7 @@ export function registerCaptureTools(pi: ExtensionAPI) {
             const status =
               r.status ?? (r.failed ? `failed: ${r.failed}` : "pending");
             const base = `#${r.seq} ${r.method} ${status} ${r.resourceType} ${r.url}`;
-            return "responseBody" in r && r.responseBody
-              ? `${base}\n  body: ${r.responseBody}`
-              : base;
+            return r.responseBody ? `${base}\n  body: ${r.responseBody}` : base;
           })
           .join("\n"),
       );
@@ -111,9 +125,10 @@ export function registerCaptureTools(pi: ExtensionAPI) {
       _toolCallId,
       params: { levels?: string[]; sinceSeq?: number; limit?: number },
     ) {
-      const page = await getPage();
-      await cdpFor(page); // ensure capture is attached
-      const { records, nextCursor } = queryConsole(page, params);
+      const { records, nextCursor } = await request<{
+        records: ConsoleRecordOut[];
+        nextCursor: number;
+      }>("consoleQuery", params);
       const body =
         records.length === 0
           ? "no console entries"

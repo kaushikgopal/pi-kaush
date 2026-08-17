@@ -1,12 +1,12 @@
 /**
  * Read-side tools: snapshot (default page read), evaluate (surgical JS),
- * screenshot (visual verification only).
+ * screenshot (visual verification only). All proxied through the daemon.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { takeSnapshot } from "../core/ax-snapshot.ts";
-import { cdpFor, getPage } from "../core/connection.ts";
+import { cdp, evaluate, request } from "../core/client.ts";
 import { textResult } from "./shared.ts";
 
 const MAX_EVAL_CHARS = 50_000;
@@ -27,9 +27,7 @@ export function registerReadTools(pi: ExtensionAPI) {
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params: { maxLines?: number }) {
-      const page = await getPage();
-      const client = await cdpFor(page);
-      const outline = await takeSnapshot(client, {
+      const outline = await takeSnapshot(cdp(), {
         maxLines: params.maxLines ?? 400,
       });
       return textResult(outline);
@@ -55,8 +53,7 @@ export function registerReadTools(pi: ExtensionAPI) {
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params: { expression: string }) {
-      const page = await getPage();
-      const result: unknown = await page.evaluate(params.expression);
+      const result: unknown = await evaluate(params.expression);
       let text: string;
       try {
         text = JSON.stringify(result, null, 2) ?? String(result);
@@ -78,18 +75,20 @@ export function registerReadTools(pi: ExtensionAPI) {
     promptSnippet: "Capture the current viewport as an image",
     parameters: Type.Object({}, { additionalProperties: false }),
     async execute() {
-      const page = await getPage();
-      const client = await cdpFor(page);
-      const { data } = await client.send("Page.captureScreenshot", {
-        format: "png",
-        fromSurface: true,
-      });
+      const { data } = await cdp().send<{ data: string }>(
+        "Page.captureScreenshot",
+        {
+          format: "png",
+          fromSurface: true,
+        },
+      );
+      const current = await request<{ url: string }>("getCurrent");
       return {
         content: [
           { type: "image" as const, data, mimeType: "image/png" },
-          { type: "text" as const, text: `screenshot of ${page.url()}` },
+          { type: "text" as const, text: `screenshot of ${current.url}` },
         ],
-        details: { url: page.url() },
+        details: { url: current.url },
       };
     },
   });

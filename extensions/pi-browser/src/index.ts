@@ -1,15 +1,16 @@
 /**
  * pi-browser — thin Pi-native driver for the user's already-running browser.
  *
- * Attaches over CDP (puppeteer-core) to the running Helium/Chrome with the
- * user's real profile, logins, and cookies. WP2: actionable [eN] refs,
- * compositor interaction, framework-safe fills, tab ownership, post-mutation
- * page-change diffs. Profile pinning and network/console buffers land next.
+ * Tools proxy through a persistent daemon holding the single CDP connection
+ * (one consent prompt per daemon lifetime, tabs surviving pi sessions).
+ * Covers: navigate, tabs, AX snapshot with actionable [eN] refs, compositor
+ * click, framework-safe fill, press_key, scroll, upload_file, wait_for,
+ * evaluate, screenshot, network/console capture, run_script, profile pinning,
+ * and /browser-status + /browser-profile commands.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerCommands } from "./commands.ts";
-import { closeForShutdown } from "./core/connection.ts";
 import { registerCaptureTools } from "./tools/capture.ts";
 import { registerInteractionTools } from "./tools/interaction.ts";
 import { registerReadTools } from "./tools/read.ts";
@@ -24,7 +25,6 @@ export default function piBrowser(pi: ExtensionAPI) {
   registerScriptTool(pi);
   registerCommands(pi);
 
-  pi.on("session_shutdown", async () => {
-    await closeForShutdown();
-  });
+  // Owned tabs deliberately survive pi sessions: the daemon owns them and
+  // closes them on idle timeout or explicit close, not on session shutdown.
 }

@@ -1,13 +1,14 @@
 /**
  * Mutation-side tools: click, fill, key, scroll, upload, wait_for.
  * Mutations append a "Page changes" diff as landing confirmation.
+ * All actions proxy through the daemon's current page.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { isAbsolute } from "node:path";
 import { resolveRef, type BuiltRef } from "../core/ax-snapshot.ts";
-import { cdpFor, getPage } from "../core/connection.ts";
+import { cdp, evaluate } from "../core/client.ts";
 import {
   click,
   fill,
@@ -15,6 +16,7 @@ import {
   pressKey,
   scroll,
   setFiles,
+  resolvePoint,
 } from "../core/interact.ts";
 import { delay, textResult, withMutationDiff } from "./shared.ts";
 
@@ -44,8 +46,7 @@ export function registerInteractionTools(pi: ExtensionAPI) {
     ),
     async execute(_toolCallId, params: { ref: string }) {
       const entry = requireRef(params.ref);
-      const page = await getPage();
-      const client = await cdpFor(page);
+      const client = cdp();
       return textResult(
         await withMutationDiff(client, async () => {
           await click(client, entry.backendNodeId);
@@ -72,8 +73,7 @@ export function registerInteractionTools(pi: ExtensionAPI) {
     ),
     async execute(_toolCallId, params: { ref: string; value: string }) {
       const entry = requireRef(params.ref);
-      const page = await getPage();
-      const client = await cdpFor(page);
+      const client = cdp();
       return textResult(
         await withMutationDiff(client, async () => {
           const kept = await fill(client, entry.backendNodeId, params.value);
@@ -104,8 +104,7 @@ export function registerInteractionTools(pi: ExtensionAPI) {
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params: { key: string; modifiers?: number }) {
-      const page = await getPage();
-      const client = await cdpFor(page);
+      const client = cdp();
       return textResult(
         await withMutationDiff(client, async () => {
           await pressKey(client, params.key, params.modifiers ?? 0);
@@ -144,18 +143,18 @@ export function registerInteractionTools(pi: ExtensionAPI) {
       _toolCallId,
       params: { deltaY?: number; deltaX?: number; ref?: string },
     ) {
-      const page = await getPage();
-      const client = await cdpFor(page);
+      const client = cdp();
       let point: { x: number; y: number };
       if (params.ref) {
         const entry = requireRef(params.ref);
-        const { resolvePoint } = await import("../core/interact.ts");
         point = await resolvePoint(client, entry.backendNodeId);
       } else {
-        point = await page.evaluate(() => ({
-          x: Math.floor(innerWidth / 2),
-          y: Math.floor(innerHeight / 2),
-        }));
+        point = (await evaluate(
+          "({x: Math.floor(innerWidth / 2), y: Math.floor(innerHeight / 2)})",
+        )) as {
+          x: number;
+          y: number;
+        };
       }
       const deltaX = params.deltaX ?? 0;
       const deltaY = params.deltaY ?? 600;
@@ -191,8 +190,7 @@ export function registerInteractionTools(pi: ExtensionAPI) {
         if (!isAbsolute(file))
           throw new Error(`file path must be absolute: ${file}`);
       }
-      const page = await getPage();
-      const client = await cdpFor(page);
+      const client = cdp();
       return textResult(
         await withMutationDiff(client, async () => {
           await setFiles(client, entry.backendNodeId, params.files);
@@ -236,23 +234,15 @@ export function registerInteractionTools(pi: ExtensionAPI) {
     ) {
       if (!params.selector && !params.text)
         throw new Error("pass selector or text");
-      const page = await getPage();
       const gone = params.gone ?? false;
       const timeoutMs = params.timeoutMs ?? 10_000;
       const deadline = Date.now() + timeoutMs;
       const condition = params.selector
         ? `selector ${params.selector}`
         : `text ${JSON.stringify(params.text)}`;
+      const expression = `(() => { const sel=${JSON.stringify(params.selector ?? null)}, txt=${JSON.stringify(params.text ?? null)}; if (sel) return !!document.querySelector(sel); if (txt) return (document.body?.innerText ?? "").includes(txt); return false; })()`;
       while (Date.now() < deadline) {
-        const found = await page.evaluate(
-          (sel, txt) => {
-            if (sel) return !!document.querySelector(sel);
-            if (txt) return (document.body?.innerText ?? "").includes(txt);
-            return false;
-          },
-          params.selector,
-          params.text,
-        );
+        const found = (await evaluate(expression)) as boolean;
         if (found !== gone)
           return textResult(
             `condition met: ${condition}${gone ? " gone" : ""}`,

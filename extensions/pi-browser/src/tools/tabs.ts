@@ -1,25 +1,28 @@
 /**
- * Tab lifecycle tools. Only pi-browser-owned tabs can be switched or closed;
- * the user's own tabs are visible read-only under scope:"all".
+ * Tab lifecycle tools, proxied through the daemon. Only pi-browser-owned
+ * tabs can be switched or closed; the user's own tabs are visible read-only
+ * under scope:"all".
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import {
-  closePage,
-  getPage,
-  listPages,
-  newPage,
-  switchPage,
-} from "../core/connection.ts";
+import { request } from "../core/client.ts";
 import { textResult } from "./shared.ts";
+
+interface ListedPage {
+  index: number;
+  url: string;
+  title: string;
+  owned: boolean;
+  active: boolean;
+}
 
 export function registerTabTools(pi: ExtensionAPI) {
   pi.registerTool({
     name: "browser_navigate",
     label: "Browser Navigate",
     description:
-      "Navigate the current owned tab to a URL. Connects lazily to the user's running browser (Helium/Chrome with remote debugging enabled) on first use. Returns the final URL and title.",
+      "Navigate the current owned tab to a URL. Connects lazily to the user's running browser (via the pi-browser daemon) on first use. Returns the final URL and title.",
     promptSnippet: "Go to a URL in the current browser tab",
     parameters: Type.Object(
       {
@@ -30,9 +33,7 @@ export function registerTabTools(pi: ExtensionAPI) {
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params: { url: string }) {
-      const page = await getPage();
-      await page.goto(params.url, { waitUntil: "load", timeout: 30_000 });
-      return textResult({ url: page.url(), title: await page.title() });
+      return textResult(await request("goto", { url: params.url }));
     },
   });
 
@@ -51,7 +52,7 @@ export function registerTabTools(pi: ExtensionAPI) {
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params: { scope?: "owned" | "all" }) {
-      const pages = await listPages();
+      const pages = await request<ListedPage[]>("listPages");
       const shown =
         params.scope === "all" ? pages : pages.filter((p) => p.owned);
       if (shown.length === 0)
@@ -84,11 +85,9 @@ export function registerTabTools(pi: ExtensionAPI) {
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params: { url?: string }) {
-      const page = await newPage(params.url);
-      return textResult({
-        url: page.url(),
-        title: await page.title().catch(() => ""),
-      });
+      return textResult(
+        await request("newPage", params.url ? { url: params.url } : {}),
+      );
     },
   });
 
@@ -112,11 +111,7 @@ export function registerTabTools(pi: ExtensionAPI) {
     async execute(_toolCallId, params: { index?: number; url?: string }) {
       if (params.index === undefined && params.url === undefined)
         throw new Error("pass index or url");
-      const page = await switchPage(params);
-      return textResult({
-        url: page.url(),
-        title: await page.title().catch(() => ""),
-      });
+      return textResult(await request("switchPage", params));
     },
   });
 
@@ -138,8 +133,11 @@ export function registerTabTools(pi: ExtensionAPI) {
       { additionalProperties: false },
     ),
     async execute(_toolCallId, params: { index?: number; url?: string }) {
-      const url = await closePage(params);
-      return textResult(`closed tab: ${url}`);
+      const result =
+        params.index === undefined && params.url === undefined
+          ? await request<{ closed: string }>("closeCurrent")
+          : await request<{ closed: string }>("closePage", params);
+      return textResult(`closed tab: ${result.closed}`);
     },
   });
 }

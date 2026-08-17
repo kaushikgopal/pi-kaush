@@ -7,7 +7,10 @@
  * the interaction layer turns that into a "re-snapshot" error.
  */
 
-import type { CDPSession } from "puppeteer-core";
+/** Minimal CDP sender: satisfied by puppeteer's CDPSession and the daemon client. */
+export interface CdpSender {
+  send<T = unknown>(method: string, params?: object): Promise<T>;
+}
 
 export interface SnapshotNode {
   nodeId: string;
@@ -135,15 +138,13 @@ export interface SnapshotOptions {
 }
 
 export const takeSnapshot = async (
-  client: CDPSession,
+  client: CdpSender,
   options: SnapshotOptions = {},
 ): Promise<string> => {
-  const { nodes } = await client.send("Accessibility.getFullAXTree");
-  const built = buildOutline(
-    nodes as SnapshotNode[],
-    options.maxLines ?? 400,
-    refSeq,
+  const { nodes } = await client.send<{ nodes: SnapshotNode[] }>(
+    "Accessibility.getFullAXTree",
   );
+  const built = buildOutline(nodes, options.maxLines ?? 400, refSeq);
   refSeq += built.refs.length;
   if (options.register !== false) {
     for (const ref of built.refs) refStore.set(ref.id, ref);

@@ -4,7 +4,7 @@
  * React/Vue controlled inputs keep the value.
  */
 
-import type { CDPSession } from "puppeteer-core";
+import type { CdpSender } from "./cdp.ts";
 
 export const STALE_REF_ERROR =
   "ref is stale or hidden — re-run browser_snapshot for fresh refs";
@@ -16,16 +16,17 @@ const isMissingNode = (error: unknown): boolean =>
   );
 
 export const resolvePoint = async (
-  client: CDPSession,
+  client: CdpSender,
   backendNodeId: number,
 ): Promise<{ x: number; y: number }> => {
   try {
     await client
       .send("DOM.scrollIntoViewIfNeeded", { backendNodeId })
       .catch(() => {});
-    const { quads } = await client.send("DOM.getContentQuads", {
-      backendNodeId,
-    });
+    const { quads } = await client.send<{ quads: number[][] }>(
+      "DOM.getContentQuads",
+      { backendNodeId },
+    );
     const quad = quads[0];
     if (!quad || quad.length < 8) throw new Error(STALE_REF_ERROR);
     const x =
@@ -40,7 +41,7 @@ export const resolvePoint = async (
 };
 
 export const click = async (
-  client: CDPSession,
+  client: CdpSender,
   backendNodeId: number,
 ): Promise<void> => {
   const { x, y } = await resolvePoint(client, backendNodeId);
@@ -83,33 +84,36 @@ const FILL_DECLARATION = `function (value) {
 
 /** Framework-safe write; returns the value the element actually kept. */
 export const fill = async (
-  client: CDPSession,
+  client: CdpSender,
   backendNodeId: number,
   value: string,
 ): Promise<string> => {
   let objectId: string;
   try {
-    const { object } = await client.send("DOM.resolveNode", { backendNodeId });
+    const { object } = await client.send<{ object: { objectId?: string } }>(
+      "DOM.resolveNode",
+      { backendNodeId },
+    );
     objectId = object.objectId ?? "";
   } catch (error) {
     if (isMissingNode(error)) throw new Error(STALE_REF_ERROR);
     throw error;
   }
-  const { result, exceptionDetails } = await client.send(
-    "Runtime.callFunctionOn",
-    {
-      objectId,
-      functionDeclaration: FILL_DECLARATION,
-      arguments: [{ value }],
-      returnByValue: true,
-    },
-  );
+  const { result, exceptionDetails } = await client.send<{
+    result: { value?: unknown };
+    exceptionDetails?: { text: string; exception?: { description?: string } };
+  }>("Runtime.callFunctionOn", {
+    objectId,
+    functionDeclaration: FILL_DECLARATION,
+    arguments: [{ value }],
+    returnByValue: true,
+  });
   if (exceptionDetails) {
     const message =
       exceptionDetails.exception?.description ?? exceptionDetails.text;
     throw new Error(`fill failed: ${message}`);
   }
-  const written = (result as { value?: unknown }).value;
+  const written = result.value;
   return typeof written === "string" ? written : value;
 };
 
@@ -148,7 +152,7 @@ export const keyNames = (): string[] => [
 
 /** CDP modifier bitfield: 1 Alt, 2 Ctrl, 4 Meta/Cmd, 8 Shift. */
 export const pressKey = async (
-  client: CDPSession,
+  client: CdpSender,
   keyName: string,
   modifiers = 0,
 ): Promise<void> => {
@@ -184,7 +188,7 @@ export const pressKey = async (
 };
 
 export const scroll = async (
-  client: CDPSession,
+  client: CdpSender,
   x: number,
   y: number,
   deltaX: number,
@@ -200,7 +204,7 @@ export const scroll = async (
 };
 
 export const setFiles = async (
-  client: CDPSession,
+  client: CdpSender,
   backendNodeId: number,
   files: string[],
 ): Promise<void> => {

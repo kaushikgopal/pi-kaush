@@ -2,7 +2,8 @@
  * Shared helpers for tool implementations.
  */
 
-import type { CDPSession, Page } from "puppeteer-core";
+import type { Page } from "puppeteer-core";
+import type { CdpSender } from "../core/cdp.ts";
 import { takeSnapshot } from "../core/ax-snapshot.ts";
 import { diffOutlines } from "../core/diff.ts";
 
@@ -27,7 +28,7 @@ const MUTATION_SETTLE_MS = 400;
  * the agent's confirmation the step landed, without a screenshot round-trip.
  */
 export const withMutationDiff = async (
-  client: CDPSession,
+  client: CdpSender,
   action: () => Promise<string>,
 ): Promise<string> => {
   const before = await takeSnapshot(client, { register: false });

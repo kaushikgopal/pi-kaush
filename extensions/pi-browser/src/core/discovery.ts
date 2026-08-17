@@ -77,13 +77,14 @@ const isPortLive = (port: number): Promise<boolean> =>
 const netConnect = (port: number): net.Socket =>
   net.connect({ host: "127.0.0.1", port });
 
+// Field declared separately: Node's strip-only TS mode rejects parameter properties.
 export class DiscoveryError extends Error {
-  constructor(
-    message: string,
-    readonly searchedDirs: ReadonlyArray<string>,
-  ) {
+  readonly searchedDirs: ReadonlyArray<string>;
+
+  constructor(message: string, searchedDirs: ReadonlyArray<string>) {
     super(message);
     this.name = "DiscoveryError";
+    this.searchedDirs = searchedDirs;
   }
 }
 
