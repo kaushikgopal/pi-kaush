@@ -1,0 +1,55 @@
+{
+  "name": "@pi-kaush/pi-browser",
+  "version": "0.1.0",
+  "description": "Thin Pi-native browser driver: attach to the running Helium/Chrome via CDP and expose native tools.",
+  "license": "MIT",
+  "author": "Kaushik Gopal",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "types": "./src/index.ts",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "browser",
+    "cdp",
+    "helium"
+  ],
+  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-browser#readme",
+  "bugs": {
+    "url": "https://github.com/kaushikgopal/pi-kaush/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaushikgopal/pi-kaush.git",
+    "directory": "extensions/pi-browser"
+  },
+  "files": [
+    "src",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "dependencies": {
+    "puppeteer-core": "25.7.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.6"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false
+}
