@@ -43,6 +43,12 @@ const main = async () => {
     return;
   }
 
+  if (cmd === "stop") {
+    // Close owned tabs and stop the daemon (bounded cleanup).
+    envelope(true, await client.request("stop"));
+    return;
+  }
+
   if (cmd === "session") {
     const [sub, ...rest] = args;
     if (sub === "new") {
