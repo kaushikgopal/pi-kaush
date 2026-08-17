@@ -28,7 +28,7 @@ pi -e ./extensions/pi-btw/src/index.ts
 
 ### Inside Herdr
 
-The extension starts `pi --fork <current-session-file>` in an unfocused right-hand pane and submits the question through Herdr. The parent and side sessions remain live independently.
+The extension opens an unfocused right-hand pane and submits the question through Herdr. If the parent is already responding, `/btw` snapshots the last completed response and starts the side session immediately; it does not wait for the parent to settle.
 
 Run `/btw` again from either session to create another side fork. Nested or repeated side sessions are allowed.
 
@@ -41,20 +41,21 @@ Use Pi's built-in `/resume` picker to switch back to the original or move among 
 ## Constraints
 
 - `/btw` requires a non-empty question and an interactive Pi session.
-- The current agent must be idle. Forking a partial assistant response or incomplete tool call is intentionally rejected.
-- A Herdr launch requires a persisted parent session file. Finish one turn before using `/btw` in a brand-new Herdr session.
-- Without Herdr, the current conversation must contain an entry to fork.
+- Inside Herdr, `/btw` can run while the parent is responding. The side session starts from the checkpoint before the active parent run, so it never includes a partial response or incomplete tool call.
+- `/btw` requires at least one completed response. It is rejected in a brand-new session because there is no useful conversation checkpoint to fork.
+- Without Herdr, the current agent must be idle and the conversation must contain an entry to fork.
 - Herdr sessions share the same working directory and files. Simultaneous edits can conflict.
 - The question submitted with `herdr agent prompt` may be briefly visible in local process arguments.
 - A Herdr pane is retained after startup failure so its terminal can be inspected.
 
 ## Design
 
-The Herdr path delegates session copying to Pi's native CLI:
+The Herdr path uses Pi's public session APIs:
 
-1. Open an unfocused right-hand Herdr pane.
-2. Start `pi --fork <current-session-file>`.
-3. Submit the question to the new Pi session.
+1. Record the current leaf before each parent agent run.
+2. If the parent is busy, create a branched session through that pre-run leaf; otherwise let `pi --fork` clone the settled session.
+3. Open an unfocused right-hand Herdr pane.
+4. Start Pi with the fork or prepared branch and submit the question.
 
 The hostless path delegates to `ExtensionCommandContext.fork(..., { position: "at" })`, then sends the question through the fresh replacement-session context. It follows Pi's session replacement lifecycle and never reuses stale session objects.
 

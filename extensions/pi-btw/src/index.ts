@@ -1,6 +1,7 @@
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
+import {
+  SessionManager,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -14,6 +15,11 @@ type ExecResult = Awaited<ReturnType<ExtensionAPI["exec"]>>;
 type HerdrLaunchResult =
   | { ok: true; target: string }
   | { ok: false; reason: string };
+
+type HerdrSessionTarget = {
+  flag: "--fork" | "--session";
+  path: string;
+};
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -45,7 +51,7 @@ function delay(ms: number): Promise<void> {
 async function launchHerdr(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
-  sessionFile: string,
+  sessionTarget: HerdrSessionTarget,
   prompt: string,
 ): Promise<HerdrLaunchResult> {
   if (!process.env.HERDR_PANE_ID) {
@@ -107,8 +113,8 @@ async function launchHerdr(
     "--timeout",
     "10000",
     "--",
-    "--fork",
-    sessionFile,
+    sessionTarget.flag,
+    sessionTarget.path,
   ];
 
   let start: ExecResult | undefined;
@@ -185,10 +191,20 @@ async function switchToFork(
   }
 }
 
+function snapshotAt(sessionFile: string, leafId: string): HerdrSessionTarget {
+  const snapshot =
+    SessionManager.open(sessionFile).createBranchedSession(leafId);
+  if (!snapshot) {
+    throw new Error("Pi did not create a persisted side-session snapshot.");
+  }
+  return { flag: "--session", path: snapshot };
+}
+
 async function runBtw(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
   args: string,
+  activeRunBaseLeafId: string | null | undefined,
 ): Promise<void> {
   const prompt = args.trim();
   if (!prompt) {
@@ -199,15 +215,14 @@ async function runBtw(
     ctx.ui.notify("/btw requires an interactive Pi session.", "warning");
     return;
   }
-  if (!ctx.isIdle()) {
-    ctx.ui.notify(
-      "Wait for the current response to finish before using /btw.",
-      "warning",
-    );
-    return;
-  }
-
   if (process.env.HERDR_ENV !== "1") {
+    if (!ctx.isIdle()) {
+      ctx.ui.notify(
+        "Wait for the current response to finish before using /btw outside Herdr.",
+        "warning",
+      );
+      return;
+    }
     await switchToFork(ctx, prompt);
     return;
   }
@@ -215,13 +230,40 @@ async function runBtw(
   const sessionFile = ctx.sessionManager.getSessionFile();
   if (!sessionFile || !existsSync(sessionFile)) {
     ctx.ui.notify(
-      "The current session has not been saved yet. Finish one turn, then try /btw again.",
+      "/btw needs at least one completed response before it can fork context.",
       "warning",
     );
     return;
   }
 
-  const result = await launchHerdr(pi, ctx, sessionFile, prompt);
+  let sessionTarget: HerdrSessionTarget = {
+    flag: "--fork",
+    path: sessionFile,
+  };
+  if (!ctx.isIdle()) {
+    const checkpointLeafId =
+      activeRunBaseLeafId === undefined
+        ? ctx.sessionManager.getLeafId()
+        : activeRunBaseLeafId;
+    if (!checkpointLeafId) {
+      ctx.ui.notify(
+        "/btw needs at least one completed response before it can fork context.",
+        "warning",
+      );
+      return;
+    }
+    try {
+      sessionTarget = snapshotAt(sessionFile, checkpointLeafId);
+    } catch (error) {
+      ctx.ui.notify(
+        `Failed to snapshot the last completed response: ${errorMessage(error)}`,
+        "error",
+      );
+      return;
+    }
+  }
+
+  const result = await launchHerdr(pi, ctx, sessionTarget, prompt);
   if (!result.ok) {
     ctx.ui.notify(`Failed to open side session: ${result.reason}`, "error");
     return;
@@ -234,8 +276,17 @@ async function runBtw(
 }
 
 export default function piBtw(pi: ExtensionAPI) {
+  let activeRunBaseLeafId: string | null | undefined;
+
+  pi.on("before_agent_start", (_event, ctx) => {
+    activeRunBaseLeafId = ctx.sessionManager.getLeafId();
+  });
+  pi.on("agent_settled", () => {
+    activeRunBaseLeafId = undefined;
+  });
+
   pi.registerCommand("btw", {
     description: "Ask a question in a fork of the current Pi session.",
-    handler: (args, ctx) => runBtw(pi, ctx, args),
+    handler: (args, ctx) => runBtw(pi, ctx, args, activeRunBaseLeafId),
   });
 }

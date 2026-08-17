@@ -1,4 +1,4 @@
-import { rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -50,6 +50,7 @@ function createHarness(
   } = {},
 ) {
   let handler: ((args: string, ctx: any) => Promise<void>) | undefined;
+  const eventHandlers: Record<string, (event: any, ctx: any) => void> = {};
   const commands: string[] = [];
   const notifications: Array<{ message: string; level: string }> = [];
   const childNotifications: Array<{ message: string; level: string }> = [];
@@ -59,6 +60,9 @@ function createHarness(
     registerCommand(name: string, definition: any) {
       commands.push(name);
       handler = definition.handler;
+    },
+    on(name: string, eventHandler: (event: any, ctx: any) => void) {
+      eventHandlers[name] = eventHandler;
     },
     exec,
   };
@@ -98,6 +102,7 @@ function createHarness(
   if (!handler) throw new Error("/btw was not registered");
   return {
     btw: (args: string) => handler!(args, ctx),
+    startAgent: () => eventHandlers.before_agent_start?.({}, ctx),
     commands,
     notifications,
     childNotifications,
@@ -124,7 +129,61 @@ function setHerdr(enabled: boolean): () => void {
   };
 }
 
-beforeEach(() => writeFileSync(sessionFile, "{}\n"));
+beforeEach(() => {
+  const entries = [
+    {
+      type: "session",
+      version: 3,
+      id: "test-session",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      cwd: "/tmp/project",
+    },
+    {
+      type: "message",
+      id: "root-user",
+      parentId: null,
+      timestamp: "2026-01-01T00:00:01.000Z",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "Parent question" }],
+        timestamp: 1,
+      },
+    },
+    {
+      type: "message",
+      id: "current-leaf",
+      parentId: "root-user",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Completed answer" }],
+        api: "test",
+        provider: "test",
+        model: "test",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 0,
+          },
+        },
+        stopReason: "stop",
+        timestamp: 2,
+      },
+    },
+  ];
+  writeFileSync(
+    sessionFile,
+    `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+  );
+});
 afterEach(() => vi.useRealTimers());
 afterAll(() => rmSync(sessionFile, { force: true }));
 
@@ -155,14 +214,19 @@ describe("command boundary", () => {
     expect(harness.notifications[0]?.message).toContain("interactive");
   });
 
-  test("rejects a busy parent rather than forking partial context", async () => {
+  test("keeps the idle requirement outside Herdr", async () => {
+    const restore = setHerdr(false);
     const harness = createHarness(
       async () => {
         throw new Error("must not launch");
       },
       { idle: false },
     );
-    await harness.btw("Side question");
+    try {
+      await harness.btw("Side question");
+    } finally {
+      restore();
+    }
     expect(harness.notifications[0]?.message).toContain(
       "current response to finish",
     );
@@ -287,6 +351,76 @@ describe("Herdr", () => {
     });
   });
 
+  test("forks the last completed response while the parent keeps running", async () => {
+    const restore = setHerdr(true);
+    const calls: Array<{ command: string; args: string[] }> = [];
+    let snapshotFile: string | undefined;
+    const harness = createHarness(
+      async (command, args) => {
+        calls.push({ command, args });
+        if (args[0] === "pane") return paneSplit();
+        return success();
+      },
+      { idle: false },
+    );
+
+    try {
+      harness.startAgent();
+      appendFileSync(
+        sessionFile,
+        `${JSON.stringify({
+          type: "message",
+          id: "in-flight-user",
+          parentId: "current-leaf",
+          timestamp: "2026-01-01T00:00:03.000Z",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "In-flight parent prompt" }],
+            timestamp: 3,
+          },
+        })}\n`,
+      );
+
+      await harness.btw("Independent side question");
+
+      const startArgs = calls[1]!.args;
+      expect(startArgs.at(-2)).toBe("--session");
+      snapshotFile = startArgs.at(-1);
+      expect(snapshotFile).toBeDefined();
+      const snapshot = readFileSync(snapshotFile!, "utf8");
+      expect(snapshot).toContain("Completed answer");
+      expect(snapshot).not.toContain("In-flight parent prompt");
+      expect(calls[2]?.args.at(-1)).toBe("Independent side question");
+    } finally {
+      restore();
+      if (snapshotFile) rmSync(snapshotFile, { force: true });
+    }
+  });
+
+  test("rejects /btw only when no response has completed yet", async () => {
+    const restore = setHerdr(true);
+    const calls: string[][] = [];
+    const harness = createHarness(
+      async (_command, args) => {
+        calls.push(args);
+        return success();
+      },
+      { idle: false, persisted: false, leafId: null },
+    );
+
+    try {
+      harness.startAgent();
+      await harness.btw("Side question");
+    } finally {
+      restore();
+    }
+
+    expect(calls).toHaveLength(0);
+    expect(harness.notifications.at(-1)?.message).toContain(
+      "at least one completed response",
+    );
+  });
+
   test("retries while the new pane shell is still busy", async () => {
     const restore = setHerdr(true);
     vi.useFakeTimers();
@@ -351,7 +485,7 @@ describe("Herdr", () => {
     );
   });
 
-  test("requires a persisted source for the native CLI fork", async () => {
+  test("requires a completed persisted response for the native CLI fork", async () => {
     const restore = setHerdr(true);
     const harness = createHarness(
       async () => {
@@ -364,6 +498,8 @@ describe("Herdr", () => {
     } finally {
       restore();
     }
-    expect(harness.notifications[0]?.message).toContain("not been saved");
+    expect(harness.notifications[0]?.message).toContain(
+      "at least one completed response",
+    );
   });
 });

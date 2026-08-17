@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Allow Herdr `/btw` commands to start while the parent is responding by snapshotting the last completed conversation point.
+- Reject `/btw` only when no response has completed yet; the non-Herdr fallback still waits because it replaces the active session.
+
 ## 0.1.0
 
 - Rename the package from `@pi-kaush/pi-btw-with-imports` to `@pi-kaush/pi-btw`.
