@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-btw-with-imports-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
+    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -51,10 +51,10 @@ jobs:
               directory="extensions/pi-openai-compaction"
               prefix="pi-openai-compaction-v"
               ;;
-            pi-btw-with-imports-v*)
-              workspace="@pi-kaush/pi-btw-with-imports"
-              directory="extensions/pi-btw-with-imports"
-              prefix="pi-btw-with-imports-v"
+            pi-btw-v*)
+              workspace="@pi-kaush/pi-btw"
+              directory="extensions/pi-btw"
+              prefix="pi-btw-v"
               ;;
             pi-tool-call-markers-v*)
               workspace="@pi-kaush/pi-tool-call-markers"

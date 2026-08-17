@@ -1,7 +1,7 @@
 {
-  "name": "@pi-kaush/pi-btw-with-imports",
-  "version": "0.3.0",
-  "description": "Fork persisted Pi side sessions with /btw into a Herdr or Ghostty right split.",
+  "name": "@pi-kaush/pi-btw",
+  "version": "0.1.0",
+  "description": "Ask a question in a fork of the current Pi conversation.",
   "license": "MIT",
   "author": "Kaushik Gopal",
   "type": "module",
@@ -13,17 +13,16 @@
     "session",
     "btw",
     "split",
-    "herdr",
-    "ghostty"
+    "herdr"
   ],
-  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-btw-with-imports#readme",
+  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-btw#readme",
   "bugs": {
     "url": "https://github.com/kaushikgopal/pi-kaush/issues"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kaushikgopal/pi-kaush.git",
-    "directory": "extensions/pi-btw-with-imports"
+    "directory": "extensions/pi-btw"
   },
   "files": [
     "src",
