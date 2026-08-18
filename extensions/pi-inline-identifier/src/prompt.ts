@@ -10,11 +10,10 @@ import {
   registerInlineIdentifierFeature,
 } from "./core.ts";
 
-const PROMPT_NAME_PREFIX = "pi-prompt-";
 const PROMPT_TOKEN_START = "(?<![a-z0-9._%+/-])";
 const PROMPT_TOKEN_END = "(?![a-z0-9_/-]|\\.[a-z0-9])";
 const PROMPT_AUTOCOMPLETE_RE = /(?:^|[ \t])(\/[a-z0-9-]*)$/i;
-const PROMPT_AUTOCOMPLETE_STOP_RE = /(?:^|[ \t])\/pi-prompt-[a-z0-9-]*[ \t]$/i;
+const PROMPT_AUTOCOMPLETE_STOP_RE = /(?:^|[ \t])\/[a-z0-9-]+[ \t]$/i;
 const GREEN = "\x1b[38;2;166;227;161m";
 const FG_RESET = "\x1b[39m";
 const ARGUMENT_PATTERN =
@@ -34,11 +33,7 @@ export function getPromptDefinitions(
 ): InlineIdentifierDefinition[] {
   const definitions = new Map<string, InlineIdentifierDefinition>();
   for (const command of pi.getCommands()) {
-    if (
-      command.source !== "prompt" ||
-      !command.name.startsWith(PROMPT_NAME_PREFIX) ||
-      definitions.has(command.name)
-    ) {
+    if (command.source !== "prompt" || definitions.has(command.name)) {
       continue;
     }
 

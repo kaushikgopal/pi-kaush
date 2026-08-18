@@ -1,12 +1,12 @@
 # @pi-kaush/pi-inline-identifier
 
-Use inline references for loaded Pi skills, named subagents, and `pi-prompt-*` prompt templates without replacing Pi's editor or command handling.
+Use inline references for loaded Pi skills, named subagents, and prompt templates without replacing Pi's editor or command handling.
 
-| Identifier      | Example             | Color  |
-| --------------- | ------------------- | ------ |
-| Skill           | `$review`           | Purple |
-| Agent           | `&reviewer`         | Blue   |
-| Prompt template | `/pi-prompt-review` | Green  |
+| Identifier      | Example           | Color  |
+| --------------- | ----------------- | ------ |
+| Skill           | `$review`         | Purple |
+| Agent           | `&reviewer`       | Blue   |
+| Prompt template | `/publish-pi-ext` | Green  |
 
 ## Install
 
@@ -36,12 +36,12 @@ The package exposes skill, agent, and prompt handling as separate Pi extension e
 If the first non-whitespace character on the first line is `/`, the package does nothing: no custom completion, coloring, or input transformation.
 
 ```text
-/model                              # untouched
-/pi-prompt-review src/index.ts      # untouched; Pi expands it natively
-Use /pi-prompt-review on this diff  # handled as an inline identifier
+/model                             # untouched
+/publish-pi-ext pi-inline-identifier # untouched; Pi expands it natively
+Use /publish-pi-ext for this change # handled as an inline identifier
 ```
 
-Only loaded prompt templates whose names begin with `pi-prompt-` are recognized inline.
+Every loaded prompt template is recognized inline. First-line slash commands still use Pi's native completion and expansion.
 
 ## Request preservation
 
@@ -61,7 +61,7 @@ Exactly one known `&agent` reference adds one delegation instruction followed by
 
 ### Prompt templates
 
-For an inline `/pi-prompt-*` reference, the package reads the already-discovered template only when the request is submitted. It expands Pi's positional, default, all-argument, and slicing placeholders while treating the complete surrounding request as one argument.
+For an inline prompt reference, the package reads the already-discovered template only when the request is submitted. It expands Pi's positional, default, all-argument, and slicing placeholders while treating the complete surrounding request as one argument.
 
 If the template inserts that argument through `$1`, `$@`, `$ARGUMENTS`, or a matching slice, the package does not append another copy. If the template has no placeholder that consumes the request, the expanded template is followed by one `Original request` section. Repeating a request placeholder inside the template still repeats it intentionally; the extension adds no extra copy.
 

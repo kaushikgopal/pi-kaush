@@ -211,7 +211,15 @@ function createAutocompleteProvider(
     },
 
     applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
-      if (prefix.startsWith("/") && item.value.startsWith("/pi-prompt-")) {
+      const promptFeature = coordinator.features.get("prompt");
+      const isInlinePrompt =
+        !(lines[0] ?? "").trimStart().startsWith("/") &&
+        prefix.startsWith("/") &&
+        promptFeature !== undefined &&
+        definitionsFor(promptFeature, ctx).some(
+          (definition) => definition.token === item.value,
+        );
+      if (isInlinePrompt) {
         const line = lines[cursorLine] ?? "";
         const before = line.slice(0, cursorCol - prefix.length);
         const next = [...lines];

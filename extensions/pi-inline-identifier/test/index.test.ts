@@ -423,23 +423,58 @@ describe("inline prompt expansion", () => {
 
 describe("shared TUI behavior", () => {
   test("delegates command-mode completion and suppresses command-mode coloring", async () => {
-    const prompt = writePrompt("pi-prompt-review", "Review carefully.");
+    const prompt = writePrompt("publish-pi-ext", "Publish carefully.");
     const harness = createHarness(["prompt"], [prompt]);
-    harness.setEditorText("/pi-prompt-review");
+    harness.setEditorText("/publish-pi-ext");
     harness.start();
 
     const provider = harness.autocompleteProvider();
     await expect(
-      provider.getSuggestions(["/pi-prompt"], 0, 10, {
+      provider.getSuggestions(["/publish"], 0, 8, {
         signal: new AbortController().signal,
       }),
     ).resolves.toEqual(harness.fallback);
     expect(harness.currentAutocomplete.getSuggestions).toHaveBeenCalledOnce();
 
-    const rendered = new tuiMock.FakeEditor(["/pi-prompt-review"]).render(
-      80,
-    )[0];
-    expect(rendered).toBe("/pi-prompt-review");
+    const rendered = new tuiMock.FakeEditor(["/publish-pi-ext"]).render(80)[0];
+    expect(rendered).toBe("/publish-pi-ext");
+    harness.shutdown();
+  });
+
+  test("prioritizes every loaded prompt over inline file completion", async () => {
+    const prompt = writePrompt("publish-pi-ext", "Publish carefully.");
+    const harness = createHarness(["prompt"], [prompt]);
+    harness.start();
+
+    const provider = harness.autocompleteProvider();
+    const line = "Then use /publ";
+    const suggestions = await provider.getSuggestions([line], 0, line.length, {
+      signal: new AbortController().signal,
+    });
+    expect(suggestions).toMatchObject({
+      prefix: "/publ",
+      items: [{ value: "/publish-pi-ext" }],
+    });
+    expect(harness.currentAutocomplete.getSuggestions).not.toHaveBeenCalled();
+
+    expect(
+      provider.applyCompletion(
+        [line],
+        0,
+        line.length,
+        { value: "/publish-pi-ext", label: "/publish-pi-ext" },
+        "/publ",
+      ),
+    ).toEqual({
+      lines: ["Then use /publish-pi-ext"],
+      cursorLine: 0,
+      cursorCol: 24,
+    });
+    expect(harness.currentAutocomplete.applyCompletion).not.toHaveBeenCalled();
+
+    const result = await harness.input("Then use /publish-pi-ext here.");
+    expect(result.action).toBe("transform");
+    expect(result.text).toContain("Publish carefully.");
     harness.shutdown();
   });
 
