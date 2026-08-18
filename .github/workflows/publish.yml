@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
+    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -41,6 +41,11 @@ jobs:
               directory="extensions/pi-double-paste"
               prefix="pi-double-paste-v"
               ;;
+            pi-inline-identifier-v*)
+              workspace="@pi-kaush/pi-inline-identifier"
+              directory="extensions/pi-inline-identifier"
+              prefix="pi-inline-identifier-v"
+              ;;
             pi-inline-skill-identifier-v*)
               workspace="@pi-kaush/pi-inline-skill-identifier"
               directory="extensions/pi-inline-skill-identifier"
@@ -55,6 +60,11 @@ jobs:
               workspace="@pi-kaush/pi-btw"
               directory="extensions/pi-btw"
               prefix="pi-btw-v"
+              ;;
+            pi-response-style-v*)
+              workspace="@pi-kaush/pi-response-style"
+              directory="extensions/pi-response-style"
+              prefix="pi-response-style-v"
               ;;
             pi-tool-call-markers-v*)
               workspace="@pi-kaush/pi-tool-call-markers"

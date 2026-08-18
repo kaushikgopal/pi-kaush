@@ -14,6 +14,8 @@ bench-pi:
 #
 #   make publish PACKAGE=pi-btw               # patch bump
 #   make publish PACKAGE=pi-agent-mode        # patch bump
+#   make publish PACKAGE=pi-inline-identifier # patch bump
+#   make publish PACKAGE=pi-response-style    # patch bump
 #   make publish PACKAGE=pi-btw VERSION=0.2.0 # explicit version
 #
 # Bumps the version, runs checks, commits, pushes to main, and creates a

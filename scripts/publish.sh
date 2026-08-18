@@ -5,6 +5,7 @@
 #   make publish PACKAGE=pi-openai-compaction # patch bump
 #   make publish PACKAGE=pi-btw               # patch bump
 #   make publish PACKAGE=pi-agent-mode        # patch bump
+#   make publish PACKAGE=pi-inline-identifier # patch bump
 #   make publish PACKAGE=pi-btw VERSION=0.2.0 # explicit version
 #
 # Prerequisites:
@@ -19,7 +20,7 @@ VERSION="${2:-}"
 
 if [ -z "$PACKAGE" ]; then
   echo "Usage: make publish PACKAGE=<extension-name> [VERSION=<x.y.z>]" >&2
-  echo "Known packages: pi-agent-mode, pi-btw, pi-double-paste, pi-inline-skill-identifier, pi-openai-compaction, pi-tool-call-markers, pi-welcome-screen" >&2
+  echo "Known packages: pi-agent-mode, pi-btw, pi-double-paste, pi-inline-identifier, pi-inline-skill-identifier, pi-openai-compaction, pi-response-style, pi-tool-call-markers, pi-welcome-screen" >&2
   exit 1
 fi
 
@@ -41,6 +42,12 @@ fi
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "Error: gh is not authenticated. Run: gh auth login" >&2
+  exit 1
+fi
+
+git fetch origin main
+if ! git merge-base --is-ancestor origin/main HEAD; then
+  echo "Error: HEAD must contain the latest origin/main before publishing." >&2
   exit 1
 fi
 
@@ -73,7 +80,9 @@ npm run check
 TAG="$PACKAGE-v$NEW_VERSION"
 git add "$PKG_FILE"
 git commit -m "release: $PKG_NAME@$NEW_VERSION"
-git push origin main
+# Publish the checked-out commit even when running from a clean Graft branch.
+# A concurrent origin/main update still fails safely as a non-fast-forward push.
+git push origin HEAD:main
 
 gh release create "$TAG" \
   --target main \
