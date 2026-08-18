@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Cache each inline prompt body after its first use for the current session runtime.
+
+## 0.1.1
+
 - Autocomplete and expand every loaded prompt template inline, including names such as `/publish-pi-ext`, while preserving Pi's native first-line slash handling.
 
 ## 0.1.0

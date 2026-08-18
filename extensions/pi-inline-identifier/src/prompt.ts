@@ -155,18 +155,27 @@ export function expandInlineTemplate(
 
 function loadPromptBody(
   definition: InlineIdentifierDefinition,
+  cache: Map<string, string>,
 ): string | undefined {
   const metadata = definition.metadata as PromptMetadata;
+  const cached = cache.get(metadata.filePath);
+  if (cached !== undefined) return cached;
+
   try {
     const { body } = parseFrontmatter(readFileSync(metadata.filePath, "utf8"));
     const content = body.trim();
-    return content || undefined;
+    if (!content) return undefined;
+    cache.set(metadata.filePath, content);
+    return content;
   } catch {
     return undefined;
   }
 }
 
 export default function inlinePromptIdentifier(pi: ExtensionAPI): void {
+  // Pi caches prompt content internally, but getCommands() intentionally exposes
+  // only metadata. Keep our duplicate read lazy and session-scoped instead.
+  const promptBodies = new Map<string, string>();
   const feature: InlineIdentifierFeature = {
     kind: "prompt",
     triggerCharacter: "/",
@@ -179,7 +188,7 @@ export default function inlinePromptIdentifier(pi: ExtensionAPI): void {
     findReferences: referencedPrompts,
     colorizeLine: colorizePromptAliases,
     transform(text, definition) {
-      const body = loadPromptBody(definition);
+      const body = loadPromptBody(definition, promptBodies);
       if (!body) return { action: "continue" };
 
       const expanded = expandInlineTemplate(body, text);

@@ -61,7 +61,7 @@ Exactly one known `&agent` reference adds one delegation instruction followed by
 
 ### Prompt templates
 
-For an inline prompt reference, the package reads the already-discovered template only when the request is submitted. It expands Pi's positional, default, all-argument, and slicing placeholders while treating the complete surrounding request as one argument.
+For an inline prompt reference, the package reads the already-discovered template on first use and caches its body for the current session runtime. `/reload`, `/new`, `/resume`, `/fork`, or restarting Pi creates a fresh runtime that can pick up template edits. It expands Pi's positional, default, all-argument, and slicing placeholders while treating the complete surrounding request as one argument.
 
 If the template inserts that argument through `$1`, `$@`, `$ARGUMENTS`, or a matching slice, the package does not append another copy. If the template has no placeholder that consumes the request, the expanded template is followed by one `Original request` section. Repeating a request placeholder inside the template still repeats it intentionally; the extension adds no extra copy.
 

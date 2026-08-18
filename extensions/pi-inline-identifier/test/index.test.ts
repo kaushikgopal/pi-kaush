@@ -368,6 +368,29 @@ describe("inline prompt expansion", () => {
     expect(occurrences(result.text, request)).toBe(1);
   });
 
+  test("caches each loaded body for one session runtime", async () => {
+    const prompt = writePrompt("publish-pi-ext", "Original instructions.");
+    const request = "Use /publish-pi-ext here.";
+    const harness = createHarness(["prompt"], [prompt]);
+
+    const first = await harness.input(request);
+    expect(first.text).toContain("Original instructions.");
+
+    writeFileSync(
+      prompt.sourceInfo.path,
+      "---\ndescription: updated prompt\n---\n\nUpdated instructions.\n",
+    );
+    const cached = await harness.input(request);
+    expect(cached.text).toContain("Original instructions.");
+    expect(cached.text).not.toContain("Updated instructions.");
+    harness.shutdown();
+
+    const reloaded = createHarness(["prompt"], [prompt]);
+    const refreshed = await reloaded.input(request);
+    expect(refreshed.text).toContain("Updated instructions.");
+    reloaded.shutdown();
+  });
+
   test("does not append when $@ or $1 already inserts the full request", async () => {
     for (const placeholder of ["$@", "$1", "$ARGUMENTS"]) {
       const prompt = writePrompt(
