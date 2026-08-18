@@ -61,9 +61,11 @@ Exactly one known `&agent` reference adds one delegation instruction followed by
 
 ### Prompt templates
 
-For an inline prompt reference, the package reads the already-discovered template on first use and caches its body for the current session runtime. `/reload`, `/new`, `/resume`, `/fork`, or restarting Pi creates a fresh runtime that can pick up template edits. It expands Pi's positional, default, all-argument, and slicing placeholders while treating the complete surrounding request as one argument.
+For an inline prompt reference, the package reads the already-discovered template on first use and caches its body and revision for the current session runtime. `/reload`, `/new`, `/resume`, `/fork`, or restarting Pi creates a fresh runtime that can pick up template edits. It expands Pi's positional, default, all-argument, and slicing placeholders while treating the complete surrounding request as one argument.
 
-If the template inserts that argument through `$1`, `$@`, `$ARGUMENTS`, or a matching slice, the package does not append another copy. If the template has no placeholder that consumes the request, the expanded template is followed by one `Original request` section. Repeating a request placeholder inside the template still repeats it intentionally; the extension adds no extra copy.
+The first full expansion starts with an exact, revision-aware marker such as `Inline prompt template "/publish-pi-ext" (revision 0123456789ab):`. If that marker remains in a user message in Pi's active, compaction-aware context, a later reference sends a short instruction to reuse it as a fresh invocation instead of inserting the full body again. A summary that merely mentions the prompt does not count. If automatic compaction removes the marker after submission, a context guard restores the full expansion before the model call. When the original message leaves context or the template revision changes, the full body is inserted again.
+
+If the template inserts the request through `$1`, `$@`, `$ARGUMENTS`, or a matching slice, the package does not append another copy. If the template has no placeholder that consumes the request, the expanded template is followed by one `Original request` section. Repeating a request placeholder inside the template still repeats it intentionally; the extension adds no extra copy.
 
 ## Compatibility
 
@@ -71,7 +73,9 @@ The package does not replace Pi's editor. It installs one guarded render wrapper
 
 ## Performance
 
-- No prompt files or agent directories are read while the extension loads.
+- No prompt files, session entries, or agent directories are read while the extension loads.
+- Prompt context is scanned backward only when a known inline prompt is submitted, and the scan stops at the first exact revision marker.
+- The model-call context guard returns immediately unless a reuse reminder is active.
 - Agent discovery is lazy and cached for the session after the first relevant `&` interaction.
 - Disabled entrypoints are not evaluated.
 - There are no runtime dependencies or background tasks.

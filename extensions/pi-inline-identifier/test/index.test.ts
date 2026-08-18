@@ -148,6 +148,7 @@ function createHarness(
   };
   let autocompleteProvider: any;
   let editorText = "";
+  let contextEntries: any[] = [];
   const eventListeners = new Map<string, Set<(data: unknown) => void>>();
   const createPiFacade = () => ({
     events: {
@@ -192,6 +193,9 @@ function createHarness(
     cwd: options.cwd ?? roots[0]!,
     mode: "tui",
     isProjectTrusted: () => options.trusted ?? true,
+    sessionManager: {
+      buildContextEntries: () => contextEntries,
+    },
     ui: {
       getEditorText: () => editorText,
       addAutocompleteProvider(factory: (current: any) => any) {
@@ -211,8 +215,17 @@ function createHarness(
     shutdown() {
       handlers.get("session_shutdown")?.({}, context);
     },
+    applyContext(messages: any[]) {
+      return handlers.get("context")?.({ messages }, context);
+    },
+    settle() {
+      handlers.get("agent_settled")?.({}, context);
+    },
     setEditorText(text: string) {
       editorText = text;
+    },
+    setContextEntries(entries: any[]) {
+      contextEntries = entries;
     },
     autocompleteProvider: () => autocompleteProvider,
     currentAutocomplete,
@@ -222,6 +235,24 @@ function createHarness(
 
 function occurrences(text: string, value: string): number {
   return text.split(value).length - 1;
+}
+
+function userMessage(content: string) {
+  return {
+    role: "user",
+    content: [{ type: "text", text: content }],
+    timestamp: 0,
+  };
+}
+
+function userMessageEntry(content: string) {
+  return {
+    type: "message",
+    id: "user-entry",
+    parentId: null,
+    timestamp: new Date(0).toISOString(),
+    message: userMessage(content),
+  };
 }
 
 describe("coordinated input routing", () => {
@@ -363,9 +394,122 @@ describe("inline prompt expansion", () => {
     const result = await harness.input(request);
 
     expect(result.action).toBe("transform");
-    expect(result.text).toContain("Review carefully.");
+    expect(result.text).toMatch(
+      /^Inline prompt template "\/pi-prompt-review" \(revision [a-f0-9]{12}\):\n\nReview carefully\./,
+    );
     expect(result.text).toContain("Original request:");
     expect(occurrences(result.text, request)).toBe(1);
+  });
+
+  test("reuses an exact prompt revision already present in active context", async () => {
+    const prompt = writePrompt("publish-pi-ext", "Publish carefully.");
+    const request = "Use /publish-pi-ext for this package.";
+    const harness = createHarness(["prompt"], [prompt]);
+    const first = await harness.input(request);
+    harness.setContextEntries([userMessageEntry(first.text)]);
+
+    const repeated = await harness.input(request);
+
+    expect(repeated).toEqual({
+      action: "transform",
+      text: expect.stringMatching(
+        /^Reuse the inline prompt template "\/publish-pi-ext" \(revision [a-f0-9]{12}\) already supplied earlier in this conversation\. Apply it as a fresh invocation/,
+      ),
+    });
+    expect(repeated.text).not.toContain("Publish carefully.");
+    expect(occurrences(repeated.text, request)).toBe(1);
+  });
+
+  test("does not mistake compaction summaries for a loaded prompt", async () => {
+    const prompt = writePrompt("publish-pi-ext", "Publish carefully.");
+    const harness = createHarness(["prompt"], [prompt]);
+    harness.setContextEntries([
+      {
+        type: "compaction",
+        id: "compaction-entry",
+        parentId: null,
+        timestamp: new Date(0).toISOString(),
+        summary:
+          'Previously used Inline prompt template "/publish-pi-ext" in this session.',
+        firstKeptEntryId: "compaction-entry",
+        tokensBefore: 1_000,
+      },
+    ]);
+
+    const result = await harness.input("Use /publish-pi-ext again.");
+
+    expect(result.text).toContain("Publish carefully.");
+    expect(result.text).not.toMatch(/^Reuse the inline prompt template/);
+  });
+
+  test("reinjects a changed prompt revision after a runtime reload", async () => {
+    const prompt = writePrompt("publish-pi-ext", "Original instructions.");
+    const request = "Use /publish-pi-ext here.";
+    const firstHarness = createHarness(["prompt"], [prompt]);
+    const first = await firstHarness.input(request);
+    firstHarness.shutdown();
+
+    writeFileSync(
+      prompt.sourceInfo.path,
+      "---\ndescription: updated prompt\n---\n\nUpdated instructions.\n",
+    );
+    const reloaded = createHarness(["prompt"], [prompt]);
+    reloaded.setContextEntries([userMessageEntry(first.text)]);
+    const result = await reloaded.input(request);
+
+    expect(result.text).toContain("Updated instructions.");
+    expect(result.text).not.toMatch(/^Reuse the inline prompt template/);
+    reloaded.shutdown();
+  });
+
+  test("restores the full expansion if compaction removes it after input", async () => {
+    const prompt = writePrompt("publish-pi-ext", "Publish carefully: $1");
+    const firstRequest = "Use /publish-pi-ext for the first package.";
+    const secondRequest = "Use /publish-pi-ext for the second package.";
+    const harness = createHarness(["prompt"], [prompt]);
+    const first = await harness.input(firstRequest);
+    harness.setContextEntries([userMessageEntry(first.text)]);
+    const repeated = await harness.input(secondRequest);
+
+    const whileLoaded = harness.applyContext([
+      userMessage(first.text),
+      userMessage(repeated.text),
+    ]);
+    expect(whileLoaded).toBeUndefined();
+
+    const afterCompaction = harness.applyContext([
+      {
+        role: "compactionSummary",
+        summary: "Earlier work was compacted.",
+        tokensBefore: 1_000,
+        timestamp: 0,
+      },
+      userMessage(repeated.text),
+    ]);
+
+    expect(afterCompaction.messages.at(-1).content).toEqual([
+      {
+        type: "text",
+        text: expect.stringMatching(
+          /^Inline prompt template "\/publish-pi-ext" \(revision [a-f0-9]{12}\):\n\nPublish carefully:/,
+        ),
+      },
+    ]);
+    expect(afterCompaction.messages.at(-1).content[0].text).toContain(
+      secondRequest,
+    );
+    expect(afterCompaction.messages.at(-1).content[0].text).not.toContain(
+      firstRequest,
+    );
+    expect(
+      occurrences(
+        afterCompaction.messages.at(-1).content[0].text,
+        secondRequest,
+      ),
+    ).toBe(1);
+
+    harness.settle();
+    expect(harness.applyContext([userMessage(repeated.text)])).toBeUndefined();
   });
 
   test("caches each loaded body for one session runtime", async () => {

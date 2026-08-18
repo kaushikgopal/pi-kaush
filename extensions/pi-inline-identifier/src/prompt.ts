@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   parseFrontmatter,
   type ExtensionAPI,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
   escapeRegex,
@@ -18,9 +20,15 @@ const GREEN = "\x1b[38;2;166;227;161m";
 const FG_RESET = "\x1b[39m";
 const ARGUMENT_PATTERN =
   /\$\{(\d+|ARGUMENTS|@):-([^}]*)\}|\$\{@:(\d+)(?::(\d+))?\}|\$(ARGUMENTS|@|\d+)/g;
+const PROMPT_REVISION_LENGTH = 12;
 
 type PromptMetadata = {
   filePath: string;
+};
+
+type LoadedPrompt = {
+  body: string;
+  revision: string;
 };
 
 export type InlineTemplateExpansion = {
@@ -153,20 +161,87 @@ export function expandInlineTemplate(
   return { text, insertedRequest };
 }
 
-function loadPromptBody(
+function promptRevision(content: string): string {
+  return createHash("sha256")
+    .update(content)
+    .digest("hex")
+    .slice(0, PROMPT_REVISION_LENGTH);
+}
+
+function promptHeader(name: string, revision: string): string {
+  return `Inline prompt template "/${name}" (revision ${revision}):`;
+}
+
+function userMessageText(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const candidate = message as {
+    role?: string;
+    content?: string | Array<{ type?: string; text?: string }>;
+  };
+  if (candidate.role !== "user") return undefined;
+  if (typeof candidate.content === "string") return candidate.content;
+  if (!Array.isArray(candidate.content)) return undefined;
+
+  return candidate.content
+    .filter(
+      (item): item is { type: "text"; text: string } =>
+        item?.type === "text" && typeof item.text === "string",
+    )
+    .map((item) => item.text)
+    .join("\n");
+}
+
+function contextHasPromptMarker(
+  ctx: ExtensionContext,
+  marker: string,
+): boolean {
+  const entries = ctx.sessionManager.buildContextEntries();
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (
+      entry?.type === "message" &&
+      userMessageText(entry.message)?.startsWith(marker)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function replaceUserMessageText(message: unknown, text: string): boolean {
+  if (!message || typeof message !== "object") return false;
+  const candidate = message as {
+    role?: string;
+    content?: string | Array<{ type?: string; text?: string }>;
+  };
+  if (candidate.role !== "user") return false;
+  if (typeof candidate.content === "string") {
+    candidate.content = text;
+    return true;
+  }
+  if (!Array.isArray(candidate.content)) return false;
+
+  const textBlock = candidate.content.find((item) => item?.type === "text");
+  if (!textBlock) return false;
+  textBlock.text = text;
+  return true;
+}
+
+function loadPrompt(
   definition: InlineIdentifierDefinition,
-  cache: Map<string, string>,
-): string | undefined {
+  cache: Map<string, LoadedPrompt>,
+): LoadedPrompt | undefined {
   const metadata = definition.metadata as PromptMetadata;
   const cached = cache.get(metadata.filePath);
-  if (cached !== undefined) return cached;
+  if (cached) return cached;
 
   try {
     const { body } = parseFrontmatter(readFileSync(metadata.filePath, "utf8"));
     const content = body.trim();
     if (!content) return undefined;
-    cache.set(metadata.filePath, content);
-    return content;
+    const loaded = { body: content, revision: promptRevision(content) };
+    cache.set(metadata.filePath, loaded);
+    return loaded;
   } catch {
     return undefined;
   }
@@ -175,7 +250,38 @@ function loadPromptBody(
 export default function inlinePromptIdentifier(pi: ExtensionAPI): void {
   // Pi caches prompt content internally, but getCommands() intentionally exposes
   // only metadata. Keep our duplicate read lazy and session-scoped instead.
-  const promptBodies = new Map<string, string>();
+  const prompts = new Map<string, LoadedPrompt>();
+  const reuseFallbacks = new Map<
+    string,
+    { marker: string; fullExpansion: string }
+  >();
+
+  pi.on("context", (event) => {
+    if (reuseFallbacks.size === 0) return undefined;
+
+    let changed = false;
+    for (const [reminder, fallback] of reuseFallbacks) {
+      const hasFullExpansion = event.messages.some((message) =>
+        userMessageText(message)?.startsWith(fallback.marker),
+      );
+      if (hasFullExpansion) continue;
+
+      for (let index = event.messages.length - 1; index >= 0; index -= 1) {
+        const message = event.messages[index];
+        if (userMessageText(message) !== reminder) continue;
+        changed =
+          replaceUserMessageText(message, fallback.fullExpansion) || changed;
+        break;
+      }
+    }
+
+    return changed ? { messages: event.messages } : undefined;
+  });
+
+  pi.on("agent_settled", () => {
+    reuseFallbacks.clear();
+  });
+
   const feature: InlineIdentifierFeature = {
     kind: "prompt",
     triggerCharacter: "/",
@@ -187,19 +293,29 @@ export default function inlinePromptIdentifier(pi: ExtensionAPI): void {
     },
     findReferences: referencedPrompts,
     colorizeLine: colorizePromptAliases,
-    transform(text, definition) {
-      const body = loadPromptBody(definition, promptBodies);
-      if (!body) return { action: "continue" };
+    transform(text, definition, ctx) {
+      const prompt = loadPrompt(definition, prompts);
+      if (!prompt) return { action: "continue" };
 
-      const expanded = expandInlineTemplate(body, text);
-      const templateSection = `Inline prompt template "/${definition.name}":\n\n${expanded.text}`;
+      const header = promptHeader(definition.name, prompt.revision);
+      const marker = `${header}\n\n`;
+      const expanded = expandInlineTemplate(prompt.body, text);
+      const templateSection = `${marker}${expanded.text}`;
+      const fullExpansion = expanded.insertedRequest
+        ? templateSection
+        : `${templateSection}\n\n---\n\nOriginal request:\n${text}`;
+
+      if (contextHasPromptMarker(ctx, marker)) {
+        const reminder = `Reuse the inline prompt template "/${definition.name}" (revision ${prompt.revision}) already supplied earlier in this conversation. Apply it as a fresh invocation to this request, replacing any request-specific values from the earlier use:\n\n${text}`;
+        reuseFallbacks.set(reminder, { marker, fullExpansion });
+        return { action: "transform", text: reminder };
+      }
+
       return {
         action: "transform",
         // The label keeps already-expanded content out of Pi's subsequent
         // leading-slash expansion pass.
-        text: expanded.insertedRequest
-          ? templateSection
-          : `${templateSection}\n\n---\n\nOriginal request:\n${text}`,
+        text: fullExpansion,
       };
     },
   };

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Reuse prompt templates already present in active model context through a compact reference, while reinserting the full body after compaction, branch changes, or template revisions.
+
+## 0.1.2
+
 - Cache each inline prompt body after its first use for the current session runtime.
 
 ## 0.1.1
