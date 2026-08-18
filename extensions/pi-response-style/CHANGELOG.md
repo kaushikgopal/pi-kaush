@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Teach the Simplicity style to choose the smallest useful visual for a reader question, including compact trees, structural diffs, state and sequence diagrams, data flows, and text fallbacks.
+
 ## 0.1.0
 
 - Add the `/response-style` command: a themed SelectList picker (active ●, default ★, project-tagged) over markdown-defined response styles, with direct-arg and `off` forms and a plain-select fallback outside the TUI.
