@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-tool-call-markers",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Compact and group Pi tool calls, with a bundled extension for adjacent thinking blocks.",
   "license": "MIT",
   "author": "Kaushik Gopal",
