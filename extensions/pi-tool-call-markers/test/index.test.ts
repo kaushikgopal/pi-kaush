@@ -607,7 +607,7 @@ describe("tool-call-markers grouping", () => {
     expect(runningHeight).toBe(settledHeight);
   });
 
-  test("uses only the header line for self-rendered summaries", () => {
+  test("builds self-rendered group summaries from call args, not previews", () => {
     const chat = new MockContainer();
     for (const path of ["one.ts", "two.ts"]) {
       const row = succeeded("edit", path, "self");
@@ -620,9 +620,8 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain("• one.ts");
-    expect(output).toContain("• two.ts");
-    expect(output.match(/→ \+1\/-1/g)).toHaveLength(2);
+    expect(output).toContain('• edit {"label":"one.ts"} → +1/-1');
+    expect(output).toContain('• edit {"label":"two.ts"} → +1/-1');
     expect(output).not.toContain("diff header");
     expect(output).not.toContain("large changed line");
   });

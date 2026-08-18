@@ -12,9 +12,9 @@ When several tool calls run in a row, Pi normally renders each one as its own ex
 - **One-line, width-safe summaries.** Long targets truncate before their useful outcome tail instead of wrapping into taller blocks.
 - **Running calls group immediately.** Adjacent calls become bullets as they appear, and each pending marker or elapsed `bash` time updates to the final outcome in place. Successful settlement does not shrink the block, so the transcript only grows downwards.
 - **Sequential calls merge across quiet turns.** A later call joins the existing group immediately when no visible prose or thinking separates it; visible assistant content remains a hard boundary.
-- **Self-rendered tools keep their shell.** Tools that own their framing keep singleton previews intact. Grouped summaries use only their stable header instead of scraping preview or diff lines.
+- **Self-rendered tools get the same treatment.** Tools that own their framing (e.g. MCP adapter rows) collapse to the same one-line summary — args label plus outcome — with pending, success, and error backgrounds; expanding restores their full custom render.
 - **Image results stay visible.** Image-bearing results are not collapsed into text-only groups. Partial text output is held back while a call runs and surfaces through the final summary.
-- **Errors stay compact and visibly failed.** A failed call keeps its own error-colored block and native collapsed detail until expanded.
+- **Errors stay compact and visibly failed.** A failed call keeps an error-colored block: native collapsed detail for built-in tools, or a one-line summary with the first error line for self-rendered tools.
 - **Ctrl+O restores full blocks.** Expanding tools (`setToolsExpanded(true)`) brings back Pi's individual full blocks, including complete error details and successful results.
 
 ## Bundled thinking-block extension

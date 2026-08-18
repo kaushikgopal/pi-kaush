@@ -5,7 +5,7 @@ import {
   initTheme,
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
+import { Box, Container, Text } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import toolCallMarkers from "../src/index.ts";
 
@@ -79,6 +79,84 @@ function createBashRow(label: string): ToolExecutionComponent {
     "bash",
     `bash-${label}`,
     { command: label },
+    {},
+    definition as never,
+    { requestRender() {} } as never,
+    process.cwd(),
+  );
+}
+
+class EmptyComponent {
+  render(): string[] {
+    return [];
+  }
+  invalidate(): void {}
+}
+
+type FakeRenderContext = {
+  isPartial?: boolean;
+  expanded?: boolean;
+  isError?: boolean;
+  state?: Record<string, unknown>;
+};
+
+// Mirrors pi-mcp-adapter's compact mode: renderShell "self", the call
+// component stashes its title in renderer state and disappears once settled,
+// and the result renders its own one-line preview.
+function createMcpRow(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  toolName = "glean_search",
+): ToolExecutionComponent {
+  const definition = {
+    name: toolName,
+    label: "MCP: glean_search",
+    description: "test self-rendered MCP row",
+    parameters: { type: "object", properties: {} },
+    renderShell: "self",
+    execute() {
+      throw new Error("not executed");
+    },
+    renderCall(
+      callArgs: unknown,
+      _theme: unknown,
+      context?: FakeRenderContext,
+    ) {
+      const title = `${toolName} ${JSON.stringify(callArgs)}`;
+      if (context?.state) context.state.compactTitle = title;
+      if (
+        context &&
+        context.isPartial === false &&
+        context.expanded !== true &&
+        context.isError !== true
+      ) {
+        return new EmptyComponent();
+      }
+      // Live calls render the title plus multi-line pretty JSON, like the adapter.
+      return new Text(`${title}\n${JSON.stringify(callArgs, null, 2)}`, 0, 0);
+    },
+    renderResult(
+      result: { content: Array<{ type: string; text?: string }> },
+      options: { expanded: boolean },
+      _theme: unknown,
+      context?: FakeRenderContext,
+    ) {
+      const detail =
+        result.content.find((content) => content.type === "text")?.text ?? "";
+      const title = String(context?.state?.compactTitle ?? "mcp");
+      return new Text(
+        options.expanded
+          ? `FULL ${detail}`
+          : `${title} → ${detail.split("\n")[0]} … (Ctrl+O to expand)`,
+        0,
+        0,
+      );
+    },
+  };
+  return new ToolExecutionComponent(
+    toolName,
+    toolCallId,
+    args,
     {},
     definition as never,
     { requestRender() {} } as never,
@@ -316,5 +394,251 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).toContain("• npm run lint → done");
     expect(output).not.toContain("tests passed");
     expect(output).not.toContain("lint passed");
+  });
+
+  test("collapses a settled self-rendered MCP row to call and outcome", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-1", { query: "vibecheck" });
+    chat.addChild(row);
+    settle(row, "# Search Results (1 found)\n\n## 1. vibecheck");
+
+    const output = renderPlain(chat);
+    expect(output).toContain('⚙️ glean_search {"query":"vibecheck"} → done');
+    expect(output.split("\n")).toHaveLength(1);
+    expect(output).not.toContain("Search Results");
+  });
+
+  test("restores a self-rendered MCP row when expanded", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-2", { query: "vibecheck" });
+    chat.addChild(row);
+    settle(row, "result body");
+
+    row.setExpanded(true);
+    const expanded = renderPlain(chat);
+    expect(expanded).toContain("FULL result body");
+  });
+
+  test("collapses a failed self-rendered MCP row to an error line", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-3", { query: "vibecheck" });
+    chat.addChild(row);
+    settle(row, "Error: Security violation: 403\n\nlots of detail", true);
+
+    const output = renderPlain(chat);
+    expect(output.split("\n")).toHaveLength(1);
+    expect(output).toContain(
+      'glean_search {"query":"vibecheck"} → Error: Security violation: 403',
+    );
+    expect(output).not.toContain("lots of detail");
+  });
+
+  test("treats MCP details.error results as failures despite isError false", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-404", { tool: "glean_nope" }, "mcp");
+    chat.addChild(row);
+    row.updateResult(
+      {
+        content: [{ type: "text", text: 'Tool "glean_nope" not found.' }],
+        details: { mode: "call", error: "tool_not_found" },
+        isError: false,
+      },
+      false,
+    );
+
+    const output = renderPlain(chat);
+    expect(output).toContain('glean_nope → Tool "glean_nope" not found.');
+    expect(output).not.toContain("→ done");
+  });
+
+  test("pins a live self-rendered MCP row to its settling line", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-live", { query: "vibecheck", num: 1 });
+    chat.addChild(row);
+    row.markExecutionStarted();
+
+    const live = renderPlain(chat);
+    expect(live.split("\n")).toHaveLength(1);
+    expect(live).toContain('glean_search {"query":"vibecheck","num":1}');
+    expect(live).toContain("…");
+    expect(live).not.toContain('"num": 1');
+
+    settle(row, "results");
+    const settled = renderPlain(chat);
+    expect(settled.split("\n")).toHaveLength(1);
+    expect(settled).toContain(
+      'glean_search {"query":"vibecheck","num":1} → done',
+    );
+  });
+
+  test("squashes string-encoded proxy arguments without escaping", () => {
+    const chat = new Container();
+    const row = createMcpRow(
+      "mcp-proxy",
+      {
+        tool: "glean_search",
+        args: '{"query": "vibecheck", "num_results": 1}',
+      },
+      "mcp",
+    );
+    chat.addChild(row);
+    settle(row, "results");
+
+    const output = renderPlain(chat);
+    expect(output).toContain(
+      'glean_search {"query":"vibecheck","num_results":1} → done',
+    );
+    expect(output).not.toContain('\\"');
+  });
+
+  test("wraps collapsed self-rendered rows in a background box", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-box", { query: "x" });
+    chat.addChild(row);
+    settle(row, "ok");
+
+    const container = (
+      row as unknown as { selfRenderContainer: { children: unknown[] } }
+    ).selfRenderContainer;
+    expect(container.children[0]).toBeInstanceOf(Box);
+  });
+
+  test("groups adjacent settled MCP rows with real call summaries", () => {
+    const chat = new Container();
+    const first = createMcpRow("mcp-4", { query: "alpha" });
+    const second = createMcpRow("mcp-5", { query: "beta" });
+    chat.addChild(first);
+    chat.addChild(second);
+    settle(first, "alpha results");
+    settle(second, "beta results");
+
+    const output = renderPlain(chat);
+    expect(output).not.toContain("(details omitted)");
+    expect(output).toContain('glean_search {"query":"alpha"}');
+    expect(output).toContain('glean_search {"query":"beta"}');
+    expect(output).toContain("→ done");
+    expect(output).not.toContain("alpha results");
+  });
+
+  test("groups live self-rendered rows with args and pending tails", () => {
+    const chat = new Container();
+    const first = createMcpRow("mcp-l1", { query: "alpha" });
+    const second = createMcpRow("mcp-l2", { query: "beta" });
+    chat.addChild(first);
+    chat.addChild(second);
+    first.markExecutionStarted();
+    second.markExecutionStarted();
+
+    const output = renderPlain(chat);
+    expect(output).toContain('glean_search {"query":"alpha"}');
+    expect(output).toContain('glean_search {"query":"beta"}');
+    expect(output).toContain("…");
+    expect(output).not.toContain("→ done");
+
+    settle(first, "alpha results");
+    settle(second, "beta results");
+    const settled = renderPlain(chat);
+    expect(settled).toContain('glean_search {"query":"alpha"}');
+    expect(settled).toContain('glean_search {"query":"beta"}');
+    expect(settled).toContain("→ done");
+  });
+
+  test("keeps failed self rows out of success groups", () => {
+    const chat = new Container();
+    const ok = createMcpRow("mcp-ok", { query: "x" });
+    const failed = createMcpRow("mcp-bad", { query: "y" });
+    chat.addChild(ok);
+    chat.addChild(failed);
+    settle(ok, "fine");
+    failed.updateResult(
+      {
+        content: [{ type: "text", text: 'Tool "glean_nope" not found.' }],
+        details: { mode: "call", error: "tool_not_found" },
+        isError: false,
+      },
+      false,
+    );
+
+    const output = renderPlain(chat);
+    expect(output.match(/⚙️/g)).toHaveLength(2);
+    expect(output).toContain('glean_search {"query":"x"} → done');
+    expect(output).toContain(
+      'glean_search {"query":"y"} → Tool "glean_nope" not found.',
+    );
+  });
+
+  test("groups self-rendered rows that painted live individually", () => {
+    const chat = new Container();
+    const first = createMcpRow("mcp-s1", { query: "alpha" });
+    chat.addChild(first);
+    first.markExecutionStarted();
+    renderPlain(chat); // first row paints individually while live
+
+    const second = createMcpRow("mcp-s2", { query: "beta" });
+    chat.addChild(second);
+    second.markExecutionStarted();
+
+    const output = renderPlain(chat);
+    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output).toContain('• glean_search {"query":"alpha"}');
+    expect(output).toContain('• glean_search {"query":"beta"}');
+  });
+
+  test("keeps the call label when the error line is long", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-long-err", { query: "boom" });
+    chat.addChild(row);
+    settle(
+      row,
+      'Tool "glean_no_such_tool" not found. Server "glean" has: glean_chat, glean_code_search, glean_employee_search',
+      true,
+    );
+
+    const output = renderPlain(chat, 60);
+    expect(output).toContain("glean_search");
+    expect(output).toContain("→");
+    expect(output).not.toContain("glean_employee_search");
+  });
+
+  test("does not treat informational details.error codes as failures", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-info", { search: "vibecheck" }, "mcp");
+    chat.addChild(row);
+    row.updateResult(
+      {
+        content: [{ type: "text", text: "No instructions available." }],
+        details: { mode: "list", error: "no_instructions" },
+        isError: false,
+      },
+      false,
+    );
+
+    const output = renderPlain(chat);
+    expect(output).toContain("→ done");
+    expect(output).not.toContain("No instructions available.");
+  });
+
+  test("includes the server in proxy call labels", () => {
+    const chat = new Container();
+    const row = createMcpRow(
+      "mcp-srv",
+      { tool: "glean_search", server: "glean", args: '{"query": "x"}' },
+      "mcp",
+    );
+    chat.addChild(row);
+    settle(row, "ok");
+
+    const output = renderPlain(chat);
+    expect(output).toContain('glean_search @ glean {"query":"x"} → done');
+  });
+
+  test("does not flatten non-proxy tools that take a tool argument", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-weird", { tool: "hammer" }, "some_tool");
+    chat.addChild(row);
+    settle(row, "ok");
+
+    const output = renderPlain(chat);
+    expect(output).toContain('some_tool {"tool":"hammer"} → done');
   });
 });

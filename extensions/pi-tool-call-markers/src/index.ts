@@ -51,7 +51,11 @@ type ToolExecutionRow = {
     content?: Array<{ type?: unknown; text?: unknown }>;
     details?: Record<string, unknown>;
   };
-  rendererState?: { startedAt?: unknown; endedAt?: unknown };
+  rendererState?: {
+    startedAt?: unknown;
+    endedAt?: unknown;
+    compactTitle?: unknown;
+  };
   contentBox?: ComponentContainer;
   contentText?: TextComponent;
   selfRenderContainer?: ComponentContainer;
@@ -208,11 +212,18 @@ function collapseSuccessfulResult(
     row.expanded !== false ||
     row.isPartial !== false ||
     !row.result ||
-    row.result.isError ||
-    hasImageResult(row) ||
-    row.getRenderShell?.() === "self"
+    hasImageResult(row)
   )
     return;
+
+  if (row.getRenderShell?.() === "self") {
+    collapseSelfRenderedRow(row, theme);
+    return;
+  }
+
+  // Default-shell failures keep Pi's native error render, which already
+  // applies the error background.
+  if (row.result.isError) return;
 
   const collapsed = row.hasRendererDefinition?.()
     ? removeResultComponent(row.contentBox)
@@ -221,6 +232,151 @@ function collapseSuccessfulResult(
     hideResultImages(row);
     decorateSuccessfulCall(row, theme);
   }
+}
+
+// Self-rendered tools (e.g. MCP adapter rows) own their framing, so there is
+// no result component to trim. Swap the whole container for a single summary
+// line in the same style as collapsed default-shell rows. Pi rebuilds the
+// container on every updateDisplay, so this never corrupts expanded renders.
+// Failures collapse too, with the error background and the first error line,
+// since MCP error output tends to be a huge markdown blob.
+function collapseSelfRenderedRow(
+  row: ToolExecutionRow,
+  theme?: ThemeLike,
+): void {
+  const container = row.selfRenderContainer;
+  if (!theme || !container || !Array.isArray(container.children)) return;
+
+  const failed = rowHasFailed(row);
+  const tail = failed
+    ? renderedErrorOutcome(row, theme)
+    : (renderedOutcome(row, theme) ?? renderedGenericOutcome(theme));
+  const box = new Box(1, 1, (text) =>
+    theme.bg(failed ? "toolErrorBg" : "toolSuccessBg", text),
+  );
+  box.addChild(
+    selfRenderedSummaryComponent(row, theme, tail, failed ? 0.5 : 1),
+  );
+  container.children = [box];
+}
+
+// The MCP adapter reports outcomes in details.error but only promotes
+// tool_error/call_failed to result.isError (see its toolErrorOverride);
+// remaining codes are informational guidance (ambiguous, no_instructions,
+// auth flows, ...). Keep the failure code list here so every presentation
+// decision — singletons and groups — shares one classification.
+const MCP_FAILURE_ERROR_CODES: ReadonlySet<string> = new Set([
+  "tool_error",
+  "call_failed",
+  "tool_not_found",
+  "tool_not_found_after_reconnect",
+  "connect_failed",
+  "not_found",
+]);
+
+function rowHasFailed(row: ToolExecutionRow): boolean {
+  if (row.result?.isError) return true;
+  const code = row.result?.details?.error;
+  return typeof code === "string" && MCP_FAILURE_ERROR_CODES.has(code);
+}
+
+function renderedErrorOutcome(row: ToolExecutionRow, theme: ThemeLike): string {
+  const firstLine =
+    resultText(row)
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? "error";
+  return `${theme.fg("muted", "→")} ${theme.fg("error", firstLine)}`;
+}
+
+function selfRenderedSummaryComponent(
+  row: ToolExecutionRow,
+  theme: ThemeLike,
+  tail: string,
+  maxTailShare = 1,
+): ComponentLike {
+  return {
+    render(width: number): string[] {
+      const budget = Math.max(1, width - BADGE_WIDTH - 2);
+      const summary = selfRenderedSummary(row, budget);
+      // Long error lines would otherwise evict the call summary entirely;
+      // cap the tail's share so the label always survives.
+      const cappedTail =
+        maxTailShare >= 1
+          ? tail
+          : `${sliceByColumn(tail, 0, Math.max(8, Math.floor(budget * maxTailShare)), true)}${theme.fg("muted", "…")}`;
+      return [fitSummaryTail(summary, cappedTail, budget)];
+    },
+    invalidate() {},
+  };
+}
+
+function renderedGenericOutcome(theme: ThemeLike): string {
+  return `${theme.fg("muted", "→")} ${theme.fg("success", "done")}`;
+}
+
+// The MCP adapter stashes its call's first line in renderer state before
+// collapsing to an empty component, so prefer it over re-rendering the call.
+function selfRenderedCallTitle(row: ToolExecutionRow): string | undefined {
+  const title = row.rendererState?.compactTitle;
+  return typeof title === "string" && title.trim().length > 0
+    ? title.trim()
+    : undefined;
+}
+
+// The MCP proxy passes tool arguments as a JSON-encoded string; parse and
+// re-stringify so the summary shows compact JSON instead of escaped quotes.
+function squashJsonish(value: unknown): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const compact = JSON.stringify(JSON.parse(trimmed));
+        return compact === "{}" ? "" : compact;
+      } catch {
+        return trimmed;
+      }
+    }
+    return value;
+  }
+  return compactArgs(value);
+}
+
+// Builds a one-line "tool {args}" label from the call arguments. The
+// adapter's own title drops the arguments and its pretty-printed JSON spans
+// many lines, so squash the JSON ourselves to keep the row at one line.
+function selfRenderedCallLabel(row: ToolExecutionRow): string {
+  const token = row.toolName ?? "tool";
+  const args = row.args;
+  // Only the adapter's "mcp" proxy tool uses the {tool, args, server} shape;
+  // a direct tool that happens to take a "tool" argument must not flatten.
+  if (
+    token === "mcp" &&
+    args &&
+    typeof args === "object" &&
+    !Array.isArray(args)
+  ) {
+    const record = args as Record<string, unknown>;
+    if (typeof record.tool === "string") {
+      const inner = squashJsonish(record.args);
+      const target =
+        typeof record.server === "string"
+          ? `${record.tool} @ ${record.server}`
+          : record.tool;
+      return inner ? `${target} ${inner}` : target;
+    }
+  }
+  const title = selfRenderedCallTitle(row);
+  const json = squashJsonish(args);
+  // Proxy actions format nicer in the adapter's own title ("mcp search …");
+  // direct tools put only the bare name there, so append the args ourselves.
+  if (title && title !== token) return title;
+  if (json) return `${token} ${json}`;
+  return title ?? token;
+}
+
+function selfRenderedSummary(row: ToolExecutionRow, width: number): string {
+  return fitSummary(selfRenderedCallLabel(row), width);
 }
 
 function isToolExecutionRow(
@@ -270,7 +426,6 @@ function isLiveRow(row: ToolExecutionRow): boolean {
   return (
     row.expanded === false &&
     (row.isPartial !== false || !row.result) &&
-    row.getRenderShell?.() !== "self" &&
     !hasImageResult(row)
   );
 }
@@ -310,6 +465,18 @@ function fitLiveHeader(
 // cap is composed before the Box applies background and padding, so the live
 // line keeps the tool background edge to edge and the block's bottom padding.
 function capLiveRowDisplay(row: ToolExecutionRow, theme?: ThemeLike): void {
+  // Pin live self-rendered rows (e.g. MCP calls) to the same one-line summary
+  // they settle into, so the block never grows and hops on completion.
+  if (row.getRenderShell?.() === "self") {
+    const container = row.selfRenderContainer;
+    if (!theme || !container || !Array.isArray(container.children)) return;
+    const box = new Box(1, 1, (text) => theme.bg("toolPendingBg", text));
+    box.addChild(
+      selfRenderedSummaryComponent(row, theme, theme.fg("muted", "…")),
+    );
+    container.children = [box];
+    return;
+  }
   if (row.hasRendererDefinition?.()) {
     const container = row.contentBox;
     if (!container || !Array.isArray(container.children)) return;
@@ -353,7 +520,7 @@ function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
     row.expanded === false &&
     row.isPartial === false &&
     !!row.result &&
-    !row.result.isError &&
+    !rowHasFailed(row) &&
     !hasImageResult(row)
   );
 }
@@ -390,10 +557,6 @@ function isGroupableToolRow(
   state: PresentationPatchState,
 ): boolean {
   if (!isLiveRow(row) && !isCollapsibleSuccess(row)) return false;
-  // Self-rendered tools can change height while active. Keep live instances
-  // individual so settling never collapses an already-painted preview.
-  if (row.getRenderShell?.() === "self" && state.liveRenderedRows.has(row))
-    return false;
   return (
     state.collapseParallel ||
     !hasToolSiblingInAssistantBatch(children, index, renderAt)
@@ -532,9 +695,14 @@ function renderedGroupedOutcome(
 ): string | undefined {
   const outcome = renderedOutcome(row, theme);
   if (outcome) return outcome;
-  if (!isLiveRow(row)) return undefined;
-  const elapsed = liveElapsedText(row);
-  return theme.fg("muted", elapsed ? `· ${elapsed}` : "…");
+  if (isLiveRow(row)) {
+    const elapsed = liveElapsedText(row);
+    return theme.fg("muted", elapsed ? `· ${elapsed}` : "…");
+  }
+  // Self-rendered tools have no per-tool outcome summary; keep the group's
+  // settled tail consistent with collapsed singletons.
+  if (row.getRenderShell?.() === "self") return renderedGenericOutcome(theme);
+  return undefined;
 }
 
 function truncatePlain(text: string, width: number, suffix = "…"): string {
@@ -626,6 +794,10 @@ function renderedCallSummary(
   }
 
   const selfRendered = row.getRenderShell?.() === "self";
+  // Self-rendered call components change shape across the live/settled
+  // boundary (the adapter's call disappears once settled), so always build
+  // the summary from the stable args label instead of scraping the preview.
+  if (selfRendered) return selfRenderedSummary(row, width);
   if (component && typeof component.render === "function") {
     const visibleLines = component
       .render(Math.max(1, width))
@@ -665,8 +837,6 @@ function renderedCallSummary(
       }
     }
   }
-
-  if (selfRendered) return theme.fg("muted", "(details omitted)");
 
   const fallback = compactArgs(row.args);
   return fallback
@@ -820,7 +990,9 @@ function renderGroupedToolRows(
         width,
         theme,
       );
-    const box = new Box(1, 1, (text) => theme.bg("toolSuccessBg", text));
+    const box = new Box(1, 1, (text) =>
+      theme.bg(hasLiveMembers ? "toolPendingBg" : "toolSuccessBg", text),
+    );
     box.addChild(summary);
     lines = renderWithTemporaryChild(container, box, () =>
       state.originalRender.call(row, width),
