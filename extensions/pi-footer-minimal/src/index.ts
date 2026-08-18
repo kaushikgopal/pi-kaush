@@ -145,17 +145,23 @@ export default function (pi: ExtensionAPI) {
           slash > 0
             ? `${theme.fg("dim", cwd.slice(0, slash + 1))}${theme.fg("muted", lastName)}`
             : theme.fg("muted", cwd);
-        let suffix = "";
+        let prefix = "";
         const branch = footerData.getGitBranch();
-        if (branch) suffix += theme.fg("dim", ` (${branch})`);
+        if (branch) prefix += theme.fg("dim", ` (${branch})`);
         const sessionName = ctx.sessionManager.getSessionName();
-        if (sessionName) suffix += theme.fg("dim", ` • ${sessionName}`);
-        if (cost > 0)
-          suffix += ` ${theme.fg("dim", `$${cost < 0.01 ? cost.toFixed(3) : cost.toFixed(2)} •`)}`;
-        suffix += ` ${contextColored}`;
-        // When horizontal space is tight: 1) drop the (provider) prefix, 2) flatten cwd to its basename
-        const leftFull = cwdSection + suffix;
-        const leftFlat = theme.fg("muted", lastName) + suffix;
+        if (sessionName) prefix += theme.fg("dim", ` • ${sessionName}`);
+        const costPart =
+          cost > 0
+            ? ` ${theme.fg("dim", `$${cost < 0.01 ? cost.toFixed(3) : cost.toFixed(2)} •`)}`
+            : "";
+        const contextPart = ` ${contextColored}`;
+        // When horizontal space is tight, drop pieces in order: (provider) prefix,
+        // flatten cwd to its basename, then the session cost
+        const leftFull = cwdSection + prefix + costPart + contextPart;
+        const leftFlat =
+          theme.fg("muted", lastName) + prefix + costPart + contextPart;
+        const leftFlatNoCost =
+          theme.fg("muted", lastName) + prefix + contextPart;
 
         // Line 1 right: [active agent •] (provider) model • thinking
         let modelSide = theme.fg(
@@ -189,6 +195,9 @@ export default function (pi: ExtensionAPI) {
           usedRight = rightLean;
           if (!fits(usedLeft, usedRight)) {
             usedLeft = leftFlat;
+            if (!fits(usedLeft, usedRight)) {
+              usedLeft = leftFlatNoCost;
+            }
           }
         }
 
