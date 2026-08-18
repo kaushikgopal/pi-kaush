@@ -180,15 +180,20 @@ const newPinnedPage = async (pin: ProfilePin): Promise<Page> => {
   const opener = [...ownedPages].find((p) => !p.isClosed());
   if (!opener) return seedPinnedPage(pin);
   const b = await getBrowser();
-  const openerTarget = opener.target();
-  await opener.evaluate(() => {
-    window.open("about:blank", "_blank");
-  });
+  // Target.createTarget with background:true opens the tab without
+  // activating it — window.open() always steals focus. Matching the
+  // returned targetId (not url/opener) keeps this race-free when other
+  // sessions open tabs concurrently.
+  const client = await cdpFor(opener);
+  const { targetId } = (await client.send("Target.createTarget", {
+    url: "about:blank",
+    background: true,
+  })) as { targetId: string };
   const target = await b.waitForTarget(
-    (t: Target) => t.type() === "page" && t.opener() === openerTarget,
-    {
-      timeout: 15_000,
-    },
+    (t: Target) =>
+      t.type() === "page" &&
+      (t as { _targetId?: string })._targetId === targetId,
+    { timeout: 15_000 },
   );
   const page = await target.page();
   if (!page) throw new Error("new pinned tab has no attachable page");
@@ -420,7 +425,9 @@ const handle = async (
       return listPages();
     case "switchPage": {
       const page = await findOwned(params as { index?: number; url?: string });
-      await page.bringToFront();
+      // Deliberately no bringToFront: switching the working tab is an
+      // agent-internal routing decision and must not steal browser focus.
+      // Human handoff still has the explicit bringToFront op below.
       current = page;
       return { url: page.url(), title: await page.title().catch(() => "") };
     }

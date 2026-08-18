@@ -95,7 +95,7 @@ export function registerTabTools(pi: ExtensionAPI) {
     name: "browser_switch_tab",
     label: "Browser Switch Tab",
     description:
-      "Make another owned tab current (by index from browser_tabs, or a URL substring) and bring it to the front. Owned tabs only.",
+      "Make another owned tab current (by index from browser_tabs, or a URL substring). Owned tabs only. Does not change browser focus; human handoff can still raise the tab via page.bringToFront() in script scope.",
     promptSnippet: "Switch to another owned tab",
     parameters: Type.Object(
       {
