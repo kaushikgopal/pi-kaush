@@ -283,6 +283,18 @@ const MCP_FAILURE_ERROR_CODES: ReadonlySet<string> = new Set([
   "not_connected",
   "timeout",
   "script_error",
+  // Terminal rejections: the operation never executed (validation failures,
+  // auth-flow failures, missing inputs), unlike continuing-guidance codes.
+  "missing_server",
+  "missing_input",
+  "oauth_not_supported",
+  "auth_start_failed",
+  "not_authenticated",
+  "auth_complete_failed",
+  "query_too_long",
+  "unsafe_pattern",
+  "invalid_pattern",
+  "empty_query",
 ]);
 
 function rowHasFailed(row: ToolExecutionRow): boolean {
@@ -308,7 +320,10 @@ function selfRenderedSummaryComponent(
 ): ComponentLike {
   return {
     render(width: number): string[] {
-      const budget = Math.max(1, width - BADGE_WIDTH - 2);
+      // The Box already shrinks our width by its horizontal padding before
+      // calling render, so only the badge deducts from this headline;
+      // counting the padding again starves the label at narrow widths.
+      const budget = Math.max(1, width - BADGE_WIDTH);
       const summary = selfRenderedSummary(row, budget);
       // Long error lines would otherwise evict the call summary entirely;
       // cap the tail's share so the label always survives.
@@ -324,12 +339,18 @@ function selfRenderedSummaryComponent(
 
 // Trim a failure tail to its quota of the budget, counting the appended
 // ellipsis inside the cap, so the call label keeps the leftover columns
-// plus the joining space instead of being truncated to nothing.
+// plus the joining space instead of being truncated to nothing. A cap too
+// small for the ellipsis keeps that many literal tail characters instead;
+// a zero-column cap lets the tail disappear rather than spill an ellipsis
+// outside its quota.
 function capFailureTail(tail: string, cap: number, theme: ThemeLike): string {
   const tailWidth = visibleWidth(tail);
   if (tailWidth <= cap) return tail;
   const ellipsis = theme.fg("muted", "…");
-  return `${sliceByColumn(tail, 0, Math.max(0, cap - visibleWidth(ellipsis)), true)}${ellipsis}`;
+  const ellipsisWidth = visibleWidth(ellipsis);
+  if (cap <= 0) return "";
+  if (ellipsisWidth >= cap) return sliceByColumn(tail, 0, cap, true);
+  return `${sliceByColumn(tail, 0, cap - ellipsisWidth, true)}${ellipsis}`;
 }
 
 function renderedGenericOutcome(theme: ThemeLike): string {
@@ -369,15 +390,105 @@ function flattenNewlines(text: string): string {
   return text.replace(/[\r\n]+/g, " ");
 }
 
+// Actions the mcp proxy dispatches before any mode selector (pi-mcp-adapter
+// 2.26.0). Unknown action values fall through to other modes, so their shapes
+// are shown raw instead of as a guessed operation.
+const MCP_ACTIONS: ReadonlySet<string> = new Set([
+  "ui-messages",
+  "auth-start",
+  "auth-complete",
+]);
+const MCP_MODE_KEYS = [
+  "tool",
+  "connect",
+  "describe",
+  "instructions",
+  "action",
+] as const;
+
+// A concise one-line label for the adapter's "mcp" proxy from the call's
+// shape alone. The adapter's dispatch order is an implementation detail, so
+// only a single unambiguous selector gets a named operation; conflicting,
+// empty, or unrecognized selectors return undefined so the caller shows the
+// complete compact args instead of claiming which operation executed.
+function mcpProxyCallLabel(
+  record: Record<string, unknown>,
+): string | undefined {
+  const selectors: string[] = [];
+  // An empty search still runs a search; every other selector must be a
+  // non-empty string to name an operation at all.
+  if (record.search !== undefined) selectors.push("search");
+  for (const key of MCP_MODE_KEYS) {
+    const value = record[key];
+    if (value === undefined) continue;
+    // An empty selector cannot dispatch, and which fallback ran is adapter
+    // internals, so the raw args are kept instead.
+    if (typeof value !== "string" || value.length === 0) return undefined;
+    selectors.push(key);
+  }
+
+  const server =
+    typeof record.server === "string" && record.server.length > 0
+      ? record.server
+      : undefined;
+  const rest: Record<string, unknown> = { ...record };
+  if (server !== undefined) delete rest.server;
+  const serverSuffix = server === undefined ? "" : ` @ ${server}`;
+
+  if (selectors.length === 0) {
+    // No mode selector: the adapter lists a named server or reports status.
+    const label = server === undefined ? "mcp status" : `mcp list ${server}`;
+    const restJson = squashJsonish(rest);
+    return restJson ? `${label} ${restJson}` : label;
+  }
+  if (selectors.length !== 1) return undefined;
+
+  const key = selectors[0]!;
+  delete rest[key];
+
+  if (key === "tool") {
+    delete rest.args;
+    const inner = squashJsonish(record.args);
+    const target = `${String(record.tool)}${serverSuffix}`;
+    return inner ? `${target} ${inner}` : target;
+  }
+  if (key === "search") {
+    const label =
+      `mcp search ${String(record.search)}`.trimEnd() + serverSuffix;
+    const restJson = squashJsonish(rest);
+    return restJson ? `${label} ${restJson}` : label;
+  }
+  if (key === "action") {
+    const name = String(record.action);
+    if (!MCP_ACTIONS.has(name)) return undefined;
+    let label = `mcp ${name}${serverSuffix}`;
+    if (name === "auth-complete") {
+      delete rest.args;
+      const input = squashJsonish(record.args);
+      if (input) label += ` ${input}`;
+    }
+    const restJson = squashJsonish(rest);
+    return restJson ? `${label} ${restJson}` : label;
+  }
+  // connect / describe / instructions: the adapter dispatches these modes
+  // without params.server, so a server argument is shown raw rather than as
+  // a scope suffix that implies an operation that never ran.
+  const label = `mcp ${key} ${String(record[key])}`;
+  const restJson = squashJsonish(
+    server === undefined ? rest : { ...rest, server },
+  );
+  return restJson ? `${label} ${restJson}` : label;
+}
+
 // Builds a one-line "tool {args}" label from the call arguments. The
 // adapter's own title drops the arguments and its pretty-printed JSON spans
 // many lines, so squash the JSON ourselves to keep the row at one line.
 function selfRenderedCallLabel(row: ToolExecutionRow): string {
   const token = row.toolName ?? "tool";
   const args = row.args;
-  // Only the adapter's "mcp" proxy tool uses these action shapes. Build the
-  // label from the args: the adapter's own compactTitle drops parameters
-  // (limit/offset) and can misname the action, so it is not trusted here.
+  // Only the adapter's "mcp" proxy tool uses these action shapes, so the
+  // label is derived from the args' shape alone; the adapter's own
+  // compactTitle drops parameters (limit/offset) and is not trusted here.
   if (
     token === "mcp" &&
     args &&
@@ -385,33 +496,17 @@ function selfRenderedCallLabel(row: ToolExecutionRow): string {
     !Array.isArray(args)
   ) {
     const record = args as Record<string, unknown>;
-    if (typeof record.tool === "string") {
-      const inner = squashJsonish(record.args);
-      const target =
-        typeof record.server === "string"
-          ? `${record.tool} @ ${record.server}`
-          : record.tool;
-      return inner ? `${target} ${inner}` : target;
-    }
-    for (const key of ["search", "connect", "describe", "action"] as const) {
-      const value = record[key];
-      if (typeof value !== "string" || value.length === 0) continue;
-      const rest: Record<string, unknown> = { ...record };
-      delete rest[key];
-      let label = key === "action" ? `mcp ${value}` : `mcp ${key} ${value}`;
-      if (typeof rest.server === "string") {
-        label += ` @ ${rest.server}`;
-        delete rest.server;
-      }
-      const restJson = squashJsonish(rest);
-      return restJson ? `${label} ${restJson}` : label;
-    }
-    if (typeof record.server === "string") return `mcp list ${record.server}`;
+    const proxyLabel = mcpProxyCallLabel(record);
+    // Unambiguous shapes get a concise name; anything else keeps the complete
+    // compact args so the row never claims an operation that may not have run.
+    if (proxyLabel) return proxyLabel;
+    const json = squashJsonish(args);
+    return json ? `mcp ${json}` : "mcp status";
   }
   const title = selfRenderedCallTitle(row);
   const json = squashJsonish(args);
-  // Proxy actions format nicer in the adapter's own title ("mcp search …");
-  // direct tools put only the bare name there, so append the args ourselves.
+  // Direct tools put only the bare name in their own title, so append the
+  // args ourselves.
   if (title && title !== token) return title;
   if (json) return `${token} ${json}`;
   return title ?? token;
@@ -681,6 +776,10 @@ function diffCounts(diff: string): { added: number; removed: number } {
 }
 
 function outcomeSummary(row: ToolExecutionRow): string | undefined {
+  // Self-rendered tools own their result framing; the built-in heuristics
+  // (line counts, diff stats) describe default-shell rows only, so their
+  // settled rows always fall back to the generic outcome.
+  if (row.getRenderShell?.() === "self") return undefined;
   if (!isCollapsibleSuccess(row)) return undefined;
 
   const text = resultText(row);
@@ -743,13 +842,15 @@ function renderedGroupedOutcome(
   return undefined;
 }
 
+// A budget too small for the suffix keeps literal text instead, so a
+// one-column label never collapses into a bare ellipsis.
 function truncatePlain(text: string, width: number, suffix = "…"): string {
   const max = Math.max(0, width);
   const plain = stripAnsi(text);
   if (visibleWidth(plain) <= max) return plain;
 
   const suffixWidth = visibleWidth(suffix);
-  if (suffixWidth >= max) return sliceByColumn(suffix, 0, max, true);
+  if (suffixWidth >= max) return sliceByColumn(plain, 0, max, true);
   return `${sliceByColumn(plain, 0, max - suffixWidth, true)}${suffix}`;
 }
 
@@ -758,14 +859,23 @@ function fitSummary(summary: string, width: number): string {
   return visibleWidth(summary) <= max ? summary : truncatePlain(summary, max);
 }
 
+// Fits "head tail" into width while always reserving at least one literal
+// head column plus the joining space; the tail takes what is left and
+// disappears entirely when no columns remain.
 function fitSummaryTail(head: string, tail: string, width: number): string {
   const max = Math.max(1, width);
-  const summary = `${head.trimEnd()} ${tail}`;
-  if (visibleWidth(summary) <= max) return summary;
-
+  const headWidth = visibleWidth(head);
   const tailWidth = visibleWidth(tail);
-  if (tailWidth >= max) return truncatePlain(tail, max);
-  return `${truncatePlain(head, max - tailWidth - 1)} ${tail}`;
+  if (headWidth + 1 + tailWidth <= max) return `${head.trimEnd()} ${tail}`;
+  if (tailWidth === 0) return truncatePlain(head, max);
+  if (headWidth === 0) return truncatePlain(tail, max);
+
+  const labelBudget = Math.min(headWidth, Math.max(1, max - tailWidth - 1));
+  const tailBudget = Math.min(tailWidth, Math.max(0, max - labelBudget - 1));
+  if (tailBudget === 0) return truncatePlain(head, max);
+  const fittedTail =
+    tailWidth <= tailBudget ? tail : truncatePlain(tail, tailBudget);
+  return `${truncatePlain(head, labelBudget)} ${fittedTail}`;
 }
 
 function decorateSuccessfulCall(

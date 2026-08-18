@@ -620,8 +620,9 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain('• edit {"label":"one.ts"} → +1/-1');
-    expect(output).toContain('• edit {"label":"two.ts"} → +1/-1');
+    // Self-rendered tools never adopt the built-in edit diff heuristic.
+    expect(output).toContain('• edit {"label":"one.ts"} → done');
+    expect(output).toContain('• edit {"label":"two.ts"} → done');
     expect(output).not.toContain("diff header");
     expect(output).not.toContain("large changed line");
   });
@@ -634,6 +635,18 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     expect(renderPlain(chat)).toContain("diff header");
+  });
+
+  test("forces a generic outcome for a self-rendered built-in-named tool", () => {
+    const chat = new MockContainer();
+    const row = succeeded("edit", "one.ts", "self");
+    // Even an edit result carrying diff details stays generic for self shells.
+    row.result!.details = { diff: "+new\n-old" };
+    chat.addChild(row);
+
+    const output = renderPlain(chat);
+    expect(output).toContain('edit {"label":"one.ts"} → done');
+    expect(output).not.toContain("+1/-1");
   });
 
   test("does not collapse image-bearing results", () => {

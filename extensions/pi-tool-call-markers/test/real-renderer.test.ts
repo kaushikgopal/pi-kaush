@@ -100,9 +100,11 @@ type FakeRenderContext = {
   state?: Record<string, unknown>;
 };
 
-// Mirrors pi-mcp-adapter's compact mode: renderShell "self", the call
-// component stashes its title in renderer state and disappears once settled,
-// and the result renders its own one-line preview.
+// Imitates the adapter's self-shell lifecycle only: renderShell "self", the
+// call component stashes a title in renderer state and disappears once
+// settled, and the result renders its own one-line preview. It does not model
+// adapter dispatch, so proxy-label tests assert on call shapes, not on which
+// operation the adapter would have picked.
 function createMcpRow(
   toolCallId: string,
   args: Record<string, unknown>,
@@ -409,6 +411,50 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).not.toContain("Search Results");
   });
 
+  test("forces a generic outcome for a singleton self-rendered built-in-named tool", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-edit-1", { path: "a.ts" }, "edit", "self");
+    chat.addChild(row);
+    row.updateResult(
+      {
+        content: [{ type: "text", text: "edited a.ts" }],
+        details: { diff: "+new\n-old" },
+        isError: false,
+      },
+      false,
+    );
+
+    const output = renderPlain(chat);
+    expect(output.split("\n")).toHaveLength(1);
+    // Self-rendered rows never adopt the built-in edit diff heuristic.
+    expect(output).toContain('edit {"path":"a.ts"} → done');
+    expect(output).not.toContain("→ +1/-1");
+    expect(output).not.toContain("edited a.ts");
+  });
+
+  test("uses generic outcomes for grouped self-rendered built-in-named tools", () => {
+    const chat = new Container();
+    const rows = ["a.ts", "b.ts"].map((path) =>
+      createMcpRow(`mcp-edit-${path}`, { path }, "edit", "self"),
+    );
+    for (const row of rows) chat.addChild(row);
+    for (const row of rows) {
+      row.updateResult(
+        {
+          content: [{ type: "text", text: "edited" }],
+          details: { diff: "+x\n-y" },
+          isError: false,
+        },
+        false,
+      );
+    }
+
+    const output = renderPlain(chat);
+    expect(output).toContain('• edit {"path":"a.ts"} → done');
+    expect(output).toContain('• edit {"path":"b.ts"} → done');
+    expect(output).not.toContain("→ +1/-1");
+  });
+
   test("restores a self-rendered MCP row when expanded", () => {
     const chat = new Container();
     const row = createMcpRow("mcp-2", { query: "vibecheck" });
@@ -464,6 +510,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
     "not_connected",
     "timeout",
     "script_error",
+    "missing_server",
+    "missing_input",
+    "oauth_not_supported",
+    "auth_start_failed",
+    "not_authenticated",
+    "auth_complete_failed",
+    "query_too_long",
+    "unsafe_pattern",
+    "invalid_pattern",
+    "empty_query",
   ])(
     "treats details.error code %s as a failure despite isError false",
     (code) => {
@@ -680,8 +736,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).toContain('• glean_search {"query":"beta"}');
   });
 
-  test("keeps a call-label prefix when the error line is long", () => {
-    for (const width of [17, 18, 60]) {
+  test("keeps a literal call-label prefix when the error line is long", () => {
+    for (const width of [8, 9, 10, 11, 17, 18, 60]) {
       const chat = new Container();
       const row = createMcpRow("mcp-long-err", { query: "boom" });
       chat.addChild(row);
@@ -694,7 +750,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
       const output = renderPlain(chat, width);
       expect(output.split("\n")).toHaveLength(1);
       expect(output).not.toBe("…");
-      expect(output).toContain("gle");
+      // The call label keeps at least one literal character (never just the
+      // ellipsis) and the error tail keeps its arrow even at tiny widths;
+      // only tail text beyond the budget gets cut.
+      expect(output.match(/^\s*⚙️\s+(\S)/)?.[1]).toBe("g");
       expect(output).toContain("→");
       expect(output).not.toContain("glean_employee_search");
       expect(output.length).toBeLessThanOrEqual(width);
@@ -781,6 +840,23 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).toContain("mcp list glean → done");
   });
 
+  test("shows a server arg raw for modes the adapter does not scope", () => {
+    const chat = new Container();
+    const row = createMcpRow(
+      "mcp-describe-srv",
+      { describe: "glean_search", server: "glean" },
+      "mcp",
+    );
+    chat.addChild(row);
+    settle(row, "details");
+
+    const output = renderPlain(chat);
+    expect(output).toContain(
+      'mcp describe glean_search {"server":"glean"} → done',
+    );
+    expect(output).not.toContain("@ glean");
+  });
+
   test("includes the server in proxy call labels", () => {
     const chat = new Container();
     const row = createMcpRow(
@@ -793,6 +869,87 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain('glean_search @ glean {"query":"x"} → done');
+  });
+
+  test.each([
+    [
+      { tool: "glean_search", args: '{"query": "x"}' },
+      'glean_search {"query":"x"}',
+    ],
+    [{ connect: "glean" }, "mcp connect glean"],
+    [{ describe: "glean_search" }, "mcp describe glean_search"],
+    [{ instructions: "user" }, "mcp instructions user"],
+    [
+      { search: "vibecheck", limit: 20, offset: 40 },
+      'mcp search vibecheck {"limit":20,"offset":40}',
+    ],
+    [{ action: "auth-start", server: "glean" }, "mcp auth-start @ glean"],
+    [
+      {
+        action: "auth-complete",
+        server: "glean",
+        args: '{"redirectUrl":"https://auth.example/cb"}',
+      },
+      'mcp auth-complete @ glean {"redirectUrl":"https://auth.example/cb"}',
+    ],
+    [{ action: "ui-messages" }, "mcp ui-messages"],
+    [{ server: "glean" }, "mcp list glean"],
+    [{}, "mcp status"],
+  ])("labels unambiguous proxy shape %j as %s", (args, label) => {
+    const chat = new Container();
+    const row = createMcpRow(`mcp-mode-${JSON.stringify(args)}`, args, "mcp");
+    chat.addChild(row);
+    settle(row, "ok");
+
+    const output = renderPlain(chat);
+    expect(output).toContain(`${label} → done`);
+  });
+
+  test.each([
+    [
+      { action: "auth-start", tool: "hammer" },
+      ["mcp auth-start @", 'hammer {"'],
+    ],
+    [
+      { connect: "glean", search: "vibecheck" },
+      ["mcp connect glean", "mcp search vibecheck"],
+    ],
+    [{ tool: "", search: "vibecheck" }, ["mcp search vibecheck", "mcp list"]],
+    [{ tool: "" }, ["mcp tool", "mcp list"]],
+    [{ action: "mystery" }, ["mcp mystery", "mcp list"]],
+  ])(
+    "renders ambiguous proxy shape %j as its complete args",
+    (args, forbidden) => {
+      const chat = new Container();
+      const row = createMcpRow(
+        `mcp-ambig-${JSON.stringify(args)}`,
+        args,
+        "mcp",
+      );
+      chat.addChild(row);
+      settle(row, "ok");
+
+      const output = renderPlain(chat);
+      // Every selector survives in the raw compact shape; no single operation
+      // is claimed on the label.
+      expect(output).toContain(`mcp ${JSON.stringify(args)} → done`);
+      for (const needle of forbidden) expect(output).not.toContain(needle);
+    },
+  );
+
+  test("treats an empty search as a present search rather than a list", () => {
+    const chat = new Container();
+    const row = createMcpRow(
+      "mcp-empty-search",
+      { search: "", server: "glean" },
+      "mcp",
+    );
+    chat.addChild(row);
+    settle(row, "ok");
+
+    const output = renderPlain(chat);
+    expect(output).toContain("mcp search @ glean → done");
+    expect(output).not.toContain("mcp list");
   });
 
   test("does not flatten non-proxy tools that take a tool argument", () => {
