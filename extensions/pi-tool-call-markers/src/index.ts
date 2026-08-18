@@ -221,8 +221,9 @@ function collapseSuccessfulResult(
   }
 
   // Default-shell failures keep Pi's native error render, which already
-  // applies the error background.
-  if (row.result.isError) return;
+  // applies the error background. rowHasFailed also catches MCP tools that
+  // use the default shell (e.g. mcpScript) and report via details.error.
+  if (rowHasFailed(row)) return;
 
   const collapsed = row.hasRendererDefinition?.()
     ? removeResultComponent(row.contentBox)
@@ -280,6 +281,8 @@ const MCP_FAILURE_ERROR_CODES: ReadonlySet<string> = new Set([
   "not_initialized",
   "server_unavailable",
   "not_connected",
+  "timeout",
+  "script_error",
 ]);
 
 function rowHasFailed(row: ToolExecutionRow): boolean {
@@ -372,8 +375,9 @@ function flattenNewlines(text: string): string {
 function selfRenderedCallLabel(row: ToolExecutionRow): string {
   const token = row.toolName ?? "tool";
   const args = row.args;
-  // Only the adapter's "mcp" proxy tool uses the {tool, args, server} shape;
-  // a direct tool that happens to take a "tool" argument must not flatten.
+  // Only the adapter's "mcp" proxy tool uses these action shapes. Build the
+  // label from the args: the adapter's own compactTitle drops parameters
+  // (limit/offset) and can misname the action, so it is not trusted here.
   if (
     token === "mcp" &&
     args &&
@@ -389,6 +393,20 @@ function selfRenderedCallLabel(row: ToolExecutionRow): string {
           : record.tool;
       return inner ? `${target} ${inner}` : target;
     }
+    for (const key of ["search", "connect", "describe", "action"] as const) {
+      const value = record[key];
+      if (typeof value !== "string" || value.length === 0) continue;
+      const rest: Record<string, unknown> = { ...record };
+      delete rest[key];
+      let label = key === "action" ? `mcp ${value}` : `mcp ${key} ${value}`;
+      if (typeof rest.server === "string") {
+        label += ` @ ${rest.server}`;
+        delete rest.server;
+      }
+      const restJson = squashJsonish(rest);
+      return restJson ? `${label} ${restJson}` : label;
+    }
+    if (typeof record.server === "string") return `mcp list ${record.server}`;
   }
   const title = selfRenderedCallTitle(row);
   const json = squashJsonish(args);
@@ -547,10 +565,6 @@ function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
     !rowHasFailed(row) &&
     !hasImageResult(row)
   );
-}
-
-function isSettledToolRow(row: ToolExecutionRow): boolean {
-  return row.isPartial === false && !!row.result;
 }
 
 function hasToolSiblingInAssistantBatch(
@@ -812,15 +826,15 @@ function renderedCallSummary(
   width: number,
   theme: ThemeLike,
 ): string {
-  let component = row.callRendererComponent;
-  if (!component && Array.isArray(row.contentBox?.children)) {
-    component = row.contentBox.children[0] as ComponentLike | undefined;
-  }
-
   // Self-rendered call components change shape across the live/settled
   // boundary (the adapter's call disappears once settled), so always build
   // the summary from the stable args label instead of scraping the preview.
   if (row.getRenderShell?.() === "self") return selfRenderedSummary(row, width);
+
+  let component = row.callRendererComponent;
+  if (!component && Array.isArray(row.contentBox?.children)) {
+    component = row.contentBox.children[0] as ComponentLike | undefined;
+  }
   if (component && typeof component.render === "function") {
     const visibleLines = component
       .render(Math.max(1, width))

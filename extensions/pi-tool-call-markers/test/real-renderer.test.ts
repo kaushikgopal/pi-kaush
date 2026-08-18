@@ -107,13 +107,14 @@ function createMcpRow(
   toolCallId: string,
   args: Record<string, unknown>,
   toolName = "glean_search",
+  renderShell: "self" | "default" = "self",
 ): ToolExecutionComponent {
   const definition = {
     name: toolName,
     label: "MCP: glean_search",
     description: "test self-rendered MCP row",
     parameters: { type: "object", properties: {} },
-    renderShell: "self",
+    renderShell,
     execute() {
       throw new Error("not executed");
     },
@@ -461,6 +462,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     "not_initialized",
     "server_unavailable",
     "not_connected",
+    "timeout",
+    "script_error",
   ])(
     "treats details.error code %s as a failure despite isError false",
     (code) => {
@@ -492,6 +495,30 @@ describe("tool-call-markers with Pi's real renderer", () => {
       expect(output).not.toContain("→ done");
     },
   );
+
+  test("does not collapse default-shell script failures as successes", () => {
+    const chat = new Container();
+    // mcpScript registers without renderShell, so it uses the default shell.
+    const row = createMcpRow(
+      "mcpscript-timeout",
+      { code: "tools.call()" },
+      "mcpScript",
+      "default",
+    );
+    chat.addChild(row);
+    row.updateResult(
+      {
+        content: [{ type: "text", text: "Error: script timed out after 30s" }],
+        details: { mode: "script", error: "timeout" },
+        isError: false,
+      },
+      false,
+    );
+
+    const output = renderPlain(chat);
+    expect(output).toContain("Error: script timed out after 30s");
+    expect(output).not.toContain("→ done");
+  });
 
   test("pins a live self-rendered MCP row to its settling line", () => {
     const chat = new Container();
@@ -713,6 +740,46 @@ describe("tool-call-markers with Pi's real renderer", () => {
       expect(output).not.toContain(`${code}: guidance message`);
     },
   );
+
+  test("keeps pagination args in proxy search labels", () => {
+    const chat = new Container();
+    const row = createMcpRow(
+      "mcp-search",
+      { search: "vibecheck", limit: 20, offset: 40 },
+      "mcp",
+    );
+    chat.addChild(row);
+    settle(row, "results");
+
+    const output = renderPlain(chat);
+    expect(output).toContain(
+      'mcp search vibecheck {"limit":20,"offset":40} → done',
+    );
+  });
+
+  test("names proxy auth actions instead of mislabeling them as list", () => {
+    const chat = new Container();
+    const row = createMcpRow(
+      "mcp-auth",
+      { action: "auth-start", server: "glean" },
+      "mcp",
+    );
+    chat.addChild(row);
+    settle(row, "ok");
+
+    const output = renderPlain(chat);
+    expect(output).toContain("mcp auth-start @ glean → done");
+  });
+
+  test("labels server-only proxy calls as list", () => {
+    const chat = new Container();
+    const row = createMcpRow("mcp-list", { server: "glean" }, "mcp");
+    chat.addChild(row);
+    settle(row, "ok");
+
+    const output = renderPlain(chat);
+    expect(output).toContain("mcp list glean → done");
+  });
 
   test("includes the server in proxy call labels", () => {
     const chat = new Container();
