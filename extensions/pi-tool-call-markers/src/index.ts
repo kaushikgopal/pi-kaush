@@ -72,7 +72,6 @@ type PresentationPatchState = {
   theme?: ThemeLike;
   collapseParallel: boolean;
   groupCache: WeakMap<ToolExecutionRow, GroupRenderCache>;
-  liveRenderedRows: WeakSet<ToolExecutionRow>;
   rowVersions: WeakMap<ToolExecutionRow, number>;
   rowGroups: WeakMap<ToolExecutionRow, ToolExecutionRow[]>;
   rowSignatures: WeakMap<ToolExecutionRow, string>;
@@ -272,6 +271,15 @@ const MCP_FAILURE_ERROR_CODES: ReadonlySet<string> = new Set([
   "tool_not_found_after_reconnect",
   "connect_failed",
   "not_found",
+  "server_not_found",
+  "server_disabled",
+  "server_backoff",
+  "server_not_connected",
+  "init_failed",
+  "init_timeout",
+  "not_initialized",
+  "server_unavailable",
+  "not_connected",
 ]);
 
 function rowHasFailed(row: ToolExecutionRow): boolean {
@@ -304,11 +312,21 @@ function selfRenderedSummaryComponent(
       const cappedTail =
         maxTailShare >= 1
           ? tail
-          : `${sliceByColumn(tail, 0, Math.max(8, Math.floor(budget * maxTailShare)), true)}${theme.fg("muted", "…")}`;
+          : capFailureTail(tail, Math.floor(budget * maxTailShare), theme);
       return [fitSummaryTail(summary, cappedTail, budget)];
     },
     invalidate() {},
   };
+}
+
+// Trim a failure tail to its quota of the budget, counting the appended
+// ellipsis inside the cap, so the call label keeps the leftover columns
+// plus the joining space instead of being truncated to nothing.
+function capFailureTail(tail: string, cap: number, theme: ThemeLike): string {
+  const tailWidth = visibleWidth(tail);
+  if (tailWidth <= cap) return tail;
+  const ellipsis = theme.fg("muted", "…");
+  return `${sliceByColumn(tail, 0, Math.max(0, cap - visibleWidth(ellipsis)), true)}${ellipsis}`;
 }
 
 function renderedGenericOutcome(theme: ThemeLike): string {
@@ -334,12 +352,18 @@ function squashJsonish(value: unknown): string {
         const compact = JSON.stringify(JSON.parse(trimmed));
         return compact === "{}" ? "" : compact;
       } catch {
-        return trimmed;
+        return flattenNewlines(trimmed);
       }
     }
-    return value;
+    return flattenNewlines(value);
   }
   return compactArgs(value);
+}
+
+// String fallbacks still feed the one-line "tool {args}" summary label;
+// normalize embedded line breaks so a multiline argument cannot split it.
+function flattenNewlines(text: string): string {
+  return text.replace(/[\r\n]+/g, " ");
 }
 
 // Builds a one-line "tool {args}" label from the call arguments. The
@@ -793,16 +817,15 @@ function renderedCallSummary(
     component = row.contentBox.children[0] as ComponentLike | undefined;
   }
 
-  const selfRendered = row.getRenderShell?.() === "self";
   // Self-rendered call components change shape across the live/settled
   // boundary (the adapter's call disappears once settled), so always build
   // the summary from the stable args label instead of scraping the preview.
-  if (selfRendered) return selfRenderedSummary(row, width);
+  if (row.getRenderShell?.() === "self") return selfRenderedSummary(row, width);
   if (component && typeof component.render === "function") {
     const visibleLines = component
       .render(Math.max(1, width))
       .filter(hasVisibleContent);
-    const rendered = visibleLines.slice(0, selfRendered ? 1 : 3);
+    const rendered = visibleLines.slice(0, 3);
     const line = rendered[0];
     if (line) {
       const first = trimRenderedLine(line);
@@ -1190,7 +1213,6 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     const state: PresentationPatchState = {
       collapseParallel: envEnabled(COLLAPSE_PARALLEL_ENV, true),
       groupCache: new WeakMap(),
-      liveRenderedRows: new WeakSet(),
       rowVersions: new WeakMap(),
       rowGroups: new WeakMap(),
       rowSignatures: new WeakMap(),
@@ -1224,7 +1246,6 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       this: ToolExecutionRow,
       width: number,
     ): string[] {
-      if (!isSettledToolRow(this)) state.liveRenderedRows.add(this);
       const lines = state.originalRender.call(this, width);
       try {
         return decorateHeader(this, lines, width, state.theme);

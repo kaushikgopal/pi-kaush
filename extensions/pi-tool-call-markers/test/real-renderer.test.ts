@@ -451,6 +451,48 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).not.toContain("→ done");
   });
 
+  test.each([
+    "server_not_found",
+    "server_disabled",
+    "server_backoff",
+    "server_not_connected",
+    "init_failed",
+    "init_timeout",
+    "not_initialized",
+    "server_unavailable",
+    "not_connected",
+  ])(
+    "treats details.error code %s as a failure despite isError false",
+    (code) => {
+      const chat = new Container();
+      const row = createMcpRow(
+        `mcp-fail-${code}`,
+        { tool: "glean_search" },
+        "mcp",
+      );
+      chat.addChild(row);
+      row.updateResult(
+        {
+          content: [
+            {
+              type: "text",
+              text: `mcp: ${code}: operation failed\nmore detail`,
+            },
+          ],
+          details: { mode: "call", error: code },
+          isError: false,
+        },
+        false,
+      );
+
+      const output = renderPlain(chat);
+      expect(output.split("\n")).toHaveLength(1);
+      expect(output).toContain(`mcp: ${code}: operation failed`);
+      expect(output).not.toContain("more detail");
+      expect(output).not.toContain("→ done");
+    },
+  );
+
   test("pins a live self-rendered MCP row to its settling line", () => {
     const chat = new Container();
     const row = createMcpRow("mcp-live", { query: "vibecheck", num: 1 });
@@ -489,6 +531,31 @@ describe("tool-call-markers with Pi's real renderer", () => {
       'glean_search {"query":"vibecheck","num_results":1} → done',
     );
     expect(output).not.toContain('\\"');
+  });
+
+  test("flattens malformed multiline proxy arguments to one line", () => {
+    const chat = new Container();
+    const row = createMcpRow(
+      "mcp-malformed",
+      {
+        tool: "glean_search",
+        args: '{\n  "query": "vibecheck",\n  "broken":\n}',
+      },
+      "mcp",
+    );
+    chat.addChild(row);
+    row.markExecutionStarted();
+
+    const live = renderPlain(chat);
+    expect(live.split("\n")).toHaveLength(1);
+    expect(live).toContain('"query"');
+
+    settle(row, "Error: malformed JSON\nmore detail", true);
+    const settled = renderPlain(chat);
+    expect(settled.split("\n")).toHaveLength(1);
+    expect(settled).toContain('"query"');
+    expect(settled).toContain("Error: malformed JSON");
+    expect(settled).not.toContain("more detail");
   });
 
   test("wraps collapsed self-rendered rows in a background box", () => {
@@ -552,8 +619,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(ok, "fine");
     failed.updateResult(
       {
-        content: [{ type: "text", text: 'Tool "glean_nope" not found.' }],
-        details: { mode: "call", error: "tool_not_found" },
+        content: [
+          { type: "text", text: 'Error: not connected to server "glean"' },
+        ],
+        details: { mode: "call", error: "server_not_connected" },
         isError: false,
       },
       false,
@@ -563,7 +632,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output.match(/⚙️/g)).toHaveLength(2);
     expect(output).toContain('glean_search {"query":"x"} → done');
     expect(output).toContain(
-      'glean_search {"query":"y"} → Tool "glean_nope" not found.',
+      'glean_search {"query":"y"} → Error: not connected to server "glean"',
     );
   });
 
@@ -584,39 +653,66 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).toContain('• glean_search {"query":"beta"}');
   });
 
-  test("keeps the call label when the error line is long", () => {
+  test("keeps a call-label prefix when the error line is long", () => {
+    for (const width of [17, 18, 60]) {
+      const chat = new Container();
+      const row = createMcpRow("mcp-long-err", { query: "boom" });
+      chat.addChild(row);
+      settle(
+        row,
+        'Tool "glean_no_such_tool" not found. Server "glean" has: glean_chat, glean_code_search, glean_employee_search',
+        true,
+      );
+
+      const output = renderPlain(chat, width);
+      expect(output.split("\n")).toHaveLength(1);
+      expect(output).not.toBe("…");
+      expect(output).toContain("gle");
+      expect(output).toContain("→");
+      expect(output).not.toContain("glean_employee_search");
+      expect(output.length).toBeLessThanOrEqual(width);
+    }
+  });
+
+  test("does not ellipsize an untruncated failure line", () => {
     const chat = new Container();
-    const row = createMcpRow("mcp-long-err", { query: "boom" });
+    const row = createMcpRow("mcp-short-err", { query: "x" });
     chat.addChild(row);
-    settle(
-      row,
-      'Tool "glean_no_such_tool" not found. Server "glean" has: glean_chat, glean_code_search, glean_employee_search',
-      true,
-    );
+    settle(row, "Error: boom", true);
 
     const output = renderPlain(chat, 60);
-    expect(output).toContain("glean_search");
-    expect(output).toContain("→");
-    expect(output).not.toContain("glean_employee_search");
+    expect(output.split("\n")).toHaveLength(1);
+    expect(output).toContain('glean_search {"query":"x"} → Error: boom');
+    expect(output).not.toMatch(/…$/);
   });
 
-  test("does not treat informational details.error codes as failures", () => {
-    const chat = new Container();
-    const row = createMcpRow("mcp-info", { search: "vibecheck" }, "mcp");
-    chat.addChild(row);
-    row.updateResult(
-      {
-        content: [{ type: "text", text: "No instructions available." }],
-        details: { mode: "list", error: "no_instructions" },
-        isError: false,
-      },
-      false,
-    );
+  test.each([
+    "auth_required",
+    "approval_required",
+    "approval_denied",
+    "url_elicitation_required",
+    "aborted",
+    "no_instructions",
+  ])(
+    "does not treat informational details.error code %s as a failure",
+    (code) => {
+      const chat = new Container();
+      const row = createMcpRow("mcp-info", { search: "vibecheck" }, "mcp");
+      chat.addChild(row);
+      row.updateResult(
+        {
+          content: [{ type: "text", text: `${code}: guidance message` }],
+          details: { mode: "list", error: code },
+          isError: false,
+        },
+        false,
+      );
 
-    const output = renderPlain(chat);
-    expect(output).toContain("→ done");
-    expect(output).not.toContain("No instructions available.");
-  });
+      const output = renderPlain(chat);
+      expect(output).toContain("→ done");
+      expect(output).not.toContain(`${code}: guidance message`);
+    },
+  );
 
   test("includes the server in proxy call labels", () => {
     const chat = new Container();
