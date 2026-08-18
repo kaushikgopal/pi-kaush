@@ -1,5 +1,7 @@
 # @pi-kaush/pi-inline-agent-identifier
 
+> **Deprecated:** install [`@pi-kaush/pi-inline-identifier`](../pi-inline-identifier) instead. It is the canonical package for agent, skill, and prompt-template identifiers. Do not load both packages.
+
 Use `&agent-name` references in Pi prompts while keeping delegation in the existing named-agent `subagent` tool.
 
 ## Prerequisite

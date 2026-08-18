@@ -4,21 +4,23 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 
 ## Packages
 
-| Package                                                                           | Description                                                                                |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)                           | Activate a configured Pi agent as a persistent mode in the current session.                |
-| [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)                       | Paste the same large block twice to expand Pi's paste markers into editable text.          |
-| [`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) | Highlight and route Codex-style `$skill-name` references through Pi's native skills.       |
-| [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction)             | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns.        |
-| [`@pi-kaush/pi-btw`](./extensions/pi-btw)                                         | Ask a question in a Herdr side fork or switch to a local session fork.                     |
-| [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers)             | Collapse adjacent successful tool calls into one compact, gear-headed block per tool type. |
-| [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)                   | Show a responsive startup header with Pi's loaded resources.                               |
+| Package                                                               | Description                                                                                |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)               | Activate a configured Pi agent as a persistent mode in the current session.                |
+| [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)           | Paste the same large block twice to expand Pi's paste markers into editable text.          |
+| [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) | Highlight and route inline Pi skill, agent, and prompt-template references.                |
+| [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction) | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns.        |
+| [`@pi-kaush/pi-btw`](./extensions/pi-btw)                             | Ask a question in a Herdr side fork or switch to a local session fork.                     |
+| [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers) | Collapse adjacent successful tool calls into one compact, gear-headed block per tool type. |
+| [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)       | Show a responsive startup header with Pi's loaded resources.                               |
 
 Every package is independently versioned and published to npm. Runtime source is readable TypeScript, and packages avoid runtime dependencies where practical.
 
 ### Retired packages
 
 [`@pi-kaush/pi-openai-text-verbosity`](./extensions/pi-openai-text-verbosity) is retired. Pi 0.84.1 and newer can set OpenAI Responses `text.verbosity` directly through model `samplingParams`.
+
+[`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) and [`@pi-kaush/pi-inline-agent-identifier`](./extensions/pi-inline-agent-identifier) are deprecated. Use the consolidated [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) package instead.
 
 ## Use an extension
 
@@ -29,7 +31,7 @@ Install an extension globally through Pi's package manager:
 ```sh
 pi install npm:@pi-kaush/pi-double-paste
 pi install npm:@pi-kaush/pi-agent-mode
-pi install npm:@pi-kaush/pi-inline-skill-identifier
+pi install npm:@pi-kaush/pi-inline-identifier
 pi install npm:@pi-kaush/pi-openai-compaction
 pi install npm:@pi-kaush/pi-btw
 pi install npm:@pi-kaush/pi-tool-call-markers
@@ -54,7 +56,10 @@ Then launch Pi from any project and point `-e` at the extension's entry file, re
 ```sh
 pi -e ~/path/to/pi-kaush/extensions/pi-double-paste/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-agent-mode/src/index.ts
-pi -e ~/path/to/pi-kaush/extensions/pi-inline-skill-identifier/src/index.ts
+pi \
+  -e ~/path/to/pi-kaush/extensions/pi-inline-identifier/src/skill.ts \
+  -e ~/path/to/pi-kaush/extensions/pi-inline-identifier/src/agent.ts \
+  -e ~/path/to/pi-kaush/extensions/pi-inline-identifier/src/prompt.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-openai-compaction/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-btw/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-tool-call-markers/src/index.ts
@@ -81,7 +86,7 @@ Create a GitHub release whose tag identifies the workspace and exactly matches i
 ```text
 pi-double-paste-v0.1.0
 pi-agent-mode-v0.1.0
-pi-inline-skill-identifier-v0.1.0
+pi-inline-identifier-v0.1.0
 pi-openai-compaction-v0.1.0
 pi-btw-v0.1.0
 pi-tool-call-markers-v0.1.0
