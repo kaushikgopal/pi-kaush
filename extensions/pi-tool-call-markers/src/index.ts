@@ -756,9 +756,10 @@ function styledCallLabel(
   const plain = sanitizeInline(stripAnsi(label)).trim();
   const match = /^(\S+)(.*)$/s.exec(plain);
   if (!match) return theme.fg(color, plain);
+  const rest = match[2] ?? "";
   return (
     theme.fg(color, theme.bold(match[1] ?? "")) +
-    theme.fg(color, match[2] ?? "")
+    (rest ? theme.fg(color, `:${rest}`) : "")
   );
 }
 
@@ -805,9 +806,9 @@ function collapsedHeadline(
   theme: ThemeLike,
 ): string {
   // Failed rows render entirely in error so the row reads as the one that
-  // failed, not just its outcome tail.
+  // failed, not just its outcome tail. Only the tool name is bold.
   const color = rowHasFailed(row) ? "error" : "muted";
-  const marker = `${theme.fg(color, theme.bold(GROUP_MARKER))} `;
+  const marker = `${theme.fg(color, GROUP_MARKER)} `;
   const budget = Math.max(1, width - visibleWidth(marker));
   const label = collapsedCallLabel(row, budget, theme, color);
   const outcome = collapsedOutcome(row, budget, theme);
@@ -1069,73 +1070,15 @@ function renderCollapsedToolRow(
   return ["", ...insetLines(body, width)];
 }
 
-function compactBulletLine(
-  summary: string,
-  outcome: string | undefined,
-  width: number,
-  theme: ThemeLike,
-  color = "muted",
-  indentSpaces = 2,
-): string {
-  const prefix = `${" ".repeat(indentSpaces)}${theme.fg(color, "•")} `;
-  const indent = visibleWidth(prefix);
-  if (width <= indent) return truncateToWidth(prefix, width, "", false);
-  const available = width - indent;
-  return (
-    prefix +
-    (outcome
-      ? fitSummaryTail(summary, outcome, available, theme.fg(color, "…"))
-      : fitSummary(summary, available, theme.fg(color, "…")))
-  );
-}
-
 function groupedCallComponent(
   rows: ToolExecutionRow[],
   theme: ThemeLike,
 ): ComponentLike {
   return {
     render(width: number): string[] {
-      // One marker for the whole consecutive block; each tool run gets a
-      // sub-heading, and calls nest one level deeper as sub-bullets. No blank
-      // lines inside the block — the hierarchy carries the separation.
-      const lines: string[] = [
-        truncateToWidth(
-          theme.fg("muted", theme.bold(GROUP_MARKER)),
-          width,
-          "",
-          false,
-        ),
-      ];
-      let previousToolName: string | undefined;
-      for (const row of rows) {
-        if (row.toolName !== previousToolName) {
-          const token =
-            row.toolName === "bash" ? "$" : (row.toolName ?? "tool");
-          lines.push(
-            truncateToWidth(
-              `  ${theme.fg("muted", theme.bold(token))}`,
-              width,
-              "",
-              false,
-            ),
-          );
-          previousToolName = row.toolName;
-        }
-        const color = rowHasFailed(row) ? "error" : "muted";
-        const call = renderedCallSummary(row, Math.max(1, width - 6), theme);
-        const outcome = renderedGroupedOutcome(row, theme);
-        lines.push(
-          compactBulletLine(
-            theme.fg(color, stripAnsi(call)),
-            outcome,
-            width,
-            theme,
-            color,
-            4,
-          ),
-        );
-      }
-      return lines;
+      // Every member renders like a singleton — `% tool: call → outcome` per
+      // line with the tool name bolded — no bullets or internal blanks.
+      return rows.map((row) => collapsedHeadline(row, width, theme));
     },
     invalidate() {},
   };

@@ -213,7 +213,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "all tests passed");
 
     const output = renderPlain(chat);
-    expect(output).toContain("% $ npm test → done");
+    expect(output).toContain("% $: npm test → done");
     expect(output).not.toContain("all tests passed");
   });
 
@@ -247,7 +247,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const collapsed = renderPlain(chat);
     expect(collapsed).toContain(
-      "% $ printf one · printf two · printf three · … → done",
+      "% $: printf one · printf two · printf three · … → done",
     );
     expect(collapsed.split("\n")).toHaveLength(1);
     expect(collapsed).not.toContain("printf four");
@@ -279,7 +279,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const settled = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(settled).toContain(
-      "% $ sleep 1 · printf finished (timeout 30s) → done",
+      "% $: sleep 1 · printf finished (timeout 30s) → done",
     );
     expect(settled.split("\n")).toHaveLength(1);
   });
@@ -363,22 +363,22 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chat.addChild(first);
     settle(first, "tests passed");
     const singletonHeight = chat.render(100).length;
-    expect(renderPlain(chat)).toContain("% $ npm test → done");
+    expect(renderPlain(chat)).toContain("% $: npm test → done");
 
     chat.addChild(new AssistantMessageComponent());
     const second = createBashRow("npm run lint");
     chat.addChild(second);
     const liveHeight = chat.render(100).length;
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
-    expect(renderPlain(chat).match(/%/g)).toHaveLength(1);
-    expect(renderPlain(chat)).toContain("• npm run lint");
+    expect(renderPlain(chat).match(/%/g)).toHaveLength(2);
+    expect(renderPlain(chat)).toContain("% $: npm run lint");
 
     settle(second, "lint passed");
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
-    expect(output.match(/%/g)).toHaveLength(1);
-    expect(output).toContain("• npm test → done");
-    expect(output).toContain("• npm run lint → done");
+    expect(output.match(/%/g)).toHaveLength(2);
+    expect(output).toContain("% $: npm test → done");
+    expect(output).toContain("% $: npm run lint → done");
   });
 
   test("groups real settled rows with one-line outcome bullets", () => {
@@ -391,9 +391,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(second, "lint passed");
 
     const output = renderPlain(chat, 36);
-    expect(output.match(/%/g)).toHaveLength(1);
-    expect(output).toContain("• npm test → done");
-    expect(output).toContain("• npm run lint → done");
+    expect(output.match(/%/g)).toHaveLength(2);
+    expect(output).toContain("% $: npm test → done");
+    expect(output).toContain("% $: npm run lint → done");
     expect(output).not.toContain("tests passed");
     expect(output).not.toContain("lint passed");
   });
@@ -418,8 +418,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chatContainerHooks().add(hook);
     try {
       const output = renderPlain(chat);
-      expect(output.match(/%/g)).toHaveLength(1);
-      expect(output).toContain("• npm test → done");
+      expect(output.match(/%/g)).toHaveLength(2);
+      expect(output).toContain("% $: npm test → done");
       expect(calls).toEqual([{ container: chat, width: 100 }]);
       expect(restores).toBe(1);
     } finally {
@@ -442,8 +442,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chatContainerHooks().add(badHook);
     try {
       const output = renderPlain(chat);
-      expect(output.match(/%/g)).toHaveLength(1);
-      expect(output).toContain("• npm test → done");
+      expect(output.match(/%/g)).toHaveLength(2);
+      expect(output).toContain("% $: npm test → done");
     } finally {
       chatContainerHooks().delete(badHook);
     }
@@ -525,7 +525,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "# Search Results (1 found)\n\n## 1. vibecheck");
 
     const output = renderPlain(chat);
-    expect(output).toContain('% glean_search {"query":"vibecheck"} → done');
+    expect(output).toContain('% glean_search: {"query":"vibecheck"} → done');
     expect(output.split("\n")).toHaveLength(1);
     expect(output).not.toContain("Search Results");
   });
@@ -547,7 +547,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output.split("\n")).toHaveLength(1);
     // Self-rendered rows never adopt the built-in edit diff heuristic, and
     // edit-shaped args label by path like Pi's native call line.
-    expect(output).toContain("edit a.ts → done");
+    expect(output).toContain("edit: a.ts → done");
     expect(output).not.toContain("→ +1/-1");
     expect(output).not.toContain("edited a.ts");
   });
@@ -570,8 +570,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain("• edit a.ts → done");
-    expect(output).toContain("• edit b.ts → done");
+    expect(output).toContain("% edit: a.ts → done");
+    expect(output).toContain("% edit: b.ts → done");
     expect(output).not.toContain("→ +1/-1");
   });
 
@@ -595,7 +595,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat);
     expect(output.split("\n")).toHaveLength(1);
     expect(output).toContain(
-      'glean_search {"query":"vibecheck"} → Error: Security violation: 403',
+      'glean_search: {"query":"vibecheck"} → Error: Security violation: 403',
     );
     expect(output).not.toContain("lots of detail");
   });
@@ -704,7 +704,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const live = renderPlain(chat);
     expect(live.split("\n")).toHaveLength(1);
-    expect(live).toContain('glean_search {"query":"vibecheck","num":1}');
+    expect(live).toContain('glean_search: {"query":"vibecheck","num":1}');
     expect(live).toContain("…");
     expect(live).not.toContain('"num": 1');
 
@@ -712,7 +712,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const settled = renderPlain(chat);
     expect(settled.split("\n")).toHaveLength(1);
     expect(settled).toContain(
-      'glean_search {"query":"vibecheck","num":1} → done',
+      'glean_search: {"query":"vibecheck","num":1} → done',
     );
   });
 
@@ -731,7 +731,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      'glean_search {"query":"vibecheck","num_results":1} → done',
+      'glean_search: {"query":"vibecheck","num_results":1} → done',
     );
     expect(output).not.toContain('\\"');
   });
@@ -786,8 +786,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).not.toContain("(details omitted)");
-    expect(output).toContain('glean_search {"query":"alpha"}');
-    expect(output).toContain('glean_search {"query":"beta"}');
+    expect(output).toContain('glean_search: {"query":"alpha"}');
+    expect(output).toContain('glean_search: {"query":"beta"}');
     expect(output).toContain("→ done");
     expect(output).not.toContain("alpha results");
   });
@@ -802,16 +802,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output).toContain('glean_search {"query":"alpha"}');
-    expect(output).toContain('glean_search {"query":"beta"}');
+    expect(output).toContain('glean_search: {"query":"alpha"}');
+    expect(output).toContain('glean_search: {"query":"beta"}');
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
 
     settle(first, "alpha results");
     settle(second, "beta results");
     const settled = renderPlain(chat);
-    expect(settled).toContain('glean_search {"query":"alpha"}');
-    expect(settled).toContain('glean_search {"query":"beta"}');
+    expect(settled).toContain('glean_search: {"query":"alpha"}');
+    expect(settled).toContain('glean_search: {"query":"beta"}');
     expect(settled).toContain("→ done");
   });
 
@@ -835,9 +835,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain('glean_search {"query":"x"} → done');
+    expect(output).toContain('glean_search: {"query":"x"} → done');
     expect(output).toContain(
-      'glean_search {"query":"y"} → Error: not connected to server "glean"',
+      'glean_search: {"query":"y"} → Error: not connected to server "glean"',
     );
   });
 
@@ -853,9 +853,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output.match(/%/g)).toHaveLength(1);
-    expect(output).toContain('• glean_search {"query":"alpha"}');
-    expect(output).toContain('• glean_search {"query":"beta"}');
+    expect(output.match(/%/g)).toHaveLength(2);
+    expect(output).toContain('% glean_search: {"query":"alpha"}');
+    expect(output).toContain('% glean_search: {"query":"beta"}');
   });
 
   test("keeps a literal call-label prefix when the error line is long", () => {
@@ -890,7 +890,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat, 60);
     expect(output.split("\n")).toHaveLength(1);
-    expect(output).toContain('glean_search {"query":"x"} → Error: boom');
+    expect(output).toContain('glean_search: {"query":"x"} → Error: boom');
     expect(output).not.toMatch(/…$/);
   });
 
@@ -934,7 +934,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      'mcp search vibecheck {"limit":20,"offset":40} → done',
+      'mcp: search vibecheck {"limit":20,"offset":40} → done',
     );
   });
 
@@ -949,7 +949,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain("mcp auth-start @ glean → done");
+    expect(output).toContain("mcp: auth-start @ glean → done");
   });
 
   test("labels server-only proxy calls as list", () => {
@@ -959,7 +959,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain("mcp list glean → done");
+    expect(output).toContain("mcp: list glean → done");
   });
 
   test("shows a server arg raw for modes the adapter does not scope", () => {
@@ -974,7 +974,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      'mcp describe glean_search {"server":"glean"} → done',
+      'mcp: describe glean_search {"server":"glean"} → done',
     );
     expect(output).not.toContain("@ glean");
   });
@@ -990,33 +990,33 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain('glean_search @ glean {"query":"x"} → done');
+    expect(output).toContain('glean_search: @ glean {"query":"x"} → done');
   });
 
   test.each([
     [
       { tool: "glean_search", args: '{"query": "x"}' },
-      'glean_search {"query":"x"}',
+      'glean_search: {"query":"x"}',
     ],
-    [{ connect: "glean" }, "mcp connect glean"],
-    [{ describe: "glean_search" }, "mcp describe glean_search"],
-    [{ instructions: "user" }, "mcp instructions user"],
+    [{ connect: "glean" }, "mcp: connect glean"],
+    [{ describe: "glean_search" }, "mcp: describe glean_search"],
+    [{ instructions: "user" }, "mcp: instructions user"],
     [
       { search: "vibecheck", limit: 20, offset: 40 },
-      'mcp search vibecheck {"limit":20,"offset":40}',
+      'mcp: search vibecheck {"limit":20,"offset":40}',
     ],
-    [{ action: "auth-start", server: "glean" }, "mcp auth-start @ glean"],
+    [{ action: "auth-start", server: "glean" }, "mcp: auth-start @ glean"],
     [
       {
         action: "auth-complete",
         server: "glean",
         args: '{"redirectUrl":"https://auth.example/cb"}',
       },
-      'mcp auth-complete @ glean {"redirectUrl":"https://auth.example/cb"}',
+      'mcp: auth-complete @ glean {"redirectUrl":"https://auth.example/cb"}',
     ],
-    [{ action: "ui-messages" }, "mcp ui-messages"],
-    [{ server: "glean" }, "mcp list glean"],
-    [{}, "mcp status"],
+    [{ action: "ui-messages" }, "mcp: ui-messages"],
+    [{ server: "glean" }, "mcp: list glean"],
+    [{}, "mcp: status"],
   ])("labels unambiguous proxy shape %j as %s", (args, label) => {
     const chat = new Container();
     const row = createMcpRow(`mcp-mode-${JSON.stringify(args)}`, args, "mcp");
@@ -1034,11 +1034,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
     ],
     [
       { connect: "glean", search: "vibecheck" },
-      ["mcp connect glean", "mcp search vibecheck"],
+      ["mcp: connect glean", "mcp search vibecheck"],
     ],
     [{ tool: "", search: "vibecheck" }, ["mcp search vibecheck", "mcp list"]],
-    [{ tool: "" }, ["mcp tool", "mcp list"]],
-    [{ action: "mystery" }, ["mcp mystery", "mcp list"]],
+    [{ tool: "" }, ["mcp: tool", "mcp list"]],
+    [{ action: "mystery" }, ["mcp: mystery", "mcp list"]],
   ])(
     "renders ambiguous proxy shape %j as its complete args",
     (args, forbidden) => {
@@ -1054,7 +1054,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       const output = renderPlain(chat);
       // Every selector survives in the raw compact shape; no single operation
       // is claimed on the label.
-      expect(output).toContain(`mcp ${JSON.stringify(args)} → done`);
+      expect(output).toContain(`mcp: ${JSON.stringify(args)} → done`);
       for (const needle of forbidden) expect(output).not.toContain(needle);
     },
   );
@@ -1070,7 +1070,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain("mcp search @ glean → done");
+    expect(output).toContain("mcp: search @ glean → done");
     expect(output).not.toContain("mcp list");
   });
 
@@ -1081,7 +1081,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain('some_tool {"tool":"hammer"} → done');
+    expect(output).toContain('some_tool: {"tool":"hammer"} → done');
   });
 });
 
@@ -1154,9 +1154,9 @@ describe("composition with pi-content-layout", () => {
   }
 
   function expectGroupedAndInset(output: string): void {
-    expect(output.match(/%/g)).toHaveLength(1);
-    expect(output).toContain("• npm test → done");
-    expect(output).toContain("• npm run lint → done");
+    expect(output.match(/%/g)).toHaveLength(2);
+    expect(output).toContain("% $: npm test → done");
+    expect(output).toContain("% $: npm run lint → done");
     expect(output).toMatch(/^ {2}Reloaded keybindings/m);
   }
 
