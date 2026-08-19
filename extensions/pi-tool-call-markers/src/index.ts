@@ -750,7 +750,7 @@ function styledCallLabel(
   theme: ThemeLike,
   color = "muted",
 ): string {
-  const plain = stripAnsi(label).trim();
+  const plain = sanitizeInline(stripAnsi(label)).trim();
   const match = /^(\S+)(.*)$/s.exec(plain);
   if (!match) return theme.fg(color, plain);
   return (

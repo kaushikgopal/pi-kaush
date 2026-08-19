@@ -182,7 +182,6 @@ vi.mock("@earendil-works/pi-tui", () => ({
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   AssistantMessageComponent: MockAssistantMessageComponent,
-  keyHint: (_binding: string, description: string) => `Ctrl+O ${description}`,
   ToolExecutionComponent: MockToolExecutionComponent,
 }));
 
@@ -303,6 +302,20 @@ describe("tool-call-markers grouping", () => {
     for (const line of lines) {
       expect(stripAnsi(line)).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
     }
+  });
+
+  test("sanitizes control bytes and OSC from self-rendered call labels", () => {
+    const chat = new MockContainer();
+    const row = succeeded("edit", "ignored", "self");
+    row.args = { path: "src/a.ts\x07\x1b]8;;https://evil\x07", edits: [] };
+    chat.addChild(row);
+
+    const lines = chat.render(100);
+    const plain = lines.map(stripAnsi).join("\n");
+    expect(plain).toContain("% edit src/a.ts");
+    expect(plain).not.toContain("\x07");
+    expect(plain).not.toContain("\x1b]");
+    expect(plain).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
   });
 
   test("renders failed rows entirely in error", () => {
