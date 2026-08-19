@@ -1,10 +1,25 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+// Mirrors Pi core: the hidden label renders as a Text node wrapped in
+// italic + thinkingText, rebuilt on every update pass.
+class MockLabelText {
+  text: string;
+
+  constructor(label: string) {
+    this.text = `\x1b[3m\x1b[90m${label}\x1b[39m\x1b[23m`;
+  }
+
+  setText(text: string) {
+    this.text = text;
+  }
+}
+
 class MockAssistantMessageComponent {
   hiddenThinkingLabel = "Thinking...";
   hideThinkingBlock = true;
   lastArgs: unknown[] = [];
   lastMessage?: { content: unknown[] };
+  contentContainer: { children: unknown[] } = { children: [] };
 
   setHiddenThinkingLabel(label: string) {
     this.hiddenThinkingLabel = label;
@@ -13,6 +28,15 @@ class MockAssistantMessageComponent {
   updateContent(message: { content: unknown[] }, ...args: unknown[]) {
     this.lastMessage = message;
     this.lastArgs = args;
+    this.contentContainer.children =
+      this.hideThinkingBlock === true &&
+      typeof this.hiddenThinkingLabel === "string"
+        ? [new MockLabelText(this.hiddenThinkingLabel)]
+        : [];
+  }
+
+  get labelChild(): MockLabelText | undefined {
+    return this.contentContainer.children[0] as MockLabelText | undefined;
   }
 }
 
@@ -20,26 +44,39 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   AssistantMessageComponent: MockAssistantMessageComponent,
 }));
 
-const { default: thinkingBlockMerger } = await import(
+const { default: thinkingBlockMerger, visibleThoughtLabel } = await import(
   "../src/thinking-block-merger.ts"
 );
 const shutdownHandlers: Array<() => void> = [];
+const sessionStartHandlers: Array<
+  (event: unknown, ctx: { mode: string; ui: { theme?: unknown } }) => void
+> = [];
 
 function install(): void {
   thinkingBlockMerger({
-    on(event: string, handler: () => void) {
+    on(event: string, handler: never) {
       if (event === "session_shutdown") shutdownHandlers.push(handler);
+      if (event === "session_start") sessionStartHandlers.push(handler);
     },
   } as never);
 }
 
+function startSession(theme?: unknown): void {
+  for (const handler of sessionStartHandlers) {
+    handler({}, { mode: "tui", ui: { theme } });
+  }
+}
+
 beforeEach(() => {
   shutdownHandlers.length = 0;
+  sessionStartHandlers.length = 0;
   install();
 });
 
 afterEach(() => {
   for (const handler of shutdownHandlers.splice(0)) handler();
+  vi.unstubAllEnvs();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -225,6 +262,75 @@ describe("thinking block merger", () => {
       MockAssistantMessageComponent.prototype.updateContent =
         originalUpdateContent;
     }
+  });
+
+  test("replaces label nodes with non-italic cobalt2-orange text", () => {
+    vi.useFakeTimers();
+    startSession({ getColorMode: () => "truecolor" });
+    const assistant = new MockAssistantMessageComponent();
+
+    vi.setSystemTime(1_000);
+    assistant.updateContent(thinkingMessage(), true);
+    // The field stays plain; styling happens on the rendered Text node so
+    // the TUI diff renderer cannot skip the italic reset.
+    expect(assistant.hiddenThinkingLabel).toBe("⠋ Thinking…");
+    expect(assistant.labelChild?.text).toBe(
+      "\x1b[23m\x1b[38;2;255;184;108m⠋ Thinking…\x1b[39m",
+    );
+
+    vi.setSystemTime(3_500);
+    assistant.updateContent(thinkingMessage(), false);
+    expect(assistant.hiddenThinkingLabel).toBe("+ Thought · 2.5s");
+    expect(assistant.labelChild?.text).toBe(
+      "\x1b[23m\x1b[38;2;255;184;108m+ Thought · 2.5s\x1b[39m",
+    );
+  });
+
+  test("leaves visible-thinking rows without a replacement node", () => {
+    startSession({ getColorMode: () => "truecolor" });
+    const visible = new MockAssistantMessageComponent();
+    visible.hideThinkingBlock = false;
+    visible.updateContent(thinkingMessage(), false);
+    expect(visible.contentContainer.children).toEqual([]);
+  });
+
+  test("maps the orange to the 256-color cube on indexed terminals", () => {
+    startSession({ getColorMode: () => "256color" });
+    expect(visibleThoughtLabel("+ Thought")).toBe(
+      "\x1b[23m\x1b[38;5;215m+ Thought\x1b[39m",
+    );
+  });
+
+  test("computes the gray variant as the muted/text midpoint", () => {
+    vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "gray");
+    startSession({
+      getFgAnsi(color: string) {
+        return color === "muted"
+          ? "\x1b[38;2;98;114;164m"
+          : "\x1b[38;2;248;248;242m";
+      },
+    });
+    expect(visibleThoughtLabel("+ Thought · 2.5s")).toBe(
+      "\x1b[23m\x1b[38;2;173;181;203m+ Thought · 2.5s\x1b[39m",
+    );
+  });
+
+  test("keeps native styling for the inherit variant and missing themes", () => {
+    vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "inherit");
+    startSession({ getColorMode: () => "truecolor" });
+    expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+
+    vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "gray");
+    startSession(undefined);
+    expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+  });
+
+  test("drops styling again on shutdown", () => {
+    startSession({ getColorMode: () => "truecolor" });
+    expect(visibleThoughtLabel("+ Thought")).not.toBe("+ Thought");
+    for (const handler of shutdownHandlers.splice(0)) handler();
+    expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+    install();
   });
 
   test("restores the original renderer on shutdown", () => {
