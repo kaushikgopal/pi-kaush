@@ -315,6 +315,29 @@ describe("tool-call-markers grouping", () => {
     expect(plain).toContain("% edit src/a.ts");
     expect(plain).not.toContain("\x07");
     expect(plain).not.toContain("\x1b]");
+    // The whole OSC sequence is removed, not just its introducer: no payload
+    // text may survive as visible output.
+    expect(plain).not.toContain("https://evil");
+    expect(plain).not.toContain("8;;");
+    expect(plain).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+  });
+
+  test("sanitizes model-supplied subagent agent, profile, and task text", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = {
+      agent: "rev\x1b[2Jiewer",
+      profile: "fa\x1b[31mst",
+      task: "Inspect\rthe plan",
+    };
+    row.updateResult({ isError: false, output: "child result" });
+    chat.addChild(row);
+
+    const plain = chat.render(100).map(stripAnsi).join("\n");
+    expect(plain).toContain("reviewer");
+    expect(plain).toContain("[fast]");
+    expect(plain).toContain("Inspect the plan");
+    expect(plain).not.toContain("2J");
     expect(plain).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
   });
 

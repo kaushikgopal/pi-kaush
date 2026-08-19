@@ -1088,7 +1088,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
 describe("composition with pi-content-layout", () => {
   type PiHandler = (event: unknown, ctx: unknown) => void;
 
-  function installBoth(layoutFirst: boolean): { fireShutdown: () => void } {
+  function installBoth(layoutFirst: boolean): {
+    fireShutdown: () => void;
+    shutdownNext: () => void;
+  } {
     const starts: PiHandler[] = [];
     const shutdowns: PiHandler[] = [];
     const pi = {
@@ -1112,6 +1115,9 @@ describe("composition with pi-content-layout", () => {
     const fireShutdown = () => {
       for (const handler of shutdowns.splice(0)) handler({}, ctx);
     };
+    const shutdownNext = () => {
+      shutdowns.shift()?.({}, ctx);
+    };
     if (layoutFirst) {
       // Retire the beforeEach install so content-layout wraps the native
       // container render first; markers' factory then wraps content-layout.
@@ -1125,7 +1131,7 @@ describe("composition with pi-content-layout", () => {
       contentLayout(pi);
       fireStart();
     }
-    return { fireShutdown };
+    return { fireShutdown, shutdownNext };
   }
 
   function buildTranscript(): Container {
@@ -1167,6 +1173,28 @@ describe("composition with pi-content-layout", () => {
     const { fireShutdown } = installBoth(true);
     try {
       expectGroupedAndInset(renderPlain(buildTranscript()));
+    } finally {
+      fireShutdown();
+    }
+  });
+
+  test("grouping stops when markers shuts down before content-layout", () => {
+    const { fireShutdown, shutdownNext } = installBoth(false);
+    try {
+      // Markers' shutdown runs first: the grouping wrapper is shadowed by
+      // content-layout and cannot be uninstalled, so it must go inert.
+      shutdownNext();
+      const output = renderPlain(buildTranscript());
+      expect(output).not.toContain("% $");
+      expect(output).not.toContain("• npm test");
+
+      // Content-layout's shutdown then restores the wrapper it captured —
+      // the now-inert grouping wrapper — so system text loses its inset too.
+      shutdownNext();
+      const restored = renderPlain(buildTranscript());
+      expect(restored).not.toContain("% $");
+      expect(restored).not.toMatch(/^ {2}Reloaded keybindings/m);
+      expect(restored).toMatch(/^ Reloaded keybindings/m);
     } finally {
       fireShutdown();
     }

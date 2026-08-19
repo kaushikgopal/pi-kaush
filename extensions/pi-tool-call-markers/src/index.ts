@@ -74,6 +74,7 @@ type GroupingPatchState = {
   presentation: PresentationPatchState;
   originalRender: (width: number) => string[];
   patchedRender?: (width: number) => string[];
+  disabled?: boolean;
 };
 
 type GroupRenderCache = {
@@ -102,8 +103,10 @@ function stripAnsi(text: string): string {
 // it can reach a row; a bare \r would otherwise return the cursor to column 0
 // and overwrite the row's own marker.
 const INLINE_CONTROL_RE = /[\x00-\x08\x0b-\x1f\x7f]/g;
+// OSC first: the two-byte alternative would otherwise consume `\x1b]` and
+// leave the hyperlink payload behind as visible text.
 const DISPLAY_ANSI_RE =
-  /\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
+  /\x1b(?:\][^\x07]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g;
 
 function sanitizeInline(text: string): string {
   return text.replace(DISPLAY_ANSI_RE, "").replace(INLINE_CONTROL_RE, " ");
@@ -933,7 +936,7 @@ function scrapeSubagentDisplayNames(
 }
 
 function subagentStepPreview(task: string): string {
-  const clean = task
+  const clean = sanitizeInline(task)
     .replace(/\{previous\}/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -957,12 +960,14 @@ function renderSubagentPlan(
   const nameColor = failed ? "error" : "accent";
   const suffix = theme.fg(color, "…");
   const displayNames = scrapeSubagentDisplayNames(row);
+  // Agent/profile/task values are model-supplied; sanitize them like every
+  // other collapsed-row text so control bytes cannot reach the terminal.
   const displayOf = (agent: string) =>
-    theme.fg(nameColor, displayNames.get(agent) ?? agent);
+    theme.fg(nameColor, displayNames.get(agent) ?? sanitizeInline(agent));
   const detailOf = (step: SubagentStep) =>
     theme.fg(
       color,
-      `${step.profile ? ` [${step.profile}]` : ""} ${subagentStepPreview(step.task)}`,
+      `${step.profile ? ` [${sanitizeInline(step.profile)}]` : ""} ${subagentStepPreview(step.task)}`,
     );
 
   const marker = `${theme.fg(color, theme.bold(GROUP_MARKER))} `;
@@ -1274,6 +1279,7 @@ function installGroupingPatch(
     const existing = proto[GROUPING_PATCHED];
     if (existing) {
       existing.presentation = presentation;
+      existing.disabled = false;
       return existing;
     }
 
@@ -1286,7 +1292,11 @@ function installGroupingPatch(
       width: number,
     ): string[] {
       const children = this.children;
-      if (!Array.isArray(children) || !children.some(isToolExecutionRow)) {
+      if (
+        state.disabled ||
+        !Array.isArray(children) ||
+        !children.some(isToolExecutionRow)
+      ) {
         return state.originalRender.call(this, width);
       }
       let restoreHooks: () => void = () => {};
@@ -1322,6 +1332,10 @@ function installGroupingPatch(
 
 function uninstallGroupingPatch(state: GroupingPatchState | undefined): void {
   if (!state) return;
+  // Even when another extension's wrapper sits on top of ours, grouping must
+  // not outlive its owner: the wrapper delegates once disabled, and a later
+  // reinstall re-enables it.
+  state.disabled = true;
   const proto = Container?.prototype as unknown as ComponentContainer & {
     [GROUPING_PATCHED]?: GroupingPatchState;
     render?: (width: number) => string[];

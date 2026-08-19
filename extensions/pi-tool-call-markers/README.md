@@ -33,7 +33,7 @@ A recognized `subagent` call renders as an unboxed plan in the shared tool aesth
     2. 🐝 bee …
 ```
 
-Single calls stay on one `% subagent <agent> [profile] <task preview>` row; chain and parallel calls get a heading with the kind, count, and scope followed by numbered steps. Agent display names (emoji + name) are scraped from the native plan component with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
+Single calls stay on one `% subagent <agent> [profile] <task preview>` row; chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers). Agent display names (emoji + name) are scraped from the native plan component with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
 
 Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `% subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
 
