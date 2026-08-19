@@ -6,7 +6,12 @@ import {
   type Theme,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
-import type { EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
+import {
+  type EditorComponent,
+  type EditorTheme,
+  Loader,
+  type TUI,
+} from "@earendil-works/pi-tui";
 import {
   chatContainerHooks,
   runChatContainerHooks,
@@ -24,6 +29,9 @@ const ASSISTANT_RENDER_PATCH = Symbol.for(
 const USER_RENDER_PATCH = Symbol.for("kg.pi.contentLayout.userRender.v1");
 const SYSTEM_CONTAINER_RENDER_PATCH = Symbol.for(
   "kg.pi.contentLayout.systemContainerRender.v1",
+);
+const STATUS_LOADER_RENDER_PATCH = Symbol.for(
+  "kg.pi.contentLayout.statusLoaderRender.v1",
 );
 
 type EditorFactory = (
@@ -49,10 +57,54 @@ type NativeTextRow = RenderRow & {
   customBgFn?: unknown;
 };
 
+type LoaderRow = RenderRow & {
+  kind?: unknown;
+  paddingX?: unknown;
+};
+
 type RenderPatchState = {
   originalRender: (this: RenderRow, width: number) => string[];
   patchedRender: (this: RenderRow, width: number) => string[];
   owners: Map<object, ThemeGetter>;
+  cache: WeakMap<object, RenderCacheEntry>;
+};
+
+type RenderCacheEntry = {
+  width: number;
+  src: string[];
+  lines: string[];
+};
+
+// ==================================================================
+// Render memoization — PLEASE DO NOT REMOVE OR "SIMPLIFY" THIS CACHE.
+// ==================================================================
+//
+// Pi's TUI re-renders the ENTIRE transcript on every keystroke (the frame
+// walk is O(session) in pi-tui 0.84.x; upstream viewport-windowing work is
+// not merged yet). Components normally stay fast because leaf components
+// reuse cached line strings until their content changes. This package,
+// however, decorates message lines AFTER rendering — building brand-new
+// strings (insets, rails, backgrounds) for every line of every message on
+// every frame. Measured on a ~1,000-message session that cost ~90 ms per
+// keystroke and made the input box visibly lag as sessions grew.
+//
+// The cache below makes decoration cost O(changed messages) instead of
+// O(all messages): decorators compare the freshly rendered source lines
+// against the lines they decorated last frame BY IDENTITY (=== per element)
+// and reuse the decorated output when nothing changed. Identity comparison
+// is what makes the cache self-invalidating across every change path —
+// streaming chunks, content edits, theme switches — because all of those
+// regenerate the source strings upstream of us. This is why there is no
+// explicit invalidate wiring here: partial invalidation would be worse than
+// none, and identity checks can never miss a real change.
+//
+// If typing ever gets slow again in long sessions, suspect this cache first.
+// ==================================================================
+type RenderMemo = {
+  /** Decorated lines from the last frame, when `src` is unchanged. */
+  hit(src: string[]): string[] | undefined;
+  /** Record decorated output keyed by the source lines that produced it. */
+  store(src: string[], out: string[]): void;
 };
 
 type RenderDecorator = (
@@ -60,6 +112,7 @@ type RenderDecorator = (
   row: RenderRow,
   width: number,
   theme: Theme,
+  memo: RenderMemo,
 ) => string[];
 
 type PatchableRenderPrototype = RenderRow &
@@ -87,14 +140,32 @@ function installRenderPatch(
     const state = {} as RenderPatchState;
     state.originalRender = prototype.render;
     state.owners = new Map([[owner, getTheme]]);
+    state.cache = new WeakMap();
     state.patchedRender = function renderWithContentLayout(
       this: RenderRow,
       width: number,
     ): string[] {
       const theme = currentTheme(state);
       if (!theme) return state.originalRender.call(this, width);
+      // See the memoization block above RenderMemo: decorators get a memo
+      // bound to this row + width so unchanged rows skip string building.
+      const entry = state.cache.get(this);
+      const memo: RenderMemo = {
+        hit: (src: string[]): string[] | undefined => {
+          if (!entry || entry.width !== width) return undefined;
+          const prev = entry.src;
+          if (prev.length !== src.length) return undefined;
+          for (let i = 0; i < src.length; i++) {
+            if (prev[i] !== src[i]) return undefined;
+          }
+          return entry.lines;
+        },
+        store: (src: string[], out: string[]): void => {
+          state.cache.set(this, { width, src, lines: out });
+        },
+      };
       try {
-        return decorate(state.originalRender, this, width, theme);
+        return decorate(state.originalRender, this, width, theme, memo);
       } catch {
         return state.originalRender.call(this, width);
       }
@@ -131,6 +202,8 @@ function assistantDecorator(
   original: RenderPatchState["originalRender"],
   row: RenderRow,
   width: number,
+  _theme: Theme,
+  memo: RenderMemo,
 ): string[] {
   const nativeInset = Math.max(
     0,
@@ -139,7 +212,11 @@ function assistantDecorator(
   const inset = Math.max(0, contentInset(width) - nativeInset);
   if (inset === 0) return original.call(row, width);
   const lines = original.call(row, Math.max(1, width - inset * 2));
-  return insetLines(lines, width, inset);
+  const cached = memo.hit(lines);
+  if (cached) return cached;
+  const decorated = insetLines(lines, width, inset);
+  memo.store(lines, decorated);
+  return decorated;
 }
 
 function isChatMessageChild(child: unknown): boolean {
@@ -212,10 +289,31 @@ function systemTextHook(
   };
 }
 
+// Status indicators (Working/Retry/Compaction/BranchSummary) sit in a
+// sibling container that the chat-child hooks never see, so they need their
+// own inset to line up with the chat content. StatusIndicator marks Loader
+// subclasses with a `kind`; bare Loaders inside tool boxes keep native
+// layout.
+function statusLoaderDecorator(
+  original: RenderPatchState["originalRender"],
+  row: RenderRow,
+  width: number,
+): string[] {
+  if (typeof (row as LoaderRow).kind !== "string")
+    return original.call(row, width);
+  const nativeInset = Math.max(0, Number((row as LoaderRow).paddingX) || 0);
+  const inset = Math.max(0, contentInset(width) - nativeInset);
+  if (inset === 0) return original.call(row, width);
+  const lines = original.call(row, Math.max(1, width - inset * 2));
+  return insetLines(lines, width, inset);
+}
+
 function systemContainerDecorator(
   original: RenderPatchState["originalRender"],
   row: RenderRow,
   width: number,
+  _theme: Theme,
+  memo: RenderMemo,
 ): string[] {
   const restore = runChatContainerHooks(
     row,
@@ -223,7 +321,14 @@ function systemContainerDecorator(
     width,
   );
   try {
-    return original.call(row, width);
+    const lines = original.call(row, width);
+    // Decoration happens inside the children during the original call, so
+    // the decorated output IS the source output; cache it the same way so
+    // downstream containers reuse the array instead of re-concatenating.
+    const cached = memo.hit(lines);
+    if (cached) return cached;
+    memo.store(lines, lines);
+    return lines;
   } finally {
     restore();
   }
@@ -234,12 +339,17 @@ function userDecorator(
   row: RenderRow,
   width: number,
   theme: Theme,
+  memo: RenderMemo,
 ): string[] {
   const inset = contentInset(width);
   const bodyWidth = width - inset * 2 - 1;
   if (inset === 0 || bodyWidth < 1) return original.call(row, width);
   const lines = original.call(row, bodyWidth);
-  return renderSubmittedUserLines(lines, width, theme, inset);
+  const cached = memo.hit(lines);
+  if (cached) return cached;
+  const decorated = renderSubmittedUserLines(lines, width, theme, inset);
+  memo.store(lines, decorated);
+  return decorated;
 }
 
 function decorateEditor(
@@ -275,6 +385,7 @@ export default function contentLayout(pi: ExtensionAPI): void {
   let assistantPatch: RenderPatchState | undefined;
   let userPatch: RenderPatchState | undefined;
   let systemContainerPatch: RenderPatchState | undefined;
+  let statusLoaderPatch: RenderPatchState | undefined;
   let editorRegistration:
     | {
         factory: EditorFactory;
@@ -316,6 +427,13 @@ export default function contentLayout(pi: ExtensionAPI): void {
       owner,
       getTheme,
       systemContainerDecorator,
+    );
+    statusLoaderPatch = installRenderPatch(
+      Loader.prototype as unknown as PatchableRenderPrototype,
+      STATUS_LOADER_RENDER_PATCH,
+      owner,
+      getTheme,
+      statusLoaderDecorator,
     );
 
     const previous = ctx.ui.getEditorComponent() as EditorFactory | undefined;
@@ -359,9 +477,16 @@ export default function contentLayout(pi: ExtensionAPI): void {
       owner,
       systemContainerPatch,
     );
+    uninstallRenderPatch(
+      Loader.prototype as unknown as PatchableRenderPrototype,
+      STATUS_LOADER_RENDER_PATCH,
+      owner,
+      statusLoaderPatch,
+    );
     assistantPatch = undefined;
     userPatch = undefined;
     systemContainerPatch = undefined;
+    statusLoaderPatch = undefined;
     activeTheme = undefined;
   });
 }

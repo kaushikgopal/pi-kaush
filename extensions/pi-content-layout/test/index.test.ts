@@ -9,8 +9,8 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
-import { Container, Text, visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { Container, Loader, Text, visibleWidth } from "@earendil-works/pi-tui";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   chatContainerHooks,
   runChatContainerHooks,
@@ -379,6 +379,49 @@ describe("native transcript adapters", () => {
     expect(columnOf(editorLine, "editor probe")).toBe(OUTER_INSET);
   });
 
+  test("aligns status indicators with the chat content inset", () => {
+    vi.useFakeTimers();
+    const harness = createHarness(() => new TestEditor());
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    const width = 40;
+    const columnOf = (line: string | undefined, needle: string) =>
+      stripControls(line ?? "").indexOf(needle);
+
+    const ui = { requestRender() {} } as unknown as TUI;
+
+    // StatusIndicator subclasses Loader and tags the instance with a kind.
+    const working = new Loader(
+      ui,
+      (spinner) => spinner,
+      (text) => text,
+      "Working...",
+    );
+    (working as unknown as { kind?: string }).kind = "working";
+    const workingLine = working
+      .render(width)
+      .find((line) => stripControls(line).includes("Working..."));
+    // The spinner frame (2 columns) follows the inset, like chat content.
+    expect(columnOf(workingLine, "⠋")).toBe(OUTER_INSET);
+    expect(columnOf(workingLine, "Working...")).toBe(OUTER_INSET + 2);
+    working.stop();
+
+    // Bare loaders (e.g. inside tool execution boxes) keep native layout.
+    const bare = new Loader(
+      ui,
+      (spinner) => spinner,
+      (text) => text,
+      "Running...",
+    );
+    const bareLine = bare
+      .render(width)
+      .find((line) => stripControls(line).includes("Running..."));
+    expect(columnOf(bareLine, "⠋")).toBe(1);
+    bare.stop();
+    vi.useRealTimers();
+  });
+
   test("keeps system rows inset when an outer grouping wrapper composes through hooks", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);
@@ -444,6 +487,7 @@ describe("native transcript adapters", () => {
       AssistantMessageComponent.prototype,
     ) as { render: unknown };
     const containerRender = containerPrototype.render;
+    const loaderRender = Loader.prototype.render;
     const harness = createHarness(() => new TestEditor());
 
     harness.fire("session_start");
@@ -452,10 +496,12 @@ describe("native transcript adapters", () => {
     );
     expect(UserMessageComponent.prototype.render).not.toBe(userRender);
     expect(containerPrototype.render).not.toBe(containerRender);
+    expect(Loader.prototype.render).not.toBe(loaderRender);
 
     harness.fire("session_shutdown");
     expect(AssistantMessageComponent.prototype.render).toBe(assistantRender);
     expect(UserMessageComponent.prototype.render).toBe(userRender);
     expect(containerPrototype.render).toBe(containerRender);
+    expect(Loader.prototype.render).toBe(loaderRender);
   });
 });
