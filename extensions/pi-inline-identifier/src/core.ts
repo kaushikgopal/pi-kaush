@@ -1,7 +1,8 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  InputEventResult,
+import {
+  CustomEditor,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type InputEventResult,
 } from "@earendil-works/pi-coding-agent";
 import {
   type AutocompleteItem,
@@ -63,7 +64,7 @@ type FeatureRegistration = {
 type DecorationState = {
   decorateLines?: (lines: string[]) => string[];
   owner?: object;
-  patchedPrototype?: object;
+  patchedPrototypes?: WeakSet<object>;
   patchVersion?: number;
 };
 
@@ -114,15 +115,13 @@ function debouncePattern(characters: string[]): RegExp {
   );
 }
 
-function installEditorRenderPatch(): void {
-  const state = decorationState();
-  const prototype = Editor.prototype as unknown as EditorPrototype;
-  if (
-    state.patchedPrototype === prototype &&
-    state.patchVersion === EDITOR_PATCH_VERSION
-  ) {
-    return;
-  }
+function patchEditorPrototype(
+  prototype: EditorPrototype,
+  state: DecorationState,
+): void {
+  const patched = state.patchedPrototypes ?? new WeakSet<object>();
+  state.patchedPrototypes = patched;
+  if (patched.has(prototype)) return;
 
   const originalRender = prototype.render;
   prototype.render = function renderWithInlineIdentifiers(
@@ -151,8 +150,26 @@ function installEditorRenderPatch(): void {
       };
   }
 
-  state.patchedPrototype = prototype;
-  state.patchVersion = EDITOR_PATCH_VERSION;
+  patched.add(prototype);
+}
+
+function installEditorRenderPatch(): void {
+  const state = decorationState();
+  if (state.patchVersion !== EDITOR_PATCH_VERSION) {
+    state.patchedPrototypes = new WeakSet();
+    state.patchVersion = EDITOR_PATCH_VERSION;
+  }
+
+  const editorPrototype = Editor.prototype as unknown as EditorPrototype;
+  patchEditorPrototype(editorPrototype, state);
+
+  // CustomEditor can inherit from a host-owned pi-tui copy while extensions
+  // resolve their peer pi-tui from a different path. Patch that distinct
+  // prototype too; when both resolve to one class, the base patch is enough.
+  const customPrototype = CustomEditor.prototype as unknown as EditorPrototype;
+  if (!Editor.prototype.isPrototypeOf(CustomEditor.prototype)) {
+    patchEditorPrototype(customPrototype, state);
+  }
 }
 
 function definitionsFor(

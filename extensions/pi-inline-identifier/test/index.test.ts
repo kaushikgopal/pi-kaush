@@ -35,7 +35,11 @@ const tuiMock = vi.hoisted(() => {
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
-  return { ...original, getAgentDir: () => runtimeMock.agentDir };
+  return {
+    ...original,
+    CustomEditor: tuiMock.FakeEditor,
+    getAgentDir: () => runtimeMock.agentDir,
+  };
 });
 
 vi.mock("@earendil-works/pi-tui", () => ({

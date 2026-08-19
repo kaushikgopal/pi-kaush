@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Reuse prompt templates already present in active model context through a compact reference, while reinserting the full body after compaction, branch changes, or template revisions.
+- Preserve identifier coloring when Pi's host `CustomEditor` and the extension-resolved `Editor` come from separate `pi-tui` module instances, including either load order with render-only custom editor factories.
 
 ## 0.1.2
 

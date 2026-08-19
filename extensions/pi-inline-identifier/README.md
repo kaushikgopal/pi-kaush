@@ -69,7 +69,7 @@ If the template inserts the request through `$1`, `$@`, `$ARGUMENTS`, or a match
 
 ## Compatibility
 
-The package does not replace Pi's editor. It installs one guarded render wrapper for coloring and one guarded autocomplete-trigger wrapper so `/` can open completion after ordinary text. Pi otherwise reserves `/` for leading command completion and exposes no public inline-slash trigger API. If those editor internals change, inline slash autocomplete may require an update; input routing remains independent.
+The package does not replace Pi's editor. It installs guarded render and autocomplete-trigger wrappers so `/` can open completion after ordinary text. It covers both the extension-resolved `Editor` and Pi's host `CustomEditor` when those classes come from separate `pi-tui` module instances, so render-only custom editor factories such as `pi-content-layout` keep identifier coloring in either load order. Pi otherwise reserves `/` for leading command completion and exposes no public inline-slash trigger API. If those editor internals change, inline slash autocomplete may require an update; input routing remains independent.
 
 ## Performance
 
