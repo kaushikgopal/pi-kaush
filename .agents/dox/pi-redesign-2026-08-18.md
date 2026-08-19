@@ -145,7 +145,7 @@ package manifest verify 0.1.6. Visual review remains open pending user feedback.
       hidden. Code-side complete (9/9 footer tests).
 - [x] **F33 — Per-call `% tool:` lines (2026-08-19; supersedes F32's nested layout).**
       User redirect: grouped calls should each render like a singleton — `% tool: call →
-  outcome` per line at the shared inset, tool name bolded, no bullets, no blank lines
+outcome` per line at the shared inset, tool name bolded, no bullets, no blank lines
       between sections. Grouping behavior (adjacency, live-batch settling, cache) is
       unchanged; the presentation collapsed to one line per call everywhere, singleton or
       grouped. Code-side complete (142/142 markers tests).
