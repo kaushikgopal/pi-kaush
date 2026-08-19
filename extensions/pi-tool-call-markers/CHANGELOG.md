@@ -6,17 +6,13 @@
 - Strip display sequences and control bytes (notably `\r` from progress writers like git) from collapsed-row text so command output cannot return the cursor to column 0 and overwrite the row.
 - Color the truncation ellipsis to match its row tone (`muted` settled, `error` failed) instead of the terminal default foreground left by pi-tui's truncation reset.
 - Render failed tool rows entirely in `error` — marker, call label, and outcome tail including the arrow and truncation ellipsis — so errored calls stand out as full red lines.
-- Render settled tool rows in one uniform `muted` tone — group headings,
-  bullets, summaries, and outcomes — while keeping `warning` pending and
-  `error` failure states semantic; subagent cards keep their accent-rail
-  design.
+- Render settled tool rows in one uniform `muted` tone — group headings, bullets, summaries, and outcomes — while keeping `warning` pending and `error` failure states semantic.
 - Compose container-level rendering through the shared
   `kg.pi.chatContainerHooks.v1` registry so grouping no longer shadows (or is
   shadowed by) `pi-content-layout`'s system-message inset in either load order.
 - Label self-rendered `edit` rows by path (`edit <path>`), matching Pi's native
   call line instead of dumping the raw `{ path, edits }` JSON payload.
 - Redesign collapsed tools as unboxed, background-free transcript lines with a two-column outer inset, `%` tool/group headings, `•` grouped children, and semantic low-contrast foregrounds with clear warning/error states.
-- Add a width-safe two-line accent-rail card for recognized single, parallel, and chain `subagent` calls, including a humanized title, first useful task sentence, themed expand hint, generic fallback, and native `Ctrl+O` details.
 - Preserve compact outcomes, right-hand tail reservation, `bash` duration, errors, image output, quiet-turn grouping, grouped-render caching, and MCP/self-rendered tool labels in the new shell.
 - Keep expanded rows fully native so `Ctrl+O` restores complete results, custom renderers, and errors without collapsed decoration.
 - Label hidden local reasoning with Pi's native braille spinner sequence (`⠋ Thinking…`, `⠙ Thinking…`, …) while streaming and `+ Thought · X.Xs` when finalized; use `+ Thought` for restored messages and older runtimes without streaming metadata.

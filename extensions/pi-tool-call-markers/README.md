@@ -23,18 +23,19 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 - **Images remain visible.** Image fallback text and terminal image components render below the corresponding marker with the same inset.
 - **Native expansion remains authoritative.** `Ctrl+O` restores Pi's full individual tool rendering, including complete results, custom renderers, and error details.
 
-## Subagent cards
+## Subagent plans
 
-A recognized ungrouped `subagent` call renders as a two-line accent-rail card:
+A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic:
 
 ```text
-  ▌ Red Team Task — Challenge the compatibility conclusion
-  ▌ Ctrl+O view subagents
+  % subagent chain (3 steps) [repo-review]
+    1. 🐝 bee [workhorse] Challenge the compatibility conclusion…
+    2. 🐝 bee …
 ```
 
-Single, parallel, and chain argument shapes receive deterministic humanized titles and the first useful task sentence. The configured `app.tools.expand` keybinding is rendered through Pi's themed key hint. Subagents never join ordinary tool groups.
+Single calls stay on one `% subagent <agent> [profile] <task preview>` row; chain and parallel calls get a heading with the kind, count, and scope followed by numbered steps. Agent display names (emoji + name) are scraped from the native plan component with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
 
-Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `% subagent …` row rather than dropping information. Failed cards keep a compact error tail, and `Ctrl+O` still exposes the native subagent renderer.
+Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `% subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
 
 ## Bundled thinking-block extension
 

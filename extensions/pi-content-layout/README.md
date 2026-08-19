@@ -34,8 +34,8 @@ The package is not published while its version is `0.0.0`; use the repository pa
 The active editor surface and submitted message body paint with a fixed
 near-black `#071312` background (`PROMPT_SURFACE_BG`) so both user-input
 surfaces stay identical; the theme's `selectedBg` token continues to serve
-selections and dialogs. The only theme token this extension consumes is
-`accent`, for the submitted-prompt rail.
+selections and dialogs. The extension consumes two theme tokens: `accent`
+for the submitted-prompt rail and `muted` for the editor scroll hints.
 
 Themes control colors, while this extension controls width and component
 shape; a theme cannot provide the layout itself.

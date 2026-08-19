@@ -3,7 +3,6 @@
 ## Unreleased
 
 - Prepend one blank separator row above the footer metadata, restoring visual separation from the active prompt surface (supersedes the zero-separator prototype).
-- Start footer metadata immediately after the active prompt; its bottom rail-padding row provides separation without another blank row.
 - Inset both footer metadata lines two columns from the terminal edges (was one).
 - Move the working state into the footer: hide Pi's native working row via `ctx.ui.setWorkingVisible(false)` and animate only Pi's native braille indicator (`⠋`, `⠙`, `⠹`, …) immediately left of the right-aligned model.
 - Remove the gateway provider from line 1 and show it only on the optional `/footer-more-stats` line.
