@@ -67,6 +67,7 @@ export default function (pi: ExtensionAPI) {
   let spinnerIndex = 0;
   let spinnerTimer: ReturnType<typeof setInterval> | undefined;
   let hidNativeWorking = false;
+  let footerActive = false;
 
   const stopSpinner = () => {
     if (spinnerTimer !== undefined) {
@@ -76,6 +77,9 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.on("agent_start", () => {
+    // Only animate while this extension's footer is actually registered;
+    // after disposal another footer owns the working indicator.
+    if (!footerActive) return;
     isWorking = true;
     spinnerIndex = 0;
     stopSpinner();
@@ -136,12 +140,16 @@ export default function (pi: ExtensionAPI) {
     hidNativeWorking = true;
 
     ctx.ui.setFooter((tui, theme, footerData) => {
+      footerActive = true;
       const rerender = () => tui.requestRender();
       requestFooterRender = rerender;
       const unsubBranch = footerData.onBranchChange(rerender);
 
       function render(width: number): string[] {
-        const contentWidth = Math.max(1, width - EDGE_PAD * 2);
+        // Below the inset threshold the decoration drops entirely, so the
+        // content budget is the full width, matching padFooterLine.
+        const contentWidth =
+          width > EDGE_PAD * 2 ? width - EDGE_PAD * 2 : width;
         const statuses = footerData.getExtensionStatuses();
 
         // Cumulative session usage (same entries native pi counts)
@@ -346,9 +354,16 @@ export default function (pi: ExtensionAPI) {
 
       return {
         dispose() {
+          footerActive = false;
           unsubBranch();
-          stopSpinner();
+          stopWorking();
           if (requestFooterRender === rerender) requestFooterRender = undefined;
+          // Never leave Pi's native working row hidden when another footer
+          // replaces this one before session shutdown.
+          if (hidNativeWorking) {
+            ctx.ui.setWorkingVisible(true);
+            hidNativeWorking = false;
+          }
         },
         invalidate() {},
         render,

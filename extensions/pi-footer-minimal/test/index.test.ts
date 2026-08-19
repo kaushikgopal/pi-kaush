@@ -169,6 +169,18 @@ describe("edge padding", () => {
       expect(line.startsWith(" ")).toBe(false);
     }
   });
+
+  test("budgets the full width for content below the inset threshold", () => {
+    const harness = createHarness();
+    const footer = harness.start();
+    for (const width of [4, 3]) {
+      const line = mainLine(footer, width);
+      expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      // With the decoration dropped, more than a single cell of content
+      // remains visible.
+      expect(visibleWidth(line.trimEnd())).toBeGreaterThan(1);
+    }
+  });
 });
 
 describe("narrow footer degradation", () => {
@@ -297,9 +309,14 @@ describe("working state", () => {
     expect(vi.getTimerCount()).toBe(1);
     footer.dispose();
     expect(vi.getTimerCount()).toBe(0);
+    expect(harness.workingVisibility).toEqual([false, true]);
 
+    // After disposal another footer owns the working indicator: later agent
+    // starts no longer start our timer or hide the native row again.
     harness.fire("agent_start");
-    expect(vi.getTimerCount()).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(harness.workingVisibility).toEqual([false, true]);
+
     harness.fire("session_shutdown");
     expect(vi.getTimerCount()).toBe(0);
     expect(harness.workingVisibility).toEqual([false, true]);
