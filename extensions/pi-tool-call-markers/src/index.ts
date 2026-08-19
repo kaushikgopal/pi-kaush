@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
-  keyHint,
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -15,7 +14,6 @@ import { runChatContainerHooks } from "./container-hooks.ts";
 
 const OUTER_INSET = 2;
 const GROUP_MARKER = "%";
-const SUBAGENT_RAIL = "▌";
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
@@ -681,7 +679,7 @@ function trimRenderedLine(text: string): string {
   const trimmed = plain.trim();
   if (!trimmed) return "";
   return sliceByColumn(
-    text,
+    plain,
     visibleWidth(leading),
     visibleWidth(trimmed),
   ).trimEnd();
@@ -826,38 +824,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function humanize(value: string): string {
-  const words = value
-    .trim()
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[-_]+/g, " ")
-    .replace(/\s+/g, " ");
-  if (!words) return "Subagent";
-  return words.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
-}
-
-function firstUsefulSentence(task: string): string | undefined {
-  const line = task
-    .replace(/\{previous\}/gi, " ")
-    .split(/\r?\n/)
-    .map((candidate) => {
-      const trimmed = candidate.trim();
-      if (/^#{1,6}\s+/.test(trimmed)) return "";
-      return trimmed.replace(/^[-*+]\s+/, "").replace(/^task:\s*/i, "");
-    })
-    .find((candidate) => candidate.length > 0);
-  if (!line) return undefined;
-  const sentence = line.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? line;
-  return sentence.replace(/\s+/g, " ").trim();
-}
-
-type SubagentCard = {
-  sentence: string;
-  title: string;
+type SubagentStep = {
+  agent: string;
+  profile: string | undefined;
+  task: string;
 };
 
-function subagentCard(args: unknown): SubagentCard | undefined {
+type SubagentPlan = {
+  kind: "single" | "parallel" | "chain";
+  scope: string;
+  steps: SubagentStep[];
+};
+
+function parseSubagentArgs(args: unknown): SubagentPlan | undefined {
   if (!isRecord(args)) return undefined;
+  const scope =
+    args.agentScope === "project" || args.agentScope === "both"
+      ? args.agentScope
+      : "user";
   const hasParallel = Array.isArray(args.tasks) && args.tasks.length > 0;
   const hasChain = Array.isArray(args.chain) && args.chain.length > 0;
   const hasSingle =
@@ -866,99 +850,173 @@ function subagentCard(args: unknown): SubagentCard | undefined {
     return undefined;
   }
 
+  const parseStep = (item: unknown): SubagentStep | undefined => {
+    if (!isRecord(item) || typeof item.task !== "string") return undefined;
+    return {
+      agent:
+        typeof item.agent === "string" && item.agent.trim()
+          ? item.agent.trim()
+          : "...",
+      // The subagent extension suppresses the profile badge when a model
+      // override is present; mirror that here.
+      profile:
+        typeof item.profile === "string" &&
+        item.profile.trim() &&
+        item.model === undefined
+          ? item.profile.trim()
+          : undefined,
+      task: item.task,
+    };
+  };
+
   if (hasParallel) {
-    const tasks = args.tasks as unknown[];
-    if (
-      !tasks.every((item) => isRecord(item) && typeof item.task === "string")
-    ) {
-      return undefined;
-    }
-    const first = tasks.find(
-      (item) =>
-        isRecord(item) &&
-        typeof item.task === "string" &&
-        firstUsefulSentence(item.task),
-    );
-    if (!isRecord(first) || typeof first.task !== "string") return undefined;
-    const sentence = firstUsefulSentence(first.task);
-    if (!sentence) return undefined;
-    return {
-      sentence,
-      title: `Parallel Tasks · ${tasks.length}`,
-    };
+    const steps = (args.tasks as unknown[]).map(parseStep);
+    if (steps.some((step) => step === undefined)) return undefined;
+    return { kind: "parallel", scope, steps: steps as SubagentStep[] };
   }
-
   if (hasChain) {
-    const steps = args.chain as unknown[];
-    if (
-      !steps.every((item) => isRecord(item) && typeof item.task === "string")
-    ) {
-      return undefined;
-    }
-    const first = steps.find(
-      (item) =>
-        isRecord(item) &&
-        typeof item.task === "string" &&
-        firstUsefulSentence(item.task),
-    );
-    if (!isRecord(first) || typeof first.task !== "string") return undefined;
-    const sentence = firstUsefulSentence(first.task);
-    if (!sentence) return undefined;
-    return {
-      sentence,
-      title: `Agent Chain · ${steps.length} ${steps.length === 1 ? "step" : "steps"}`,
-    };
+    const steps = (args.chain as unknown[]).map(parseStep);
+    if (steps.some((step) => step === undefined)) return undefined;
+    return { kind: "chain", scope, steps: steps as SubagentStep[] };
   }
-
-  const sentence = firstUsefulSentence(String(args.task));
-  if (!sentence) return undefined;
-  const kind =
-    typeof args.agent === "string" && args.agent.trim()
-      ? args.agent
-      : typeof args.profile === "string" && args.profile.trim()
-        ? args.profile
-        : "subagent";
-  return { sentence, title: `${humanize(kind)} Task` };
+  const single = parseStep(args);
+  if (!single) return undefined;
+  return { kind: "single", scope, steps: [single] };
 }
 
-function subagentHint(theme: ThemeLike): string {
-  const fallback = `${theme.fg("dim", "Ctrl+O")} ${theme.fg("muted", "view subagents")}`;
+// Splits a scraped plan line's content into the agent display name (which may
+// carry a leading emoji) and the remaining badge/preview text.
+function parseStepContent(content: string): {
+  displayName: string;
+  bareName: string;
+  rest: string;
+} {
+  const tokens = content.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return { displayName: "", bareName: "", rest: "" };
+  const first = tokens[0]!;
+  const hasEmoji = [...first].some((char) => (char.codePointAt(0) ?? 0) > 0x7f);
+  const nameTokens = hasEmoji && tokens.length > 1 ? 2 : 1;
+  const displayName = tokens.slice(0, nameTokens).join(" ");
+  return {
+    displayName,
+    bareName: tokens[nameTokens - 1] ?? displayName,
+    rest: tokens.slice(nameTokens).join(" "),
+  };
+}
+
+// Agent display names (emoji + name) come from the subagent extension's own
+// call component when available; args only carry the bare agent name.
+function scrapeSubagentDisplayNames(
+  row: ToolExecutionRow,
+): Map<string, string> {
+  const names = new Map<string, string>();
+  let component = row.callRendererComponent;
+  if (!component && Array.isArray(row.contentBox?.children)) {
+    component = row.contentBox.children[0] as ComponentLike | undefined;
+  }
+  if (!component || typeof component.render !== "function") return names;
   try {
-    const hint = keyHint("app.tools.expand", "view subagents");
-    return stripAnsi(hint).trim() === "view subagents" ? fallback : hint;
+    for (const raw of component.render(120)) {
+      const line = sanitizeInline(stripAnsi(raw)).trim();
+      if (!line || /^subagent\b/.test(line)) continue;
+      const { displayName, bareName } = parseStepContent(
+        line.replace(/^\d+\.\s*/, ""),
+      );
+      if (displayName && bareName && displayName !== bareName) {
+        names.set(bareName, displayName);
+      }
+    }
   } catch {
-    return fallback;
+    // Display-name scraping is cosmetic; args still carry the bare name.
   }
+  return names;
 }
 
-function renderSubagentCard(
+function subagentStepPreview(task: string): string {
+  const clean = task
+    .replace(/\{previous\}/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clean.length > 40 ? `${clean.slice(0, 40)}...` : clean;
+}
+
+// Subagents render as an ordinary unboxed tool block: a `%` heading with the
+// plan kind/count/scope, then the numbered chain steps or parallel tasks with
+// agent names in accent. Everything else stays muted (or error on failure),
+// matching the shared tool-row aesthetic.
+function renderSubagentPlan(
   row: ToolExecutionRow,
   width: number,
   theme: ThemeLike,
 ): string[] | undefined {
-  const card = subagentCard(row.args);
-  if (!card) return undefined;
-  const rail = `${theme.fg("accent", SUBAGENT_RAIL)} `;
-  const available = width - visibleWidth(rail);
-  const hint = subagentHint(theme);
-  // Preserve the complete action hint. At narrower widths the generic one-line
-  // tool renderer communicates more than a clipped two-line card.
-  if (available < 1 || visibleWidth(hint) > available) return undefined;
+  const plan = parseSubagentArgs(row.args);
+  if (!plan || width < 12) return undefined;
 
-  const title =
-    theme.fg("toolTitle", theme.bold(card.title)) +
-    theme.fg("muted", ` — ${card.sentence}`);
-  const outcome = rowHasFailed(row)
-    ? collapsedOutcome(row, available, theme)
+  const failed = rowHasFailed(row);
+  const color = failed ? "error" : "muted";
+  const nameColor = failed ? "error" : "accent";
+  const suffix = theme.fg(color, "…");
+  const displayNames = scrapeSubagentDisplayNames(row);
+  const displayOf = (agent: string) =>
+    theme.fg(nameColor, displayNames.get(agent) ?? agent);
+  const detailOf = (step: SubagentStep) =>
+    theme.fg(
+      color,
+      `${step.profile ? ` [${step.profile}]` : ""} ${subagentStepPreview(step.task)}`,
+    );
+
+  const marker = `${theme.fg(color, theme.bold(GROUP_MARKER))} `;
+  const budget = Math.max(1, width - visibleWidth(marker));
+  const outcome = failed
+    ? collapsedOutcome(row, budget, theme)
     : isLiveRow(row)
-      ? collapsedOutcome(row, available, theme)
+      ? collapsedOutcome(row, budget, theme)
       : row.result
         ? renderedGenericOutcome(theme)
         : theme.fg("warning", "…");
-  const titleLine = outcome
-    ? fitSummaryTail(title, outcome, available, theme.fg("muted", "…"))
-    : fitSummary(title, available, theme.fg("muted", "…"));
-  return [`${rail}${titleLine}`, `${rail}${hint}`];
+  const headline = (label: string) =>
+    marker +
+    (outcome
+      ? fitSummaryTail(label, outcome, budget, suffix)
+      : fitSummary(label, budget, suffix));
+
+  if (plan.kind === "single") {
+    const step = plan.steps[0]!;
+    return [
+      headline(
+        theme.fg(color, theme.bold("subagent")) +
+          " " +
+          displayOf(step.agent) +
+          detailOf(step),
+      ),
+    ];
+  }
+
+  const kindLabel =
+    plan.kind === "chain"
+      ? `chain (${plan.steps.length} ${plan.steps.length === 1 ? "step" : "steps"})`
+      : `parallel (${plan.steps.length} tasks)`;
+  const lines = [
+    headline(
+      theme.fg(color, theme.bold("subagent")) +
+        " " +
+        theme.fg(color, kindLabel) +
+        theme.fg(color, ` [${plan.scope}]`),
+    ),
+  ];
+  const shown = plan.steps.slice(0, 3);
+  for (let index = 0; index < shown.length; index++) {
+    const step = shown[index]!;
+    const number =
+      plan.kind === "chain" ? `${theme.fg(color, `${index + 1}.`)} ` : "";
+    lines.push(`  ${number}${displayOf(step.agent)}${detailOf(step)}`);
+  }
+  if (plan.steps.length > shown.length) {
+    lines.push(
+      `  ${theme.fg(color, `... +${plan.steps.length - shown.length} more`)}`,
+    );
+  }
+  return lines;
 }
 
 function imageResultLines(
@@ -997,11 +1055,11 @@ function renderCollapsedToolRow(
   theme: ThemeLike,
 ): string[] {
   const layout = insetLayout(width);
-  const card =
+  const plan =
     row.toolName === "subagent"
-      ? renderSubagentCard(row, layout.contentWidth, theme)
+      ? renderSubagentPlan(row, layout.contentWidth, theme)
       : undefined;
-  const body = card ?? [collapsedHeadline(row, layout.contentWidth, theme)];
+  const body = plan ?? [collapsedHeadline(row, layout.contentWidth, theme)];
   body.push(...imageResultLines(row, layout.contentWidth, theme));
   return ["", ...insetLines(body, width)];
 }

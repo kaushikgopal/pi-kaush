@@ -289,6 +289,22 @@ describe("tool-call-markers grouping", () => {
     }
   });
 
+  test("strips control bytes from scraped call summaries", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent(
+      "bash",
+      "git rebase\rAuto-merging extensions/x.ts",
+    );
+    row.updateResult({ isError: false, output: "done" });
+    chat.addChild(row);
+
+    const lines = chat.render(100);
+    expect(lines.join("\n")).toContain("$ git rebase Auto-merging");
+    for (const line of lines) {
+      expect(stripAnsi(line)).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+    }
+  });
+
   test("renders failed rows entirely in error", () => {
     const taggingTheme = {
       bold: (text: string) => text,
@@ -877,36 +893,15 @@ describe("tool-call-markers grouping", () => {
     expect(line).not.toMatch(/^    %/);
   });
 
-  test.each([
-    [
-      {
-        agent: "red-team",
-        task: "# Review\nChallenge compatibility conclusion. Then report.",
-      },
-      "Red Team Task — Challenge compatibility conclusion.",
-    ],
-    [
-      {
-        tasks: [
-          { agent: "reviewer", task: "Inspect the renderer." },
-          { agent: "tester", task: "Run focused tests." },
-        ],
-      },
-      "Parallel Tasks · 2 — Inspect the renderer.",
-    ],
-    [
-      {
-        chain: [
-          { agent: "reviewer", task: "Analyze the change." },
-          { agent: "tester", task: "Use {previous} and validate it." },
-        ],
-      },
-      "Agent Chain · 2 steps — Analyze the change.",
-    ],
-  ])("renders a two-line ungrouped subagent card for %j", (args, title) => {
+  test("renders a settled chain as an unboxed plan with numbered steps", () => {
     const chat = new MockContainer();
     const row = new MockToolExecutionComponent("subagent", "delegation");
-    row.args = args;
+    row.args = {
+      chain: [
+        { agent: "reviewer", profile: "fast", task: "Analyze the change." },
+        { agent: "tester", task: "Use {previous} and validate it." },
+      ],
+    };
     row.updateResult({ isError: false, output: "child result" });
     chat.addChild(row);
 
@@ -914,15 +909,83 @@ describe("tool-call-markers grouping", () => {
       .render(100)
       .map(stripAnsi)
       .filter((line) => line.trim());
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toContain(`▌ ${title}`);
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/^  % subagent chain \(2 steps\) \[user\]/);
     expect(lines[0]).toContain("→ done");
-    expect(lines[1]).toContain("▌ Ctrl+O view subagents");
-    expect(lines.every((line) => line.startsWith("  ▌"))).toBe(true);
-    expect(lines.join("\n")).not.toContain("%");
+    expect(lines[1]).toBe("    1. reviewer [fast] Analyze the change.");
+    expect(lines[2]).toBe("    2. tester Use and validate it.");
+    expect(lines.join("\n")).not.toContain("▌");
+    expect(lines.join("\n")).not.toContain("view subagents");
   });
 
-  test("keeps a partial subagent card in its warning state", () => {
+  test("renders parallel tasks without step numbers and caps at three plus a count", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = {
+      tasks: [
+        { agent: "alpha", task: "First task." },
+        { agent: "beta", task: "Second task." },
+        { agent: "gamma", task: "Third task." },
+        { agent: "delta", task: "Fourth task." },
+      ],
+    };
+    row.updateResult({ isError: false, output: "child result" });
+    chat.addChild(row);
+
+    const lines = chat
+      .render(100)
+      .map(stripAnsi)
+      .filter((line) => line.trim());
+    expect(lines).toHaveLength(5);
+    expect(lines[0]).toContain("% subagent parallel (4 tasks) [user]");
+    expect(lines[1]).toBe("    alpha First task.");
+    expect(lines[3]).toBe("    gamma Third task.");
+    expect(lines[4]).toBe("    ... +1 more");
+  });
+
+  test("renders a single subagent as a one-line tool row", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = { agent: "reviewer", task: "Inspect the renderer." };
+    row.updateResult({ isError: false, output: "child result" });
+    chat.addChild(row);
+
+    const lines = chat
+      .render(100)
+      .map(stripAnsi)
+      .filter((line) => line.trim());
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("% subagent reviewer Inspect the renderer.");
+    expect(lines[0]).toContain("→ done");
+  });
+
+  test("shows agent emojis scraped from the native plan component", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = {
+      chain: [
+        { agent: "reviewer", profile: "fast", task: "Analyze the change." },
+        { agent: "tester", task: "Validate it." },
+      ],
+    };
+    row.updateResult({ isError: false, output: "child result" });
+    // Assign after updateResult: the mock rebuilds its call component there.
+    row.callRendererComponent = new MockText(
+      "subagent chain (2 steps) [user]\n" +
+        "  1. 🏃 reviewer [fast] Analyze the change.\n" +
+        "  2. 🐝 tester [deep-thinker] Use  and validate it.",
+    );
+    chat.addChild(row);
+
+    const lines = chat
+      .render(100)
+      .map(stripAnsi)
+      .filter((line) => line.trim());
+    expect(lines[1]).toBe("    1. 🏃 reviewer [fast] Analyze the change.");
+    expect(lines[2]).toBe("    2. 🐝 tester Validate it.");
+  });
+
+  test("keeps a live subagent plan in its warning state", () => {
     const chat = new MockContainer();
     const row = new MockToolExecutionComponent("subagent", "streaming");
     row.args = { agent: "reviewer", task: "Inspect the live result." };
@@ -930,7 +993,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain("Inspect the live result.");
+    expect(output).toContain("% subagent reviewer Inspect the live result.");
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
     expect(output).not.toContain("partial child output");
@@ -945,9 +1008,9 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output.match(/▌/g)).toHaveLength(4);
+    expect(output.match(/% subagent/g)).toHaveLength(2);
     expect(output).not.toContain("•");
-    expect(output).not.toContain("%");
+    expect(output).not.toContain("▌");
   });
 
   test("falls back to generic rendering for malformed or narrow subagents", () => {
@@ -978,12 +1041,46 @@ describe("tool-call-markers grouping", () => {
     const collapsed = renderPlain(chat);
     expect(collapsed).toContain("Review the failure.");
     expect(collapsed).toContain("→ child failed badly");
-    expect(collapsed).toContain("Ctrl+O view subagents");
 
     row.setExpanded(true);
     const expanded = renderPlain(chat);
     expect(expanded).toContain("FULL child failed badly");
-    expect(expanded).not.toContain("view subagents");
+  });
+
+  test("renders a failed subagent plan entirely in error", () => {
+    const taggingTheme = {
+      bold: (text: string) => text,
+      fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+      bg: (_color: string, text: string) => text,
+    };
+    try {
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme: taggingTheme, setToolsExpanded() {} } });
+      }
+      const chat = new MockContainer();
+      const row = new MockToolExecutionComponent("subagent", "failed");
+      row.args = {
+        chain: [
+          { agent: "reviewer", task: "Analyze the change." },
+          { agent: "tester", task: "Validate it." },
+        ],
+      };
+      row.updateResult({ isError: true, output: "boom" });
+      chat.addChild(row);
+
+      const lines = chat.render(100).filter((line) => line.trim().length > 0);
+      expect(lines.length).toBeGreaterThan(1);
+      for (const line of lines) {
+        const colors = new Set(
+          [...line.matchAll(/<(\w+)>/g)].map((match) => match[1]),
+        );
+        expect([...colors]).toEqual(["error"]);
+      }
+    } finally {
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme, setToolsExpanded() {} } });
+      }
+    }
   });
 
   test("fails open when a future tool row omits required state fields", () => {
