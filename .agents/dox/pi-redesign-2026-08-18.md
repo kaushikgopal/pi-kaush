@@ -1,6 +1,9 @@
 # Exec plan: Pi visual redesign
 
-Status: in progress; split architecture confirmed 2026-08-18.
+Status: code complete and published where autonomous publishing is possible
+(markers 0.2.5, inline-identifier 0.1.4). Open: live visual review by the user
+(WP8, WP11-WP13, F28, F30), first-release bootstrap for pi-content-layout and
+pi-footer-minimal (WP14 step 5), and the pi-intercom upstream padding note (F29).
 
 ## Execution tracker
 
@@ -18,7 +21,8 @@ Status: in progress; split architecture confirmed 2026-08-18.
 - [ ] WP11 — Restore tool grouping via container hook composition (F19, F20).
 - [ ] WP12 — Uniform tool colors and prompt surface background (F21, F22).
 - [ ] WP13 — Footer top row, full-red errors, wider submitted pad, uniform ellipsis (F23, F24, F26, F27).
-- [ ] WP14 — Control-byte sanitization, commit train, review loop, publishes (F28, F29).
+- [x] WP14 — Control-byte sanitization, commit train, review loop, publishes (F28, F29).
+      Two first releases remain blocked on manual npm bootstrap; see WP14 step 5.
 
 Implementation note: integration testing found that Pi's host `CustomEditor` and an
 extension's `Editor` can resolve from distinct `pi-tui` module instances. The
@@ -794,14 +798,22 @@ independently.
    Medium), tiny-width footer budgets the full width (Q4 Low), README drift (S1),
    and real editor input behavior is pinned through the decorated proxy (S2).
    Root gate after reconciliation: 356/356.
-5. `/publish-pi-ext` for each changed package in dependency order
-   (`pi-content-layout`, `pi-tool-call-markers`, `pi-footer-minimal`,
-   `pi-inline-identifier`, `pi-welcome-screen` if it has remaining changes). Each
-   package must work standalone: the hook registry is fail-open when the other
-   package is absent, and each package's suite passes without the other loaded.
-   `pi-content-layout` has no npm presence: its first release requires the manual
-   bootstrap path (2FA), which may be the one step that cannot run autonomously —
-   attempt, and record the exact blocker if so.
+5. `/publish-pi-ext` for each changed package. Completed: `pi-tool-call-markers`
+   0.2.5 and `pi-inline-identifier` 0.1.4 published via OIDC, verified on npm,
+   installed locally (`pi update`), and the markers entries in both settings files
+   were restored from the local checkout path to `npm:@pi-kaush/pi-tool-call-markers`
+   (matching the WP9 welcome-screen precedent). Standalone loadability held: the
+   hook registry is a no-op when the other package is absent, and each suite passes
+   alone.
+
+   Blocked: `pi-content-layout` and `pi-footer-minimal` have no npm presence, and
+   first releases require the manual bootstrap (`npm login` + browser 2FA); no
+   local npm auth exists (whoami 401) and no browser daemon was reachable. Exact
+   unblock steps: `npm login`; set pi-content-layout to 0.1.0 (footer-minimal is
+   already 0.1.0); `npm publish --access public` in each package; on npmjs.com add
+   the GitHub Actions trusted publisher (repo `kaushikgopal/pi-kaush`, workflow
+   `publish.yml`, environment `npm`); then switch the remaining two local-path
+   settings entries to npm and `pi update`.
 
 **Exit:** every changed extension published (or an exact blocker recorded), main
 pushed, review-loop findings resolved or deferred with reasons.
