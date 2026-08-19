@@ -190,6 +190,58 @@ describe("editor factory composition", () => {
     );
   });
 
+  test("preserves real editor input, cursor, multiline, paste, and submission", () => {
+    const harness = createHarness();
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    const keybindings = {
+      matches(data: string, action: string) {
+        return (
+          (data === "\x1b[D" && action === "tui.editor.cursorLeft") ||
+          (data === "\x1b[C" && action === "tui.editor.cursorRight") ||
+          (data === "\r" && action === "tui.input.submit")
+        );
+      },
+      getKeys: () => [] as string[],
+    } as unknown as KeybindingsManager;
+    const editor = harness.factory?.(
+      { terminal: { rows: 24 }, requestRender() {} } as unknown as TUI,
+      {
+        borderColor: (text: string) => text,
+        selectList: {},
+      } as EditorTheme,
+      keybindings,
+    );
+    expect(editor).toBeDefined();
+
+    editor?.handleInput("hello world");
+    expect(editor?.getText()).toBe("hello world");
+
+    for (let i = 0; i < 5; i++) editor?.handleInput("\x1b[D");
+    editor?.handleInput("X");
+    expect(editor?.getText()).toBe("hello Xworld");
+
+    editor?.handleInput("\n");
+    expect(editor?.getText()).toBe("hello X\nworld");
+
+    editor?.handleInput("\x1b[200~PASTED\x1b[201~");
+    expect(editor?.getText()).toContain("PASTED");
+
+    let submitted: string | undefined;
+    if (editor) {
+      (editor as { onSubmit?: (text: string) => void }).onSubmit = (text) => {
+        submitted = text;
+      };
+    }
+    editor?.handleInput("\r");
+    // Pi's editor clears its state on submit; the handler receives the text.
+    expect(submitted).toBe("hello X\nPASTEDworld");
+
+    const lines = editor?.render(30) ?? [];
+    expect(lines.every((line) => visibleWidth(line) === 30)).toBe(true);
+  });
+
   test("observes editor prototype decorators installed after its factory", () => {
     const target = new TestEditor();
     target.text = "before";
