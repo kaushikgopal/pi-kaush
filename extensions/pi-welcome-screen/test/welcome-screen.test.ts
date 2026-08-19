@@ -268,7 +268,7 @@ describe("welcome resource formatting", () => {
     const truncated = renderCenteredWelcome(
       exceptional,
       plainTheme as never,
-      100,
+      104,
     );
     expect(sectionRows(truncated, "Skills", "Prompts").join("\n")).toContain(
       "…",
@@ -293,14 +293,20 @@ describe("welcome resource formatting", () => {
     expect(wide[versionSummaryIndex]?.trim()).toBe("v0.80.6");
     expect(wide[lastLogoLineIndex + 1]).toBe("");
     expect(versionSummaryIndex).toBe(lastLogoLineIndex + 2);
-    expect(wide.every((line) => line.length <= 80)).toBe(true);
+    expect(wide.every((line) => line.length <= 78)).toBe(true);
+    expect(wide.filter(Boolean).every((line) => line.startsWith("  "))).toBe(
+      true,
+    );
     expect(wide.join("\n")).not.toContain("[Themes]");
     expect(wide.join("\n")).not.toContain("[Version]");
     expect(wide.filter((line) => line.includes("█"))).toHaveLength(4);
     expect(wide.some((line) => line.includes("██████   ███"))).toBe(true);
 
     const narrow = renderCenteredWelcome(resources, plainTheme as never, 24);
-    expect(narrow.every((line) => line.length <= 24)).toBe(true);
+    expect(narrow.every((line) => line.length <= 22)).toBe(true);
+    expect(narrow.filter(Boolean).every((line) => line.startsWith("  "))).toBe(
+      true,
+    );
   });
 
   test("shows the active theme name alongside the version", () => {
@@ -345,7 +351,7 @@ describe("welcome resource formatting", () => {
       ],
     };
 
-    const stacked = renderCenteredWelcome(resources, plainTheme as never, 83);
+    const stacked = renderCenteredWelcome(resources, plainTheme as never, 87);
     expect(
       stacked.findIndex((line) => line.includes("[Context]")),
     ).toBeGreaterThan(stacked.findIndex((line) => line.includes("v0.80.6")));
@@ -353,25 +359,25 @@ describe("welcome resource formatting", () => {
     const twoColumns = renderCenteredWelcome(
       resources,
       plainTheme as never,
-      84,
+      88,
     );
     expect(
       twoColumns
         .find((line) => line.includes("[Context]"))
         ?.indexOf("[Context]"),
-    ).toBe(0);
+    ).toBe(2);
     expect(
       twoColumns
         .find((line) => line.includes("[Extensions]"))
         ?.indexOf("[Extensions]"),
-    ).toBe(44);
+    ).toBe(46);
 
     const firstLogoRow = twoColumns.findIndex((line) => line.includes("█"));
     const versionRow = twoColumns.findIndex((line) => line.includes("v0.80.6"));
     const firstResourceRow = twoColumns.findIndex((line) =>
       line.includes("[Context]"),
     );
-    expect(twoColumns[firstLogoRow]?.indexOf("█")).toBe(36);
+    expect(twoColumns[firstLogoRow]?.indexOf("█")).toBe(38);
     expect(firstLogoRow).toBe(1);
     expect(firstResourceRow - versionRow - 1).toBe(firstLogoRow);
     expect(
@@ -383,13 +389,13 @@ describe("welcome resource formatting", () => {
     const threeColumns = renderCenteredWelcome(
       resources,
       plainTheme as never,
-      128,
+      132,
     );
     const threeColumnTopRow = threeColumns.find(
       (line) => line.includes("[Context]") && line.includes("[Extensions]"),
     );
-    expect(threeColumnTopRow?.indexOf("[Context]")).toBe(44);
-    expect(threeColumnTopRow?.indexOf("[Extensions]")).toBe(88);
+    expect(threeColumnTopRow?.indexOf("[Context]")).toBe(46);
+    expect(threeColumnTopRow?.indexOf("[Extensions]")).toBe(90);
     expect(threeColumns.every((line) => !/[\[•]/.test(line.slice(0, 40)))).toBe(
       true,
     );
@@ -405,7 +411,7 @@ describe("welcome resource formatting", () => {
           (threeColumns.length - threeColumnVersionRow - 1),
       ),
     ).toBeLessThanOrEqual(1);
-    expect(threeColumns.every((line) => line.length <= 128)).toBe(true);
+    expect(threeColumns.every((line) => line.length <= 130)).toBe(true);
   });
 
   test("columns local extensions and lists vendored packages separately", () => {
@@ -442,7 +448,7 @@ describe("welcome resource formatting", () => {
       ],
     };
 
-    const wide = renderCenteredWelcome(resources, plainTheme as never, 80);
+    const wide = renderCenteredWelcome(resources, plainTheme as never, 84);
     const skillRows = sectionRows(wide, "Skills", "Prompts");
     const extensionRows = sectionRows(wide, "Extensions", "missing");
     const firstPackageRow = extensionRows.findIndex((row) =>

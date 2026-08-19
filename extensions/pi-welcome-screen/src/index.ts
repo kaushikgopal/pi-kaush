@@ -15,6 +15,7 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
+export const WELCOME_SIDE_PADDING = 2;
 const MAX_STACKED_COLUMN_WIDTH = 80;
 const MIN_GRID_COLUMN_WIDTH = 40;
 const MAX_GRID_COLUMN_WIDTH = 60;
@@ -935,19 +936,26 @@ export function renderCenteredWelcome(
   notice?: string,
 ): string[] {
   if (width <= 0) return [];
-  const columnCount = resources ? getGridColumnCount(width) : 1;
+  const sidePadding = Math.min(
+    WELCOME_SIDE_PADDING,
+    Math.max(0, Math.floor((width - 1) / 2)),
+  );
+  const contentWidth = width - sidePadding * 2;
+  const columnCount = resources ? getGridColumnCount(contentWidth) : 1;
   const columnWidth =
     columnCount === 1
-      ? Math.min(MAX_STACKED_COLUMN_WIDTH, width)
+      ? Math.min(MAX_STACKED_COLUMN_WIDTH, contentWidth)
       : Math.min(
           MAX_GRID_COLUMN_WIDTH,
           Math.floor(
-            (width - GRID_COLUMN_GAP * (columnCount - 1)) / columnCount,
+            (contentWidth - GRID_COLUMN_GAP * (columnCount - 1)) / columnCount,
           ),
         );
   const layoutWidth =
     columnWidth * columnCount + GRID_COLUMN_GAP * (columnCount - 1);
-  const leftPadding = " ".repeat(Math.floor((width - layoutWidth) / 2));
+  const leftPadding = " ".repeat(
+    sidePadding + Math.floor((contentWidth - layoutWidth) / 2),
+  );
   const lines =
     columnCount !== 1 && resources
       ? renderGridWelcome(resources, theme, columnWidth, columnCount)
