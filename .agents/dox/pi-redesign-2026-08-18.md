@@ -1,9 +1,10 @@
 # Exec plan: Pi visual redesign
 
-Status: code complete and published where autonomous publishing is possible
-(markers 0.2.5, inline-identifier 0.1.4). Open: live visual review by the user
-(WP8, WP11-WP13, F28, F30), first-release bootstrap for pi-content-layout and
-pi-footer-minimal (WP14 step 5), and the pi-intercom upstream padding note (F29).
+Status: code complete and all four redesigned extensions published to npm
+(content-layout 0.1.1, footer-minimal 0.1.1, markers 0.2.6, inline-identifier
+0.1.4) and loading from npm in both settings files. Open: live visual review by
+the user (WP8, WP11-WP13, F28, F30-F32) and the pi-intercom upstream padding
+note (F29).
 
 ## Execution tracker
 
@@ -822,8 +823,11 @@ independently.
    step and configured trusted publishers for both new packages. pi-content-layout
    published manually at 0.1.0 and via OIDC at 0.1.1 after the publish workflow's
    tag allowlist and resolver learned both package names (release events run the
-   workflow from the release tag, so the fix tag had to move). pi-footer-minimal
-   publishes via `make publish` once F31 lands.
+   workflow from the release tag, so the fix tag had to move). Final published
+   state: `pi-content-layout` 0.1.1, `pi-footer-minimal` 0.1.1 (F31 included),
+   `pi-tool-call-markers` 0.2.6 (F32 included), `pi-inline-identifier` 0.1.4;
+   all three redesigned packages now load from npm in both settings files, and
+   the README lists every package in the published table.
 
 **Exit:** every changed extension published (or an exact blocker recorded), main
 pushed, review-loop findings resolved or deferred with reasons.
