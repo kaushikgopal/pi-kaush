@@ -4,17 +4,26 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 
 ## Packages
 
-| Package                                                               | Description                                                                                |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)               | Activate a configured Pi agent as a persistent mode in the current session.                |
-| [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)           | Paste the same large block twice to expand Pi's paste markers into editable text.          |
-| [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) | Highlight and route inline Pi skill, agent, and prompt-template references.                |
-| [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction) | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns.        |
-| [`@pi-kaush/pi-btw`](./extensions/pi-btw)                             | Ask a question in a Herdr side fork or switch to a local session fork.                     |
-| [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers) | Collapse adjacent successful tool calls into one compact, gear-headed block per tool type. |
-| [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)       | Show a responsive startup header with Pi's loaded resources.                               |
+| Package                                                               | Description                                                                         |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)               | Activate a configured Pi agent as a persistent mode in the current session.         |
+| [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)           | Paste the same large block twice to expand Pi's paste markers into editable text.   |
+| [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) | Highlight and route inline Pi skill, agent, and prompt-template references.         |
+| [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction) | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns. |
+| [`@pi-kaush/pi-btw`](./extensions/pi-btw)                             | Ask a question in a Herdr side fork or switch to a local session fork.              |
+| [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers) | Show unboxed tool groups, subagent cards, and live/final thinking markers.          |
+| [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)       | Show a responsive startup header with Pi's loaded resources.                        |
 
 Every package is independently versioned and published to npm. Runtime source is readable TypeScript, and packages avoid runtime dependencies where practical.
+
+### In development
+
+| Package                                                         | Description                                                                                |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [`@pi-kaush/pi-content-layout`](./extensions/pi-content-layout) | Inset the conversation; use a full-width dark editor and a compact submitted-prompt shell. |
+| [`@pi-kaush/pi-footer-minimal`](./extensions/pi-footer-minimal) | Show cost/context in an inset footer and move Pi's working spinner into that footer.       |
+
+These packages are available from a local clone but are not published to npm yet.
 
 ### Retired packages
 
@@ -62,7 +71,11 @@ pi \
   -e ~/path/to/pi-kaush/extensions/pi-inline-identifier/src/prompt.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-openai-compaction/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-btw/src/index.ts
-pi -e ~/path/to/pi-kaush/extensions/pi-tool-call-markers/src/index.ts
+pi -e ~/path/to/pi-kaush/extensions/pi-content-layout/src/index.ts
+pi -e ~/path/to/pi-kaush/extensions/pi-footer-minimal/src/index.ts
+pi \
+  -e ~/path/to/pi-kaush/extensions/pi-tool-call-markers/src/index.ts \
+  -e ~/path/to/pi-kaush/extensions/pi-tool-call-markers/src/thinking-block-merger.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-welcome-screen/src/index.ts
 ```
 
