@@ -15,7 +15,7 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 - **Two-column outer inset.** Tool markers and image output align with an inset conversation surface. Very narrow terminals reduce the decoration before useful content.
 - **`%` tool headings.** A singleton stays on one line when its summary and outcome fit. A multi-call group has one `%` heading per contiguous tool type.
 - **`•` grouped children.** Bullets appear only for members of a multi-call group.
-- **Semantic, low-contrast status.** Tool names are emphasized, summaries are muted, settled metadata is dim, pending state is warning-colored, and failures remain error-colored. Ordinary tool states have no background.
+- **Semantic, low-contrast status.** Tool names are emphasized, summaries and settled metadata are muted, pending state is warning-colored, and failures remain error-colored. Ordinary tool states have no background.
 - **Width-safe outcome tails.** Long summaries truncate before useful tails such as `→ done`, `→ 42 lines`, `→ +2/-1`, or a `bash` duration.
 - **Stable running groups.** Adjacent calls group as they appear. Pending state and elapsed `bash` time settle into the final outcome without changing the row count.
 - **Quiet-turn grouping.** Sequential calls can join across an assistant row with no visible prose or thinking. Visible assistant content remains a boundary.

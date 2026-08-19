@@ -12,7 +12,7 @@
   `kg.pi.chatContainerHooks.v1` hook registry, so the inset composes with
   `pi-tool-call-markers`' grouping wrapper in either load order.
 - Add a two-column outer inset to assistant and user transcript rows.
-- Render the active editor as a rail-free, edge-to-edge `selectedBg` surface with one extra horizontal layout column on each side and one background-colored padding row above and below; preserve functional scroll indicators in those rows.
+- Render the active editor as a rail-free, edge-to-edge dark surface with one extra horizontal layout column on each side and one background-colored padding row above and below; preserve functional scroll indicators in those rows.
 - Render submitted user messages with a thin accent rail and the same darker semantic background behind the padded message body.
 - Compose with existing custom editors and preserve Pi's native input, autocomplete, cursor, history, paste, and keybinding behavior.
 - Keep autocomplete rows outside the prompt block.

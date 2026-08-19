@@ -31,12 +31,14 @@ The package is not published while its version is `0.0.0`; use the repository pa
 
 ## Theme ownership
 
-The extension hard-codes no colors. It uses Pi's semantic theme tokens:
+The active editor surface and submitted message body paint with a fixed
+near-black `#071312` background (`PROMPT_SURFACE_BG`) so both user-input
+surfaces stay identical; the theme's `selectedBg` token continues to serve
+selections and dialogs. The only theme token this extension consumes is
+`accent`, for the submitted-prompt rail.
 
-- `selectedBg` for the full-width active surface and darker submitted body; and
-- `accent` for the submitted-prompt rail.
-
-Change those values in your Pi theme when you want a different palette. A theme cannot provide the layout itself: themes control colors, while this extension controls width and component shape.
+Themes control colors, while this extension controls width and component
+shape; a theme cannot provide the layout itself.
 
 ## Composition and compatibility
 
