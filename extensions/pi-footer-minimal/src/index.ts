@@ -46,10 +46,6 @@ function padFooterLine(line: string, width: number): string {
   return `${margin}${clipped}${fill}${margin}`;
 }
 
-// Match Pi's native Loader sequence exactly.
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-const SPINNER_INTERVAL_MS = 80;
-
 const THINKING_COLORS: Record<string, ThemeColor> = {
   off: "thinkingOff",
   minimal: "thinkingMinimal",
@@ -63,51 +59,9 @@ const THINKING_COLORS: Record<string, ThemeColor> = {
 export default function (pi: ExtensionAPI) {
   let showMoreStats = false;
   let requestFooterRender: (() => void) | undefined;
-  let isWorking = false;
-  let spinnerIndex = 0;
-  let spinnerTimer: ReturnType<typeof setInterval> | undefined;
-  let hidNativeWorking = false;
-  let footerActive = false;
 
-  const stopSpinner = () => {
-    if (spinnerTimer !== undefined) {
-      clearInterval(spinnerTimer);
-      spinnerTimer = undefined;
-    }
-  };
-
-  pi.on("agent_start", () => {
-    // Only animate while this extension's footer is actually registered;
-    // after disposal another footer owns the working indicator.
-    if (!footerActive) return;
-    isWorking = true;
-    spinnerIndex = 0;
-    stopSpinner();
-    spinnerTimer = setInterval(() => {
-      spinnerIndex = (spinnerIndex + 1) % SPINNER_FRAMES.length;
-      requestFooterRender?.();
-    }, SPINNER_INTERVAL_MS);
-    requestFooterRender?.();
-  });
-
-  const stopWorking = () => {
-    if (!isWorking) return;
-    isWorking = false;
-    stopSpinner();
-    requestFooterRender?.();
-  };
-  // agent_end also covers aborts: an aborted loop still ends.
-  pi.on("agent_end", stopWorking);
-  pi.on("agent_settled", stopWorking);
-
-  pi.on("session_shutdown", (_event, ctx) => {
-    stopWorking();
+  pi.on("session_shutdown", () => {
     requestFooterRender = undefined;
-    // Never leave Pi's native working row hidden after reload/removal.
-    if (hidNativeWorking) {
-      ctx.ui.setWorkingVisible(true);
-      hidNativeWorking = false;
-    }
   });
 
   pi.registerCommand("footer-more-stats", {
@@ -135,12 +89,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
 
-    // The footer owns the working animation; suppress Pi's native row and timer.
-    ctx.ui.setWorkingVisible(false);
-    hidNativeWorking = true;
-
     ctx.ui.setFooter((tui, theme, footerData) => {
-      footerActive = true;
       const rerender = () => tui.requestRender();
       requestFooterRender = rerender;
       const unsubBranch = footerData.onBranchChange(rerender);
@@ -227,7 +176,7 @@ export default function (pi: ExtensionAPI) {
         const leftFlatNoCost =
           theme.fg("muted", lastName) + prefix + contextPart;
 
-        // Line 1 right: [active agent •] [⠋] model • thinking
+        // Line 1 right: [active agent •] model • thinking
         let modelSide = theme.fg(
           "muted",
           ctx.model?.name || ctx.model?.id || "no-model",
@@ -241,10 +190,7 @@ export default function (pi: ExtensionAPI) {
             thinkingSuffix,
           );
         }
-        const workingIndicator = isWorking
-          ? `${theme.fg("accent", SPINNER_FRAMES[spinnerIndex] ?? SPINNER_FRAMES[0]!)} `
-          : "";
-        const rightCore = `${workingIndicator}${modelSide}`;
+        const rightCore = modelSide;
         const activeAgent = statuses.get("active-agent");
         const agentPrefix = activeAgent
           ? `${activeAgent}${theme.fg("dim", " • ")}`
@@ -260,7 +206,7 @@ export default function (pi: ExtensionAPI) {
           if (!fits(usedLeft, usedRight)) {
             usedLeft = leftFlatNoCost;
             if (!fits(usedLeft, usedRight)) {
-              // Active-agent status is optional; the live spinner and model are not.
+              // Active-agent status is optional; the model is not.
               usedRight = rightCore;
             }
           }
@@ -354,16 +300,8 @@ export default function (pi: ExtensionAPI) {
 
       return {
         dispose() {
-          footerActive = false;
           unsubBranch();
-          stopWorking();
           if (requestFooterRender === rerender) requestFooterRender = undefined;
-          // Never leave Pi's native working row hidden when another footer
-          // replaces this one before session shutdown.
-          if (hidNativeWorking) {
-            ctx.ui.setWorkingVisible(true);
-            hidNativeWorking = false;
-          }
         },
         invalidate() {},
         render,

@@ -12,12 +12,6 @@ Default (one metadata line):
   ~/dev/per/aikado (master) $0.55 • 44.6%/262k                     model • high
 ```
 
-While the agent is working, an animated spinner appears immediately left of the model in a stable right-aligned position (replacing Pi's native working row):
-
-```text
-  ~/dev/per/aikado (master) $0.55 • 44.6%/262k                   ⠋ model • high
-```
-
 After `/footer-more-stats` (two metadata lines):
 
 ```text
@@ -25,18 +19,14 @@ After `/footer-more-stats` (two metadata lines):
   ↑228k ↓72k ¢99.6% • (provider) • 🔌 2/3
 ```
 
-- **Line 1:** cwd `(branch)` [session], session cost, and context usage (colorized at 60%/80% thresholds). Model, active agent, and thinking level stay right-aligned. During agent work, Pi's native braille sequence (`⠋`, `⠙`, `⠹`, …) animates immediately left of the model; there is no `Working…` label or provider field on this line.
+- **Line 1:** cwd `(branch)` [session], session cost, and context usage (colorized at 60%/80% thresholds). Model, active agent, and thinking level stay right-aligned. Working state stays with Pi's native indicator in the chat output — nothing is animated or hidden here.
 - **Line 2** (via `/footer-more-stats [on|off|toggle]`, off by default): cumulative input/output tokens, the gateway provider when multiple providers are available, a compact 🔌 MCP badge, and any other extension statuses.
 
-When the terminal is narrow, line 1 degrades in stages: the cwd flattens to its basename, then the session cost and optional active-agent status drop, with ellipsis truncation as a last resort. The right-aligned spinner/model core never changes shape; while active, the spinner is the highest-priority cell and remains visible even when the model itself must be clipped.
-
-## Working state ownership
-
-On TUI session start the extension calls `ctx.ui.setWorkingVisible(false)`, so Pi's native working row and its 80 ms timer never run. Instead the footer animates its own spinner on a single 80 ms interval, only while the agent is active (`agent_start` → `agent_end`/`agent_settled`). The interval is cleared on settle, footer disposal, and shutdown, and native working visibility is restored on `session_shutdown` so reloading or removing the extension never leaves Pi's status hidden.
+When the terminal is narrow, line 1 degrades in stages: the cwd flattens to its basename, then the session cost and optional active-agent status drop, with ellipsis truncation as a last resort. The right-aligned model never changes shape and remains the final visible cell.
 
 ## Why
 
-Pi's native footer already shows token stats; this footer rearranges them to prioritize cost and context at a glance, moves the token detail behind a toggle, places the working spinner beside the model, and keeps the window clean. It uses only Pi's public extension APIs (`ctx.ui.setFooter`, `ctx.ui.setWorkingVisible`, `footerData`, `ctx.sessionManager`, `ctx.getContextUsage`) and reads other extensions' statuses (MCP badge, active agent) from Pi's status bus — nothing is imported from other packages.
+Pi's native footer already shows token stats; this footer rearranges them to prioritize cost and context at a glance, moves the token detail behind a toggle, and keeps the window clean. It uses only Pi's public extension APIs (`ctx.ui.setFooter`, `footerData`, `ctx.sessionManager`, `ctx.getContextUsage`) and reads other extensions' statuses (MCP badge, active agent) from Pi's status bus — nothing is imported from other packages.
 
 ## Install
 

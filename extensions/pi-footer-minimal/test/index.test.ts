@@ -203,32 +203,29 @@ describe("narrow footer degradation", () => {
     expect(truncated).toMatch(/model$/);
   });
 
-  test("drops path and cost before clipping the spinner or model", () => {
-    vi.useFakeTimers();
+  test("drops path and cost before clipping the model", () => {
     const harness = createHarness();
     const footer = harness.start();
-    harness.fire("agent_start");
 
     const leftLean = "project (branch) • session 44.6%/262k";
-    const rightCore = "⠋ model";
+    const rightCore = "model";
     const line = mainLine(footer, widthFor(leftLean, rightCore) - 1);
     expect(line).not.toContain("Working…");
     expect(line).not.toContain("$1.23");
     expect(line).not.toContain("(provider)");
-    expect(line).toMatch(/⠋ model\s+$/);
-
-    harness.fire("agent_end");
+    expect(line).toMatch(/model\s+$/);
   });
 });
 
 describe("working state", () => {
-  test("hides Pi's native working row on TUI session start and restores it on shutdown", () => {
+  test("never touches native working visibility", () => {
     const harness = createHarness();
-    harness.start();
-    expect(harness.workingVisibility).toEqual([false]);
-
+    const footer = harness.start();
+    harness.fire("agent_start");
+    harness.fire("agent_end");
+    footer.dispose();
     harness.fire("session_shutdown");
-    expect(harness.workingVisibility).toEqual([false, true]);
+    expect(harness.workingVisibility).toEqual([]);
   });
 
   test("does not touch native working visibility outside TUI mode", () => {
@@ -240,105 +237,11 @@ describe("working state", () => {
     expect(harness.workingVisibility).toEqual([]);
   });
 
-  test("shows the animated spinner immediately left of the model", () => {
-    vi.useFakeTimers();
+  test("keeps only the model on the right with no braille indicator", () => {
     const harness = createHarness();
     const footer = harness.start();
 
-    expect(mainLine(footer, 120)).not.toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
-
-    harness.fire("agent_start");
-    const first = mainLine(footer, 120);
-    expect(first).toMatch(/⠋ model\s+$/);
-    expect(first).not.toContain("Working…");
-    const rendersAfterStart = harness.renderRequests;
-
-    vi.advanceTimersByTime(80);
-    const next = mainLine(footer, 120);
-    expect(next).toMatch(/⠙ model\s+$/);
-    expect(harness.renderRequests).toBe(rendersAfterStart + 1);
-
-    harness.fire("agent_start");
-    expect(mainLine(footer, 120)).toMatch(/⠋ model\s+$/);
-
-    harness.fire("agent_end");
-    expect(mainLine(footer, 120)).not.toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
-  });
-
-  test("preserves the live spinner at the narrowest decorated width", () => {
-    vi.useFakeTimers();
-    const harness = createHarness();
-    const footer = harness.start();
-    harness.fire("agent_start");
-
-    expect(plain(mainLine(footer, 5)).trim()).toBe("⠋");
-    expect(plain(mainLine(footer, 12)).trim()).toBe("⠋ model");
-
-    harness.fire("agent_end");
-  });
-
-  test("runs exactly one interval while active and none while idle", () => {
-    vi.useFakeTimers();
-    const harness = createHarness();
-    harness.start();
-    expect(vi.getTimerCount()).toBe(0);
-
-    harness.fire("agent_start");
-    harness.fire("agent_start");
-    expect(vi.getTimerCount()).toBe(1);
-
-    harness.fire("agent_end");
-    expect(vi.getTimerCount()).toBe(0);
-
-    harness.fire("agent_start");
-    harness.fire("agent_settled");
-    expect(vi.getTimerCount()).toBe(0);
-
-    // Repeated settle events without a start stay idle.
-    harness.fire("agent_end");
-    harness.fire("agent_settled");
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  test("clears the interval on footer disposal and on shutdown", () => {
-    vi.useFakeTimers();
-    const harness = createHarness();
-    const footer = harness.start();
-
-    harness.fire("agent_start");
-    expect(vi.getTimerCount()).toBe(1);
-    footer.dispose();
-    expect(vi.getTimerCount()).toBe(0);
-    expect(harness.workingVisibility).toEqual([false, true]);
-
-    // After disposal another footer owns the working indicator: later agent
-    // starts no longer start our timer or hide the native row again.
-    harness.fire("agent_start");
-    expect(vi.getTimerCount()).toBe(0);
-    expect(harness.workingVisibility).toEqual([false, true]);
-
-    harness.fire("session_shutdown");
-    expect(vi.getTimerCount()).toBe(0);
-    expect(harness.workingVisibility).toEqual([false, true]);
-  });
-
-  test("spinner ticks only request footer rerenders", () => {
-    vi.useFakeTimers();
-    const harness = createHarness();
-    harness.start();
-
-    const idleRenders = harness.renderRequests;
-    vi.advanceTimersByTime(800);
-    expect(harness.renderRequests).toBe(idleRenders);
-
-    harness.fire("agent_start");
-    const activeRenders = harness.renderRequests;
-    vi.advanceTimersByTime(240);
-    expect(harness.renderRequests).toBe(activeRenders + 3);
-
-    harness.fire("agent_settled");
-    const settledRenders = harness.renderRequests;
-    vi.advanceTimersByTime(800);
-    expect(harness.renderRequests).toBe(settledRenders);
+    expect(plain(mainLine(footer, 12)).trimEnd()).toMatch(/model$/);
+    expect(mainLine(footer, 12)).not.toMatch(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
   });
 });

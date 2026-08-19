@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Drop footer-owned working state: no spinner cell, no interval, and Pi's native working row stays visible in the chat output (reverts the footer working-indicator design).
 - Prepend one blank separator row above the footer metadata, restoring visual separation from the active prompt surface (supersedes the zero-separator prototype).
 - Inset both footer metadata lines two columns from the terminal edges (was one).
 - Move the working state into the footer: hide Pi's native working row via `ctx.ui.setWorkingVisible(false)` and animate only Pi's native braille indicator (`⠋`, `⠙`, `⠹`, …) immediately left of the right-aligned model.
