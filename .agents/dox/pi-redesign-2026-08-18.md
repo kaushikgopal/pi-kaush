@@ -136,6 +136,18 @@ package manifest verify 0.1.6. Visual review remains open pending user feedback.
       summaries, and image-adjacent output. This also explains the apparent
       "Reloaded…" misalignment: the status row itself was correctly inset; the phantom
       col-0 line was the outlier. Code-side complete; live visual confirmation pending.
+- [x] **F31 — Revert the footer working indicator (2026-08-19; supersedes F7, F10,
+      F12 and decisions 6/14/17).** User prefers Pi's native working row in the chat
+      output. `pi-footer-minimal` no longer hides native working state and carries no
+      spinner cell or interval; line 1's stable right side is the model alone.
+      Disposal/shutdown no longer need visibility restoration because nothing is
+      hidden. Code-side complete (9/9 footer tests).
+- [x] **F32 — Nest grouped tool calls under one marker (2026-08-19; fulfills F25's
+      compact goal with hierarchy).** The earlier compact attempt only removed blank
+      lines and read as congested. Consecutive tool blocks now share one `%` heading,
+      each tool run gets a sub-heading (`$` or the tool name), and calls nest one
+      level deeper as sub-bullets with no blank lines between sections. Code-side
+      complete (142/142 markers tests).
 - [x] **F30 — Restore the numbered-step subagent display (2026-08-19).** User
       preferred the pre-redesign native subagent plan (emoji + numbered steps with agent
       names) over the WP4 accent-rail card, restyled to the new tool aesthetic: `% subagent`
@@ -806,14 +818,12 @@ independently.
    hook registry is a no-op when the other package is absent, and each suite passes
    alone.
 
-   Blocked: `pi-content-layout` and `pi-footer-minimal` have no npm presence, and
-   first releases require the manual bootstrap (`npm login` + browser 2FA); no
-   local npm auth exists (whoami 401) and no browser daemon was reachable. Exact
-   unblock steps: `npm login`; set pi-content-layout to 0.1.0 (footer-minimal is
-   already 0.1.0); `npm publish --access public` in each package; on npmjs.com add
-   the GitHub Actions trusted publisher (repo `kaushikgopal/pi-kaush`, workflow
-   `publish.yml`, environment `npm`); then switch the remaining two local-path
-   settings entries to npm and `pi update`.
+   Resolved (2026-08-19): the user completed the npm web login + security-key
+   step and configured trusted publishers for both new packages. pi-content-layout
+   published manually at 0.1.0 and via OIDC at 0.1.1 after the publish workflow's
+   tag allowlist and resolver learned both package names (release events run the
+   workflow from the release tag, so the fix tag had to move). pi-footer-minimal
+   publishes via `make publish` once F31 lands.
 
 **Exit:** every changed extension published (or an exact blocker recorded), main
 pushed, review-loop findings resolved or deferred with reasons.
