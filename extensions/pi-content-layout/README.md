@@ -49,7 +49,7 @@ Pi does not currently expose public renderers for native user and assistant mess
 For the complete visual system, combine this package with:
 
 - `@pi-kaush/pi-footer-minimal` for matching footer inset and footer working state; and
-- `@pi-kaush/pi-tool-call-markers` for unboxed tool rows, subagent cards, and thinking markers.
+- `@pi-kaush/pi-tool-call-markers` for unboxed tool rows, subagent plans, and thinking markers.
 
 ## License
 

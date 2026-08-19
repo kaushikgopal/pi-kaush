@@ -11,7 +11,7 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 | [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) | Highlight and route inline Pi skill, agent, and prompt-template references.         |
 | [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction) | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns. |
 | [`@pi-kaush/pi-btw`](./extensions/pi-btw)                             | Ask a question in a Herdr side fork or switch to a local session fork.              |
-| [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers) | Show unboxed tool groups, subagent cards, and live/final thinking markers.          |
+| [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers) | Show unboxed tool groups, subagent plans, and live/final thinking markers.          |
 | [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)       | Show a responsive startup header with Pi's loaded resources.                        |
 
 Every package is independently versioned and published to npm. Runtime source is readable TypeScript, and packages avoid runtime dependencies where practical.
