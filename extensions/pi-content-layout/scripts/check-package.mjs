@@ -15,6 +15,7 @@ const required = [
   "LICENSE",
   "README.md",
   "package.json",
+  "src/container-hooks.ts",
   "src/index.ts",
   "src/render.ts",
 ];
