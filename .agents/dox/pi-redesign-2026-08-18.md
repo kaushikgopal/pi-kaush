@@ -132,6 +132,15 @@ package manifest verify 0.1.6. Visual review remains open pending user feedback.
       summaries, and image-adjacent output. This also explains the apparent
       "Reloaded…" misalignment: the status row itself was correctly inset; the phantom
       col-0 line was the outlier. Code-side complete; live visual confirmation pending.
+- [x] **F30 — Restore the numbered-step subagent display (2026-08-19).** User
+      preferred the pre-redesign native subagent plan (emoji + numbered steps with agent
+      names) over the WP4 accent-rail card, restyled to the new tool aesthetic: `% subagent`
+      heading with chain/parallel counts and scope, numbered steps while the chain
+      executes, agent names in accent (emoji scraped from the native plan component, args
+      fallback without it), everything else muted; failed subagents follow the F24 full-red
+      rule. The rail card, hint line, and `Ctrl+O view subagents` line are removed;
+      expansion still restores native details. Code-side complete (139/139 markers tests);
+      live visual confirmation pending.
 - [ ] **F29 — pi-intercom card inner padding (2026-08-19; extension-level).** The
       intercom message card's body lines render flush against the `│` border while the
       header/meta lines carry one leading space. That inconsistency lives in
@@ -772,6 +781,19 @@ independently.
    package), `pi-tool-call-markers`, `pi-footer-minimal`, `pi-inline-identifier`, then
    root docs/plan. Commit messages follow `/write-pr-desc` conventions.
 4. `/review-my --loop 2 --fix` on the committed diff; apply judged fixes and re-gate.
+   Cycle 1 (assessment → judgment → execution chain) landed four fixes: scrape
+   sanitization applied to content not just measurement, failed subagent-card ellipsis
+   tone, F21/F22 doc drift in READMEs/CHANGELOGs, and a dual-instance editor-decoration
+   pin for `pi-inline-identifier`. F30 (subagent plan display) replaced the card those
+   fixes touched; cycle 2 covered the cycle-1 fixes plus F30. Cycle 2 landed five
+   more (subagent-plan docs, superseded changelog bullets, dead mock, self-rendered
+   label sanitization, container-hooks package pin). The terminal review requested
+   changes; all six findings were reconciled in-session: grouping now goes inert
+   when its shutdown is shadowed (Q1 High), subagent fields and OSC payloads are
+   sanitized (Q2 High), footer disposal releases working-state ownership (Q3
+   Medium), tiny-width footer budgets the full width (Q4 Low), README drift (S1),
+   and real editor input behavior is pinned through the decorated proxy (S2).
+   Root gate after reconciliation: 356/356.
 5. `/publish-pi-ext` for each changed package in dependency order
    (`pi-content-layout`, `pi-tool-call-markers`, `pi-footer-minimal`,
    `pi-inline-identifier`, `pi-welcome-screen` if it has remaining changes). Each
