@@ -1,34 +1,58 @@
 # @pi-kaush/pi-tool-call-markers
 
-Collapse Pi's adjacent successful tool calls into one compact, gear-headed block per tool type, so a run of similar calls reads as a tidy bulleted list instead of a wall of repeated headers and results.
+Give Pi's collapsed tool calls a quiet, width-safe transcript shell while preserving native details under `Ctrl+O`. The package also includes a display-only thinking-block adapter.
 
 ## What it changes
 
-When several tool calls run in a row, Pi normally renders each one as its own expanded block. This extension groups them:
+Collapsed tool rows use semantic theme colors with no gear, background fill, box padding, or filled blank rows:
 
-- **One gear header per contiguous tool type.** A run of `read` calls shares a single `⚙️ read` header; the following `write` run gets its own `⚙️ write` header.
-- **Bulleted call summaries.** Each call in a group becomes one bullet with a short summary and, for common tools, a compact outcome such as `→ done`, `→ 42 lines`, or `→ +2/-1`.
-- **Vertical spacing between tool types.** A blank line separates one tool group from the next.
-- **One-line, width-safe summaries.** Long targets truncate before their useful outcome tail instead of wrapping into taller blocks.
-- **Running calls group immediately.** Adjacent calls become bullets as they appear, and each pending marker or elapsed `bash` time updates to the final outcome in place. Successful settlement does not shrink the block, so the transcript only grows downwards.
-- **Sequential calls merge across quiet turns.** A later call joins the existing group immediately when no visible prose or thinking separates it; visible assistant content remains a hard boundary.
-- **Self-rendered tools get the same treatment.** Tools that own their framing (e.g. MCP adapter rows) collapse to the same one-line summary — args label plus outcome — with pending, success, and error backgrounds; expanding restores their full custom render.
-- **Image results stay visible.** Image-bearing results are not collapsed into text-only groups. Partial text output is held back while a call runs and surfaces through the final summary.
-- **Errors stay compact and visibly failed.** A failed call keeps an error-colored block: native collapsed detail for built-in tools, or a one-line summary with the first error line for self-rendered tools.
-- **Ctrl+O restores full blocks.** Expanding tools (`setToolsExpanded(true)`) brings back Pi's individual full blocks, including complete error details and successful results.
+```text
+  % Read
+    • src/a.ts                         42 lines
+    • src/b.ts                         18 lines
+```
+
+- **Two-column outer inset.** Tool markers and image output align with an inset conversation surface. Very narrow terminals reduce the decoration before useful content.
+- **`%` tool headings.** A singleton stays on one line when its summary and outcome fit. A multi-call group has one `%` heading per contiguous tool type.
+- **`•` grouped children.** Bullets appear only for members of a multi-call group.
+- **Semantic, low-contrast status.** Tool names are emphasized, summaries are muted, settled metadata is dim, pending state is warning-colored, and failures remain error-colored. Ordinary tool states have no background.
+- **Width-safe outcome tails.** Long summaries truncate before useful tails such as `→ done`, `→ 42 lines`, `→ +2/-1`, or a `bash` duration.
+- **Stable running groups.** Adjacent calls group as they appear. Pending state and elapsed `bash` time settle into the final outcome without changing the row count.
+- **Quiet-turn grouping.** Sequential calls can join across an assistant row with no visible prose or thinking. Visible assistant content remains a boundary.
+- **MCP and self-rendered tools.** Their stable call labels, compact arguments, pending state, success, and first error line use the same collapsed shell. Native self-rendered details return when expanded.
+- **Images remain visible.** Image fallback text and terminal image components render below the corresponding marker with the same inset.
+- **Native expansion remains authoritative.** `Ctrl+O` restores Pi's full individual tool rendering, including complete results, custom renderers, and error details.
+
+## Subagent cards
+
+A recognized ungrouped `subagent` call renders as a two-line accent-rail card:
+
+```text
+  ▌ Red Team Task — Challenge the compatibility conclusion
+  ▌ Ctrl+O view subagents
+```
+
+Single, parallel, and chain argument shapes receive deterministic humanized titles and the first useful task sentence. The configured `app.tools.expand` keybinding is rendered through Pi's themed key hint. Subagents never join ordinary tool groups.
+
+Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `% subagent …` row rather than dropping information. Failed cards keep a compact error tail, and `Ctrl+O` still exposes the native subagent renderer.
 
 ## Bundled thinking-block extension
 
-The package ships a second extension entrypoint, `src/thinking-block-merger.ts`. Pi loads it independently from the tool presentation extension, so its `AssistantMessageComponent` patch and shutdown lifecycle stay isolated while install, update, and removal remain one package operation.
+The second package entrypoint, `src/thinking-block-merger.ts`, combines only directly adjacent `thinking` blocks in a display copy. Tool calls, text, provider blocks, signatures, and stored session messages are unchanged.
 
-It combines only directly adjacent `thinking` blocks for display. Tool calls, text, and other content remain boundaries; provider blocks and signatures are not modified.
+When Pi exposes its per-row hidden-thinking and streaming fields, hidden reasoning uses these native-themed labels:
+
+```text
+⠋ Thinking…  →  ⠙ Thinking…  →  …
++ Thought · 2.5s
+```
+
+The live label samples Pi's native braille spinner sequence from the content updates Pi already renders; it does not add a timer. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `+ Thought`. Visible-thinking mode remains native. There is no interval, timeout, render request, model call, or network work.
 
 ## Install
 
-After the first npm release:
-
 ```bash
-pi install npm:@pi-kaush/pi-tool-call-markers@0.1.0
+pi install npm:@pi-kaush/pi-tool-call-markers
 ```
 
 For local development:
@@ -41,7 +65,7 @@ pi \
 
 ## Configuration
 
-Grouping calls from the same assistant message is enabled by default. Pi normally executes those calls in parallel. To keep those same-message calls as individual compact rows while continuing to group sequential calls across quiet turns, start Pi with:
+Grouping calls from the same assistant message is enabled by default. Pi normally executes those calls in parallel. To keep same-message calls as individual compact rows while continuing to group sequential calls across quiet turns:
 
 ```fish
 set -lx PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL 0
@@ -50,35 +74,37 @@ pi
 
 `0`, `false`, `no`, and `off` disable parallel grouping. `1`, `true`, `yes`, and `on` enable it. The value is read when the extension loads.
 
-## Compatibility and risk
+## Compatibility and fallback policy
 
-The tool presentation entrypoint currently relies on **guarded, reversible prototype patches** against two Pi component classes:
+**Compatible Pi version:** `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui` `>=0.80.6`.
 
-- `ToolExecutionComponent` (render + display presentation),
-- `Container` (transcript grouping).
+Pi has no public hook for native tool rows, transcript grouping, or per-message hidden-thinking labels. The package therefore uses three small guarded prototype adapters:
 
-The bundled thinking-block entrypoint separately patches `AssistantMessageComponent.updateContent`. Its patch and lifecycle do not share state with tool presentation.
+- `ToolExecutionComponent` for collapsed presentation;
+- `Container` for adjacent grouping; and
+- `AssistantMessageComponent.updateContent` for display-only thinking merging and lifecycle labels.
 
-Pi exposes no public transcript or tool-grouping hook today, so the extension patches those prototypes and restores the originals on `session_shutdown`. Every patch is wrapped in `try`/`catch` with an idempotency guard (`Symbol.for(...)` markers), so if Pi's internals change the extension silently no-ops and Pi's default rendering is preserved.
+Each adapter feature-detects the fields and methods it needs, keeps the original method, uses an idempotency symbol, catches cosmetic failures, and restores the original on `session_shutdown` when it still owns the patch. Unsupported shapes fail open to Pi's native rendering. The thinking adapter continues adjacent merging even when the private label shape is unavailable.
 
-**Compatible Pi version:** `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui` `>=0.80.6`. Because the patches touch internal prototype methods, a future Pi release that renames or restructures those methods can silently disable the affected presentation until this package is updated. All original methods are restored on shutdown.
+Expanded tools always use Pi's native renderer. The collapsed tool shell owns its two-column inset directly; transcript layout extensions should leave tool rows unchanged, preventing load-order-dependent double padding.
 
-> TODO: migrate to a public Pi tool/transcript rendering API when one becomes available, and remove the prototype patches.
+> TODO: migrate these adapters to public Pi transcript and tool-rendering APIs when available.
 
 ## Design
 
 - No runtime dependencies.
-- Startup only registers `session_start` / `session_shutdown` handlers and installs the reversible patches; no I/O, subprocesses, model requests, or timers.
-- Grouped output is cached per row and invalidated when any member's display version changes, so repeated renders reuse work while stale groups refresh on demand.
-- Removing the package restores Pi's default rendering on the next session.
+- No mutation of tool arguments, tool results, provider content, or session messages.
+- Group output is cached per row and invalidated on meaningful display transitions.
+- No timers or independent render loops.
 
 ## Development
 
 From the repository root:
 
 ```bash
-npm ci --ignore-scripts
-npm run check
+npx vitest run extensions/pi-tool-call-markers/test
+npm run typecheck
+npm run package:check --workspace @pi-kaush/pi-tool-call-markers
 ```
 
 Inspect the publish payload:

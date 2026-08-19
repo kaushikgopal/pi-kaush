@@ -1,29 +1,30 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
+  keyHint,
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import {
-  Box,
   Container,
   sliceByColumn,
   truncateToWidth,
   visibleWidth,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { runChatContainerHooks } from "./container-hooks.ts";
 
-const BADGE = " ⚙️";
-const BADGE_WIDTH = visibleWidth(BADGE);
+const OUTER_INSET = 2;
+const GROUP_MARKER = "%";
+const SUBAGENT_RAIL = "▌";
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
 const ANSI_RE = /\u001b\[[0-9;]*m/g;
-const BOLD_ON_RE = /\u001b\[1m/g;
 const COLLAPSE_PARALLEL_ENV = "PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL";
 
 type ThemeLike = {
   bold(text: string): string;
   fg(color: string, text: string): string;
-  bg(color: string, text: string): string;
 };
 
 type ComponentLike = {
@@ -33,12 +34,6 @@ type ComponentLike = {
 
 type ComponentContainer = ComponentLike & {
   children?: unknown[];
-  removeChild?(component: unknown): void;
-};
-
-type TextComponent = {
-  text?: string;
-  setText?(text: string): void;
 };
 
 type ToolExecutionRow = {
@@ -57,15 +52,11 @@ type ToolExecutionRow = {
     compactTitle?: unknown;
   };
   contentBox?: ComponentContainer;
-  contentText?: TextComponent;
-  selfRenderContainer?: ComponentContainer;
   callRendererComponent?: ComponentLike;
   imageComponents?: unknown[];
   imageSpacers?: unknown[];
-  hasRendererDefinition?(): boolean;
   getRenderShell?(): "default" | "self";
   getTextOutput?(): string;
-  removeChild?(component: unknown): void;
 };
 
 type PresentationPatchState = {
@@ -107,157 +98,44 @@ function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, "");
 }
 
+// Command output can carry cursor-moving control bytes (git progress writes
+// \r) and raw terminal sequences. Collapsed rows are single-line, so result
+// and scraped text is stripped of display sequences and control bytes before
+// it can reach a row; a bare \r would otherwise return the cursor to column 0
+// and overwrite the row's own marker.
+const INLINE_CONTROL_RE = /[\x00-\x08\x0b-\x1f\x7f]/g;
+const DISPLAY_ANSI_RE =
+  /\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
+
+function sanitizeInline(text: string): string {
+  return text.replace(DISPLAY_ANSI_RE, "").replace(INLINE_CONTROL_RE, " ");
+}
+
 function hasVisibleContent(line: string): boolean {
   return stripAnsi(line).trim().length > 0;
 }
 
-function prefixBadge(line: string): string {
-  let index = 0;
-  while (line[index] === "\x1b" && line[index + 1] === "[") {
-    const end = line.indexOf("m", index + 2);
-    if (end === -1) break;
-    index = end + 1;
-  }
-  return line.slice(0, index) + BADGE + line.slice(index);
+type InsetLayout = {
+  contentWidth: number;
+  left: number;
+};
+
+function insetLayout(width: number): InsetLayout {
+  const max = Math.max(1, width);
+  // Keep enough room for "% x → …" before spending columns on decoration.
+  // Normal terminal widths receive the full two-column inset on both sides.
+  const decoration = Math.min(OUTER_INSET * 2, Math.max(0, max - 8));
+  const left = Math.min(OUTER_INSET, Math.ceil(decoration / 2));
+  const right = decoration - left;
+  return { contentWidth: Math.max(1, max - left - right), left };
 }
 
-function hasGearBadge(line: string): boolean {
-  return stripAnsi(line).trimStart().startsWith("⚙️");
-}
-
-function boldLeadingToolToken(
-  line: string,
-  token: string,
-  theme: ThemeLike,
-): string {
-  const visible = stripAnsi(line);
-  const prefix = visible.match(/^\s*(?:⚙️\s*)?/)?.[0] ?? "";
-  if (!visible.startsWith(token, prefix.length)) return line;
-
-  const start = visibleWidth(prefix);
-  const tokenWidth = visibleWidth(token);
-  const before = sliceByColumn(line, 0, start);
-  const styledToken = sliceByColumn(line, start, tokenWidth);
-  const after = sliceByColumn(
-    line,
-    start + tokenWidth,
-    visibleWidth(line),
-  ).replace(BOLD_ON_RE, "");
-  return before + theme.bold(styledToken) + "\x1b[22m" + after;
-}
-
-function decorateHeader(
-  row: ToolExecutionRow,
-  lines: string[],
-  width: number,
-  theme?: ThemeLike,
-): string[] {
-  const lineIndex = lines.findIndex(hasVisibleContent);
-  if (lineIndex === -1) return lines;
-
-  const next = [...lines];
-  let header = next[lineIndex];
-  if (header === undefined) return lines;
-  if (!hasGearBadge(header) && width > BADGE_WIDTH) {
-    header = truncateToWidth(prefixBadge(header), width, "", false);
-  }
-
-  const token = row.toolName === "bash" ? "$" : row.toolName;
-  if (theme && token) header = boldLeadingToolToken(header, token, theme);
-  next[lineIndex] = header;
-  return next;
-}
-
-function removeResultComponent(container?: ComponentContainer): boolean {
-  if (
-    !container ||
-    !Array.isArray(container.children) ||
-    typeof container.removeChild !== "function"
-  )
-    return false;
-  for (const child of container.children.slice(1)) container.removeChild(child);
-  return true;
-}
-
-function collapseGenericResult(row: ToolExecutionRow): boolean {
-  const text = row.contentText?.text;
-  if (
-    typeof text !== "string" ||
-    typeof row.contentText?.setText !== "function"
-  )
-    return false;
-
-  const output = row.getTextOutput?.();
-  if (!output) return true;
-  const suffix = `\n${output}`;
-  if (!text.endsWith(suffix)) return false;
-  row.contentText.setText(text.slice(0, -suffix.length));
-  return true;
-}
-
-function hideResultImages(row: ToolExecutionRow): void {
-  if (typeof row.removeChild !== "function") return;
-  for (const image of row.imageComponents ?? []) row.removeChild(image);
-  for (const spacer of row.imageSpacers ?? []) row.removeChild(spacer);
-  row.imageComponents = [];
-  row.imageSpacers = [];
-}
-
-function collapseSuccessfulResult(
-  row: ToolExecutionRow,
-  theme?: ThemeLike,
-): void {
-  if (
-    row.expanded !== false ||
-    row.isPartial !== false ||
-    !row.result ||
-    hasImageResult(row)
-  )
-    return;
-
-  if (row.getRenderShell?.() === "self") {
-    collapseSelfRenderedRow(row, theme);
-    return;
-  }
-
-  // Default-shell failures keep Pi's native error render, which already
-  // applies the error background. rowHasFailed also catches MCP tools that
-  // use the default shell (e.g. mcpScript) and report via details.error.
-  if (rowHasFailed(row)) return;
-
-  const collapsed = row.hasRendererDefinition?.()
-    ? removeResultComponent(row.contentBox)
-    : collapseGenericResult(row);
-  if (collapsed) {
-    hideResultImages(row);
-    decorateSuccessfulCall(row, theme);
-  }
-}
-
-// Self-rendered tools (e.g. MCP adapter rows) own their framing, so there is
-// no result component to trim. Swap the whole container for a single summary
-// line in the same style as collapsed default-shell rows. Pi rebuilds the
-// container on every updateDisplay, so this never corrupts expanded renders.
-// Failures collapse too, with the error background and the first error line,
-// since MCP error output tends to be a huge markdown blob.
-function collapseSelfRenderedRow(
-  row: ToolExecutionRow,
-  theme?: ThemeLike,
-): void {
-  const container = row.selfRenderContainer;
-  if (!theme || !container || !Array.isArray(container.children)) return;
-
-  const failed = rowHasFailed(row);
-  const tail = failed
-    ? renderedErrorOutcome(row, theme)
-    : (renderedOutcome(row, theme) ?? renderedGenericOutcome(theme));
-  const box = new Box(1, 1, (text) =>
-    theme.bg(failed ? "toolErrorBg" : "toolSuccessBg", text),
+function insetLines(lines: string[], width: number): string[] {
+  const layout = insetLayout(width);
+  const prefix = " ".repeat(layout.left);
+  return lines.map(
+    (line) => prefix + truncateToWidth(line, layout.contentWidth, "", false),
   );
-  box.addChild(
-    selfRenderedSummaryComponent(row, theme, tail, failed ? 0.5 : 1),
-  );
-  container.children = [box];
 }
 
 // The MCP adapter reports outcomes in details.error but only promotes
@@ -306,35 +184,10 @@ function rowHasFailed(row: ToolExecutionRow): boolean {
 function renderedErrorOutcome(row: ToolExecutionRow, theme: ThemeLike): string {
   const firstLine =
     resultText(row)
-      .split("\n")
-      .map((line) => line.trim())
+      .split(/\r\n|[\r\n]/)
+      .map((line) => sanitizeInline(line).trim())
       .find((line) => line.length > 0) ?? "error";
-  return `${theme.fg("muted", "→")} ${theme.fg("error", firstLine)}`;
-}
-
-function selfRenderedSummaryComponent(
-  row: ToolExecutionRow,
-  theme: ThemeLike,
-  tail: string,
-  maxTailShare = 1,
-): ComponentLike {
-  return {
-    render(width: number): string[] {
-      // The Box already shrinks our width by its horizontal padding before
-      // calling render, so only the badge deducts from this headline;
-      // counting the padding again starves the label at narrow widths.
-      const budget = Math.max(1, width - BADGE_WIDTH);
-      const summary = selfRenderedSummary(row, budget);
-      // Long error lines would otherwise evict the call summary entirely;
-      // cap the tail's share so the label always survives.
-      const cappedTail =
-        maxTailShare >= 1
-          ? tail
-          : capFailureTail(tail, Math.floor(budget * maxTailShare), theme);
-      return [fitSummaryTail(summary, cappedTail, budget)];
-    },
-    invalidate() {},
-  };
+  return `${theme.fg("error", "→")} ${theme.fg("error", firstLine)}`;
 }
 
 // Trim a failure tail to its quota of the budget, counting the appended
@@ -346,7 +199,7 @@ function selfRenderedSummaryComponent(
 function capFailureTail(tail: string, cap: number, theme: ThemeLike): string {
   const tailWidth = visibleWidth(tail);
   if (tailWidth <= cap) return tail;
-  const ellipsis = theme.fg("muted", "…");
+  const ellipsis = theme.fg("error", "…");
   const ellipsisWidth = visibleWidth(ellipsis);
   if (cap <= 0) return "";
   if (ellipsisWidth >= cap) return sliceByColumn(tail, 0, cap, true);
@@ -354,7 +207,7 @@ function capFailureTail(tail: string, cap: number, theme: ThemeLike): string {
 }
 
 function renderedGenericOutcome(theme: ThemeLike): string {
-  return `${theme.fg("muted", "→")} ${theme.fg("success", "done")}`;
+  return theme.fg("muted", "→ done");
 }
 
 // The MCP adapter stashes its call's first line in renderer state before
@@ -503,6 +356,17 @@ function selfRenderedCallLabel(row: ToolExecutionRow): string {
     const json = squashJsonish(args);
     return json ? `mcp ${json}` : "mcp status";
   }
+  // Pi's edit tool renders its own shell and carries { path, edits } args;
+  // mirror Pi's native `edit <path>` call line instead of dumping the payload.
+  if (
+    token === "edit" &&
+    args &&
+    typeof args === "object" &&
+    !Array.isArray(args)
+  ) {
+    const path = (args as Record<string, unknown>).path;
+    if (typeof path === "string" && path.length > 0) return `${token} ${path}`;
+  }
   const title = selfRenderedCallTitle(row);
   const json = squashJsonish(args);
   // Direct tools put only the bare name in their own title, so append the
@@ -567,91 +431,6 @@ function isLiveRow(row: ToolExecutionRow): boolean {
   );
 }
 
-function liveTailText(
-  row: ToolExecutionRow,
-  droppedVisible: boolean,
-  theme?: ThemeLike,
-): string | undefined {
-  if (!theme) return undefined;
-  const elapsed = liveElapsedText(row);
-  if (!droppedVisible && !elapsed) return undefined;
-  const parts: string[] = [];
-  if (droppedVisible) parts.push("…");
-  if (elapsed) parts.push("·", elapsed);
-  return theme.fg("muted", parts.join(" "));
-}
-
-function fitLiveHeader(
-  header: string,
-  tail: string,
-  width: number,
-  droppedVisible: boolean,
-): string {
-  const max = Math.max(1, width);
-  const head = header.trimEnd();
-  if (visibleWidth(head) + visibleWidth(tail) + 1 <= max)
-    return `${head} ${tail}`;
-  const headWidth = Math.max(1, max - visibleWidth(tail) - 1);
-  const headSuffix = droppedVisible ? "" : "…";
-  return `${truncateToWidth(head, headWidth, headSuffix, false)} ${tail}`;
-}
-
-// While a call streams or runs, pin it to a single header line with the
-// elapsed time inline, so the block never grows and never collapses on
-// completion; the header text simply settles into the outcome summary. The
-// cap is composed before the Box applies background and padding, so the live
-// line keeps the tool background edge to edge and the block's bottom padding.
-function capLiveRowDisplay(row: ToolExecutionRow, theme?: ThemeLike): void {
-  // Pin live self-rendered rows (e.g. MCP calls) to the same one-line summary
-  // they settle into, so the block never grows and hops on completion.
-  if (row.getRenderShell?.() === "self") {
-    const container = row.selfRenderContainer;
-    if (!theme || !container || !Array.isArray(container.children)) return;
-    const box = new Box(1, 1, (text) => theme.bg("toolPendingBg", text));
-    box.addChild(
-      selfRenderedSummaryComponent(row, theme, theme.fg("muted", "…")),
-    );
-    container.children = [box];
-    return;
-  }
-  if (row.hasRendererDefinition?.()) {
-    const container = row.contentBox;
-    if (!container || !Array.isArray(container.children)) return;
-    const hadExtraChildren = container.children.length > 1;
-    removeResultComponent(container);
-    const original = container.children[0] as ComponentLike | undefined;
-    if (!original || typeof original.render !== "function") return;
-    container.children[0] = {
-      render(width: number): string[] {
-        const lines = original.render(width);
-        const headerIndex = lines.findIndex(hasVisibleContent);
-        if (headerIndex === -1) return lines;
-        const header = lines[headerIndex] ?? "";
-        const droppedVisible =
-          hadExtraChildren ||
-          lines.slice(headerIndex + 1).some(hasVisibleContent);
-        const tail = liveTailText(row, droppedVisible, theme);
-        return [
-          tail ? fitLiveHeader(header, tail, width, droppedVisible) : header,
-        ];
-      },
-      invalidate() {
-        original.invalidate();
-      },
-    };
-    return;
-  }
-
-  const text = row.contentText;
-  if (typeof text?.text !== "string" || typeof text.setText !== "function")
-    return;
-  const lines = text.text.split("\n");
-  const title = lines[0] ?? "";
-  const droppedVisible = lines.slice(1).some((line) => line.trim().length > 0);
-  const tail = liveTailText(row, droppedVisible, theme);
-  text.setText(tail ? `${title} ${tail}` : title);
-}
-
 function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
   return (
     row.expanded === false &&
@@ -689,6 +468,7 @@ function isGroupableToolRow(
   renderAt: (index: number) => string[],
   state: PresentationPatchState,
 ): boolean {
+  if (row.toolName === "subagent") return false;
   if (!isLiveRow(row) && !isCollapsibleSuccess(row)) return false;
   return (
     state.collapseParallel ||
@@ -823,7 +603,7 @@ function renderedOutcome(
 ): string | undefined {
   const summary = outcomeSummary(row);
   if (!summary) return undefined;
-  return `${theme.fg("muted", "→")} ${theme.fg("success", summary)}`;
+  return theme.fg("muted", `→ ${summary}`);
 }
 
 function renderedGroupedOutcome(
@@ -834,7 +614,7 @@ function renderedGroupedOutcome(
   if (outcome) return outcome;
   if (isLiveRow(row)) {
     const elapsed = liveElapsedText(row);
-    return theme.fg("muted", elapsed ? `· ${elapsed}` : "…");
+    return theme.fg("warning", elapsed ? `… · ${elapsed}` : "…");
   }
   // Self-rendered tools have no per-tool outcome summary; keep the group's
   // settled tail consistent with collapsed singletons.
@@ -842,70 +622,46 @@ function renderedGroupedOutcome(
   return undefined;
 }
 
-// A budget too small for the suffix keeps literal text instead, so a
-// one-column label never collapses into a bare ellipsis.
-function truncatePlain(text: string, width: number, suffix = "…"): string {
+// A budget too small for the suffix keeps literal styled text instead, so a
+// one-column label never collapses into a bare ellipsis or loses its status.
+function truncateStyled(text: string, width: number, suffix = "…"): string {
   const max = Math.max(0, width);
-  const plain = stripAnsi(text);
-  if (visibleWidth(plain) <= max) return plain;
+  if (visibleWidth(text) <= max) return text;
 
   const suffixWidth = visibleWidth(suffix);
-  if (suffixWidth >= max) return sliceByColumn(plain, 0, max, true);
-  return `${sliceByColumn(plain, 0, max - suffixWidth, true)}${suffix}`;
+  if (suffixWidth >= max) return sliceByColumn(text, 0, max, true);
+  return truncateToWidth(text, max, suffix, false);
 }
 
-function fitSummary(summary: string, width: number): string {
+function fitSummary(summary: string, width: number, suffix = "…"): string {
   const max = Math.max(1, width);
-  return visibleWidth(summary) <= max ? summary : truncatePlain(summary, max);
+  return visibleWidth(summary) <= max
+    ? summary
+    : truncateStyled(summary, max, suffix);
 }
 
 // Fits "head tail" into width while always reserving at least one literal
 // head column plus the joining space; the tail takes what is left and
 // disappears entirely when no columns remain.
-function fitSummaryTail(head: string, tail: string, width: number): string {
+function fitSummaryTail(
+  head: string,
+  tail: string,
+  width: number,
+  suffix = "…",
+): string {
   const max = Math.max(1, width);
   const headWidth = visibleWidth(head);
   const tailWidth = visibleWidth(tail);
   if (headWidth + 1 + tailWidth <= max) return `${head.trimEnd()} ${tail}`;
-  if (tailWidth === 0) return truncatePlain(head, max);
-  if (headWidth === 0) return truncatePlain(tail, max);
+  if (tailWidth === 0) return truncateStyled(head, max, suffix);
+  if (headWidth === 0) return truncateStyled(tail, max, suffix);
 
   const labelBudget = Math.min(headWidth, Math.max(1, max - tailWidth - 1));
   const tailBudget = Math.min(tailWidth, Math.max(0, max - labelBudget - 1));
-  if (tailBudget === 0) return truncatePlain(head, max);
+  if (tailBudget === 0) return truncateStyled(head, max, suffix);
   const fittedTail =
-    tailWidth <= tailBudget ? tail : truncatePlain(tail, tailBudget);
-  return `${truncatePlain(head, labelBudget)} ${fittedTail}`;
-}
-
-function decorateSuccessfulCall(
-  row: ToolExecutionRow,
-  theme?: ThemeLike,
-): void {
-  if (!theme || !Array.isArray(row.contentBox?.children)) return;
-  const original = row.contentBox.children[0] as ComponentLike | undefined;
-  const outcome = renderedOutcome(row, theme);
-  if (!original || typeof original.render !== "function" || !outcome) return;
-
-  row.contentBox.children[0] = {
-    render(width: number): string[] {
-      const lines = original.render(width);
-      const visibleLines = lines.filter(hasVisibleContent);
-      const line = visibleLines[0];
-      if (line === undefined) return lines;
-
-      const rendered = visibleLines.slice(0, 3).map(trimRenderedLine);
-      if (visibleLines.length > rendered.length)
-        rendered.push(theme.fg("muted", "…"));
-      const summary = rendered.join(theme.fg("muted", " · "));
-      return [
-        fitSummaryTail(summary, outcome, Math.max(1, width - BADGE_WIDTH)),
-      ];
-    },
-    invalidate() {
-      original.invalidate();
-    },
-  };
+    tailWidth <= tailBudget ? tail : truncateStyled(tail, tailBudget, suffix);
+  return `${truncateStyled(head, labelBudget, suffix)} ${fittedTail}`;
 }
 
 function removeTrailingExpandHint(text: string): string {
@@ -920,7 +676,7 @@ function removeTrailingExpandHint(text: string): string {
 }
 
 function trimRenderedLine(text: string): string {
-  const plain = stripAnsi(text);
+  const plain = sanitizeInline(stripAnsi(text));
   const leading = plain.match(/^\s*/)?.[0] ?? "";
   const trimmed = plain.trim();
   if (!trimmed) return "";
@@ -987,8 +743,267 @@ function renderedCallSummary(
 
   const fallback = compactArgs(row.args);
   return fallback
-    ? theme.fg("accent", fallback)
+    ? theme.fg("muted", fallback)
     : theme.fg("muted", "(no arguments)");
+}
+
+function styledCallLabel(
+  label: string,
+  theme: ThemeLike,
+  color = "muted",
+): string {
+  const plain = stripAnsi(label).trim();
+  const match = /^(\S+)(.*)$/s.exec(plain);
+  if (!match) return theme.fg(color, plain);
+  return (
+    theme.fg(color, theme.bold(match[1] ?? "")) +
+    theme.fg(color, match[2] ?? "")
+  );
+}
+
+function collapsedCallLabel(
+  row: ToolExecutionRow,
+  width: number,
+  theme: ThemeLike,
+  color = "muted",
+): string {
+  if (row.getRenderShell?.() === "self") {
+    return styledCallLabel(selfRenderedCallLabel(row), theme, color);
+  }
+
+  const token = row.toolName === "bash" ? "$" : (row.toolName ?? "tool");
+  const summary = renderedCallSummary(row, Math.max(1, width), theme);
+  const plainSummary = stripAnsi(summary).trim();
+  const label = plainSummary ? `${token} ${plainSummary}` : token;
+  return styledCallLabel(label, theme, color);
+}
+
+function collapsedOutcome(
+  row: ToolExecutionRow,
+  width: number,
+  theme: ThemeLike,
+): string | undefined {
+  if (rowHasFailed(row)) {
+    return capFailureTail(
+      renderedErrorOutcome(row, theme),
+      Math.max(3, Math.floor(width / 2)),
+      theme,
+    );
+  }
+  if (isLiveRow(row)) {
+    const elapsed = liveElapsedText(row);
+    return theme.fg("warning", elapsed ? `… · ${elapsed}` : "…");
+  }
+  if (row.getRenderShell?.() === "self") return renderedGenericOutcome(theme);
+  return renderedOutcome(row, theme);
+}
+
+function collapsedHeadline(
+  row: ToolExecutionRow,
+  width: number,
+  theme: ThemeLike,
+): string {
+  // Failed rows render entirely in error so the row reads as the one that
+  // failed, not just its outcome tail.
+  const color = rowHasFailed(row) ? "error" : "muted";
+  const marker = `${theme.fg(color, theme.bold(GROUP_MARKER))} `;
+  const budget = Math.max(1, width - visibleWidth(marker));
+  const label = collapsedCallLabel(row, budget, theme, color);
+  const outcome = collapsedOutcome(row, budget, theme);
+  // The truncation suffix inherits the row tone; pi-tui's truncation resets
+  // around a plain suffix, which would render it in the terminal default
+  // foreground instead of the row color.
+  const suffix = theme.fg(color, "…");
+  return (
+    marker +
+    (outcome
+      ? fitSummaryTail(label, outcome, budget, suffix)
+      : fitSummary(label, budget, suffix))
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function humanize(value: string): string {
+  const words = value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ");
+  if (!words) return "Subagent";
+  return words.replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+}
+
+function firstUsefulSentence(task: string): string | undefined {
+  const line = task
+    .replace(/\{previous\}/gi, " ")
+    .split(/\r?\n/)
+    .map((candidate) => {
+      const trimmed = candidate.trim();
+      if (/^#{1,6}\s+/.test(trimmed)) return "";
+      return trimmed.replace(/^[-*+]\s+/, "").replace(/^task:\s*/i, "");
+    })
+    .find((candidate) => candidate.length > 0);
+  if (!line) return undefined;
+  const sentence = line.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? line;
+  return sentence.replace(/\s+/g, " ").trim();
+}
+
+type SubagentCard = {
+  sentence: string;
+  title: string;
+};
+
+function subagentCard(args: unknown): SubagentCard | undefined {
+  if (!isRecord(args)) return undefined;
+  const hasParallel = Array.isArray(args.tasks) && args.tasks.length > 0;
+  const hasChain = Array.isArray(args.chain) && args.chain.length > 0;
+  const hasSingle =
+    typeof args.task === "string" && args.task.trim().length > 0;
+  if (Number(hasParallel) + Number(hasChain) + Number(hasSingle) !== 1) {
+    return undefined;
+  }
+
+  if (hasParallel) {
+    const tasks = args.tasks as unknown[];
+    if (
+      !tasks.every((item) => isRecord(item) && typeof item.task === "string")
+    ) {
+      return undefined;
+    }
+    const first = tasks.find(
+      (item) =>
+        isRecord(item) &&
+        typeof item.task === "string" &&
+        firstUsefulSentence(item.task),
+    );
+    if (!isRecord(first) || typeof first.task !== "string") return undefined;
+    const sentence = firstUsefulSentence(first.task);
+    if (!sentence) return undefined;
+    return {
+      sentence,
+      title: `Parallel Tasks · ${tasks.length}`,
+    };
+  }
+
+  if (hasChain) {
+    const steps = args.chain as unknown[];
+    if (
+      !steps.every((item) => isRecord(item) && typeof item.task === "string")
+    ) {
+      return undefined;
+    }
+    const first = steps.find(
+      (item) =>
+        isRecord(item) &&
+        typeof item.task === "string" &&
+        firstUsefulSentence(item.task),
+    );
+    if (!isRecord(first) || typeof first.task !== "string") return undefined;
+    const sentence = firstUsefulSentence(first.task);
+    if (!sentence) return undefined;
+    return {
+      sentence,
+      title: `Agent Chain · ${steps.length} ${steps.length === 1 ? "step" : "steps"}`,
+    };
+  }
+
+  const sentence = firstUsefulSentence(String(args.task));
+  if (!sentence) return undefined;
+  const kind =
+    typeof args.agent === "string" && args.agent.trim()
+      ? args.agent
+      : typeof args.profile === "string" && args.profile.trim()
+        ? args.profile
+        : "subagent";
+  return { sentence, title: `${humanize(kind)} Task` };
+}
+
+function subagentHint(theme: ThemeLike): string {
+  const fallback = `${theme.fg("dim", "Ctrl+O")} ${theme.fg("muted", "view subagents")}`;
+  try {
+    const hint = keyHint("app.tools.expand", "view subagents");
+    return stripAnsi(hint).trim() === "view subagents" ? fallback : hint;
+  } catch {
+    return fallback;
+  }
+}
+
+function renderSubagentCard(
+  row: ToolExecutionRow,
+  width: number,
+  theme: ThemeLike,
+): string[] | undefined {
+  const card = subagentCard(row.args);
+  if (!card) return undefined;
+  const rail = `${theme.fg("accent", SUBAGENT_RAIL)} `;
+  const available = width - visibleWidth(rail);
+  const hint = subagentHint(theme);
+  // Preserve the complete action hint. At narrower widths the generic one-line
+  // tool renderer communicates more than a clipped two-line card.
+  if (available < 1 || visibleWidth(hint) > available) return undefined;
+
+  const title =
+    theme.fg("toolTitle", theme.bold(card.title)) +
+    theme.fg("muted", ` — ${card.sentence}`);
+  const outcome = rowHasFailed(row)
+    ? collapsedOutcome(row, available, theme)
+    : isLiveRow(row)
+      ? collapsedOutcome(row, available, theme)
+      : row.result
+        ? renderedGenericOutcome(theme)
+        : theme.fg("warning", "…");
+  const titleLine = outcome
+    ? fitSummaryTail(title, outcome, available, theme.fg("muted", "…"))
+    : fitSummary(title, available, theme.fg("muted", "…"));
+  return [`${rail}${titleLine}`, `${rail}${hint}`];
+}
+
+function imageResultLines(
+  row: ToolExecutionRow,
+  width: number,
+  theme: ThemeLike,
+): string[] {
+  if (!hasImageResult(row)) return [];
+  const lines: string[] = [];
+  const output = row.getTextOutput?.() || resultText(row);
+  if (output) {
+    const sanitized = output
+      .split("\n")
+      .map((line) => sanitizeInline(line))
+      .join("\n");
+    lines.push(
+      ...wrapTextWithAnsi(
+        theme.fg("toolOutput", sanitized),
+        Math.max(1, width),
+      ),
+    );
+  }
+
+  for (let index = 0; index < (row.imageComponents?.length ?? 0); index++) {
+    const spacer = row.imageSpacers?.[index];
+    if (spacer) lines.push(...renderComponent(spacer, width));
+    const image = row.imageComponents?.[index];
+    if (image) lines.push(...renderComponent(image, width));
+  }
+  return lines.map((line) => truncateToWidth(line, width, "", false));
+}
+
+function renderCollapsedToolRow(
+  row: ToolExecutionRow,
+  width: number,
+  theme: ThemeLike,
+): string[] {
+  const layout = insetLayout(width);
+  const card =
+    row.toolName === "subagent"
+      ? renderSubagentCard(row, layout.contentWidth, theme)
+      : undefined;
+  const body = card ?? [collapsedHeadline(row, layout.contentWidth, theme)];
+  body.push(...imageResultLines(row, layout.contentWidth, theme));
+  return ["", ...insetLines(body, width)];
 }
 
 function compactBulletLine(
@@ -996,16 +1011,17 @@ function compactBulletLine(
   outcome: string | undefined,
   width: number,
   theme: ThemeLike,
+  color = "muted",
 ): string {
-  const prefix = `  ${theme.fg("muted", "•")} `;
+  const prefix = `  ${theme.fg(color, "•")} `;
   const indent = visibleWidth(prefix);
   if (width <= indent) return truncateToWidth(prefix, width, "", false);
   const available = width - indent;
   return (
     prefix +
     (outcome
-      ? fitSummaryTail(summary, outcome, available)
-      : fitSummary(summary, available))
+      ? fitSummaryTail(summary, outcome, available, theme.fg(color, "…"))
+      : fitSummary(summary, available, theme.fg(color, "…")))
   );
 }
 
@@ -1022,36 +1038,30 @@ function groupedCallComponent(
           if (lines.length > 0) lines.push("");
           const token =
             row.toolName === "bash" ? "$" : (row.toolName ?? "tool");
-          const heading = theme.fg(
-            "toolTitle",
-            `${BADGE} ${theme.bold(token)}`,
-          );
+          const heading = `${theme.fg(
+            "muted",
+            theme.bold(GROUP_MARKER),
+          )} ${theme.fg("muted", theme.bold(token))}`;
           lines.push(truncateToWidth(heading, width, "", false));
           previousToolName = row.toolName;
         }
+        const color = rowHasFailed(row) ? "error" : "muted";
         const call = renderedCallSummary(row, Math.max(1, width - 4), theme);
         const outcome = renderedGroupedOutcome(row, theme);
-        lines.push(compactBulletLine(call, outcome, width, theme));
+        lines.push(
+          compactBulletLine(
+            theme.fg(color, stripAnsi(call)),
+            outcome,
+            width,
+            theme,
+            color,
+          ),
+        );
       }
       return lines;
     },
     invalidate() {},
   };
-}
-
-function renderWithTemporaryChild(
-  container: ComponentContainer,
-  child: ComponentLike,
-  render: () => string[],
-): string[] {
-  const children = container.children;
-  if (!Array.isArray(children)) return render();
-  container.children = [child];
-  try {
-    return render();
-  } finally {
-    container.children = children;
-  }
 }
 
 function sameMembers(
@@ -1084,18 +1094,13 @@ function renderGroupedToolRows(
   state: PresentationPatchState,
 ): string[] {
   const theme = state.theme;
-  if (!theme)
-    return decorateHeader(
-      row,
-      state.originalRender.call(row, width),
-      width,
-      theme,
-    );
+  if (!theme) return state.originalRender.call(row, width);
   const themeSample =
     theme.fg("toolTitle", "x") +
     theme.fg("muted", "x") +
-    theme.bg("toolPendingBg", "x") +
-    theme.bg("toolSuccessBg", "x");
+    theme.fg("dim", "x") +
+    theme.fg("warning", "x") +
+    theme.fg("error", "x");
   const cached = state.groupCache.get(row);
   const hasLiveMembers = rows.some(isLiveRow);
   if (
@@ -1109,68 +1114,21 @@ function renderGroupedToolRows(
     return cached.lines;
   }
 
+  const layout = insetLayout(width);
   const summary = groupedCallComponent(rows, theme);
-  let lines: string[];
-  if (!row.hasRendererDefinition?.()) {
-    const text = row.contentText;
-    const previous = text?.text;
-    if (typeof previous !== "string" || typeof text?.setText !== "function") {
-      return decorateHeader(
-        row,
-        state.originalRender.call(row, width),
-        width,
-        theme,
-      );
-    }
-    text.setText(summary.render(Math.max(1, width - 2)).join("\n"));
-    try {
-      lines = state.originalRender.call(row, width);
-    } finally {
-      text.setText(previous);
-    }
-  } else if (row.getRenderShell?.() === "self") {
-    const container = row.selfRenderContainer;
-    if (!container)
-      return decorateHeader(
-        row,
-        state.originalRender.call(row, width),
-        width,
-        theme,
-      );
-    const box = new Box(1, 1, (text) =>
-      theme.bg(hasLiveMembers ? "toolPendingBg" : "toolSuccessBg", text),
-    );
-    box.addChild(summary);
-    lines = renderWithTemporaryChild(container, box, () =>
-      state.originalRender.call(row, width),
-    );
-  } else {
-    const container = row.contentBox;
-    if (!container)
-      return decorateHeader(
-        row,
-        state.originalRender.call(row, width),
-        width,
-        theme,
-      );
-    lines = renderWithTemporaryChild(container, summary, () =>
-      state.originalRender.call(row, width),
-    );
-  }
-
-  const decorated = decorateHeader(row, lines, width, theme);
+  const lines = ["", ...insetLines(summary.render(layout.contentWidth), width)];
   if (hasLiveMembers) {
     state.groupCache.delete(row);
   } else {
     state.groupCache.set(row, {
-      lines: decorated,
+      lines,
       members: [...rows],
       memberVersions: rows.map((member) => state.rowVersions.get(member) ?? 0),
       themeSample,
       width,
     });
   }
-  return decorated;
+  return lines;
 }
 
 function renderContainerWithToolGroups(
@@ -1234,9 +1192,8 @@ function renderContainerWithToolGroups(
     }
 
     for (const member of group) presentation.rowGroups.set(member, group);
-    // An active member supplies the pending background. Once every call
-    // settles, the first member supplies the success background. Either way,
-    // the grouped row keeps the same number of lines.
+    // Use a live member while any call is pending, then the first member once
+    // settled. Either way, the grouped row keeps the same number of lines.
     const shellRow = group.find(isLiveRow) ?? child;
     lines.push(...renderGroupedToolRows(shellRow, group, width, presentation));
     index = lastMemberIndex;
@@ -1274,7 +1231,12 @@ function installGroupingPatch(
       if (!Array.isArray(children) || !children.some(isToolExecutionRow)) {
         return state.originalRender.call(this, width);
       }
+      let restoreHooks: () => void = () => {};
       try {
+        // Other container-level concerns (pi-content-layout's system-text
+        // inset) decorate children through the shared hooks before grouping
+        // rewrites the rows; delegation alone cannot reach them from here.
+        restoreHooks = runChatContainerHooks(this, children, width);
         return renderContainerWithToolGroups(
           children,
           width,
@@ -1282,6 +1244,8 @@ function installGroupingPatch(
         );
       } catch {
         return state.originalRender.call(this, width);
+      } finally {
+        restoreHooks();
       }
     };
 
@@ -1359,20 +1323,23 @@ function installPresentationPatch(): PresentationPatchState | undefined {
         state.groupCache.delete(this);
       }
       state.originalUpdateDisplay.call(this);
-      try {
-        if (isLiveRow(this)) capLiveRowDisplay(this, state.theme);
-        else collapseSuccessfulResult(this, state.theme);
-      } catch {
-        // Presentation is cosmetic; preserve Pi's renderer if its internals change.
-      }
     };
     const patchedRender = function renderWithToolPresentation(
       this: ToolExecutionRow,
       width: number,
     ): string[] {
       const lines = state.originalRender.call(this, width);
+      if (
+        typeof this.expanded !== "boolean" ||
+        typeof this.isPartial !== "boolean" ||
+        this.expanded ||
+        !state.theme ||
+        (lines.length === 0 && (this.imageComponents?.length ?? 0) === 0)
+      ) {
+        return lines;
+      }
       try {
-        return decorateHeader(this, lines, width, state.theme);
+        return renderCollapsedToolRow(this, width, state.theme);
       } catch {
         return lines;
       }

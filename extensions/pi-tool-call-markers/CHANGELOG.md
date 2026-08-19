@@ -2,20 +2,29 @@
 
 ## Unreleased
 
-- Compact multiline singleton calls into one width-safe summary after settlement, including timeout metadata, while preserving the full native call under Ctrl+O.
-- Compose capped in-progress rows before the Box paints its background, fixing elapsed tails leaking outside the tool background and restoring the block's bottom padding.
-
-- Render in-progress calls as a single header line (elapsed time inline for `bash`) that settles into the final summary at the same height, so the transcript flows downwards without jumping.
-- Show the real duration in successful bash summaries (`→ done · 2.3s`) instead of dropping the elapsed time on completion.
-- Group adjacent calls while they are still running, so new bullets grow downward and successful settlement updates outcomes in place without upward reflow.
-- Add `PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL`, enabled by default, to keep same-assistant-message calls individual while still grouping sequential calls across quiet turns.
-- Only invalidate grouped-render caches on real state transitions, so bash's per-second ticks and resize invalidations stop busting them.
-
-- Keep failed calls collapsed by default while retaining their native error background and Ctrl+O expansion.
-- Add compact result tails for common successful tools in singleton and grouped summaries.
-- Keep grouped bullets to one line and preserve the useful result tail on narrow terminals.
-- Merge calls across assistant turns as soon as they appear when no visible prose or thinking separates them.
-- Move adjacent thinking-block merging to a separate extension entrypoint bundled in this package.
+- Strip display sequences and control bytes (notably `\r` from progress writers like git) from collapsed-row text so command output cannot return the cursor to column 0 and overwrite the row.
+- Color the truncation ellipsis to match its row tone (`muted` settled, `error` failed) instead of the terminal default foreground left by pi-tui's truncation reset.
+- Render failed tool rows entirely in `error` — marker, call label, and outcome tail including the arrow and truncation ellipsis — so errored calls stand out as full red lines.
+- Render settled tool rows in one uniform `muted` tone — group headings,
+  bullets, summaries, and outcomes — while keeping `warning` pending and
+  `error` failure states semantic; subagent cards keep their accent-rail
+  design.
+- Compose container-level rendering through the shared
+  `kg.pi.chatContainerHooks.v1` registry so grouping no longer shadows (or is
+  shadowed by) `pi-content-layout`'s system-message inset in either load order.
+- Label self-rendered `edit` rows by path (`edit <path>`), matching Pi's native
+  call line instead of dumping the raw `{ path, edits }` JSON payload.
+- Redesign collapsed tools as unboxed, background-free transcript lines with a two-column outer inset, `%` tool/group headings, `•` grouped children, and semantic low-contrast foregrounds with clear warning/error states.
+- Add a width-safe two-line accent-rail card for recognized single, parallel, and chain `subagent` calls, including a humanized title, first useful task sentence, themed expand hint, generic fallback, and native `Ctrl+O` details.
+- Preserve compact outcomes, right-hand tail reservation, `bash` duration, errors, image output, quiet-turn grouping, grouped-render caching, and MCP/self-rendered tool labels in the new shell.
+- Keep expanded rows fully native so `Ctrl+O` restores complete results, custom renderers, and errors without collapsed decoration.
+- Label hidden local reasoning with Pi's native braille spinner sequence (`⠋ Thinking…`, `⠙ Thinking…`, …) while streaming and `+ Thought · X.Xs` when finalized; use `+ Thought` for restored messages and older runtimes without streaming metadata.
+- Track thinking duration per assistant row in a `WeakMap`, forward optional/future `updateContent` arguments, retain display-only adjacent thinking merging, and add no timer or render loop.
+- Feature-detect private tool and thinking component shapes and fail open to Pi's native rendering while retaining Pi `>=0.80.6` support.
+- Compact multiline singleton calls into one width-safe summary after settlement, including timeout metadata, while preserving the full native call under `Ctrl+O`.
+- Group adjacent calls while they are still running, update pending outcomes in place, and merge sequential calls across quiet assistant turns.
+- Add `PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL`, enabled by default, to optionally keep same-assistant-message calls individual.
+- Only invalidate grouped-render caches on meaningful state transitions.
 
 ## 0.1.2
 

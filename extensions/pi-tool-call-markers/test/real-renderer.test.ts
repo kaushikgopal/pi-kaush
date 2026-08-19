@@ -7,6 +7,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Text } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import {
+  type ChatContainerHook,
+  chatContainerHooks,
+} from "../src/container-hooks.ts";
+import contentLayout from "../../pi-content-layout/src/index.ts";
 import toolCallMarkers from "../src/index.ts";
 
 const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
@@ -208,11 +213,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "all tests passed");
 
     const output = renderPlain(chat);
-    expect(output).toContain("⚙️ $ npm test → done");
+    expect(output).toContain("% $ npm test → done");
     expect(output).not.toContain("all tests passed");
   });
 
-  test("preserves a singleton outcome after adding the gear at narrow widths", () => {
+  test("preserves a singleton outcome beside the marker at narrow widths", () => {
     const chat = new Container();
     const row = createBashRow("a-command-with-a-very-long-target");
     chat.addChild(row);
@@ -226,7 +231,6 @@ describe("tool-call-markers with Pi's real renderer", () => {
       .render(30)
       .find((line) => line.replace(ANSI_RE, "").includes("→"));
     expect(rawLine).toBeDefined();
-    expect(rawLine!.slice(0, rawLine!.indexOf("→"))).not.toContain("\x1b[0m");
   });
 
   test("compacts a settled multiline command and restores it when expanded", () => {
@@ -243,7 +247,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const collapsed = renderPlain(chat);
     expect(collapsed).toContain(
-      "⚙️ $ printf one · printf two · printf three · … → done",
+      "% $ printf one · printf two · printf three · … → done",
     );
     expect(collapsed.split("\n")).toHaveLength(1);
     expect(collapsed).not.toContain("printf four");
@@ -275,7 +279,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const settled = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(settled).toContain(
-      "⚙️ $ sleep 1 · printf finished (timeout 30s) → done",
+      "% $ sleep 1 · printf finished (timeout 30s) → done",
     );
     expect(settled.split("\n")).toHaveLength(1);
   });
@@ -293,7 +297,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(renderPlain(chat)).toContain("FULL test failure");
   });
 
-  test("caps a live row to one line with elapsed inside the background", () => {
+  test("caps a live row to one unboxed line with elapsed metadata", () => {
     const chat = new Container();
     const row = createBashRow(
       "npm run a-very-long-command-that-keeps-going-for-a-while",
@@ -321,13 +325,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(plain).not.toContain("partial output line");
     expect(plain.trimEnd().length).toBeLessThanOrEqual(50);
 
-    // The elapsed tail must sit inside the tool background, which the Box
-    // paints edge to edge after composition; the final reset closes the line.
-    const tailIndex = header.indexOf("2.0s");
-    const finalReset = header.lastIndexOf("\x1b[0m");
-    expect(tailIndex).toBeGreaterThan(-1);
-    expect(finalReset).toBeGreaterThan(tailIndex);
-    expect(header.slice(finalReset + "\x1b[0m".length).trim()).toBe("");
+    expect(header.indexOf("2.0s")).toBeGreaterThan(-1);
+    expect(header).not.toMatch(/\x1b\[(?:4[0-7]|48;)/);
   });
 
   test("keeps live and settled blocks at the same padded height", () => {
@@ -353,9 +352,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(settled.row, "all tests passed");
     const settledLines = settled.chat.render(60);
 
-    // spacer + top padding + header + bottom padding at every stage
-    expect(liveLines).toHaveLength(4);
-    expect(settledLines).toHaveLength(4);
+    // One native inter-block spacer plus one unboxed marker line.
+    expect(liveLines).toHaveLength(2);
+    expect(settledLines).toHaveLength(2);
   });
 
   test("merges real rows as a quiet-turn call appears without settlement reflow", () => {
@@ -364,20 +363,20 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chat.addChild(first);
     settle(first, "tests passed");
     const singletonHeight = chat.render(100).length;
-    expect(renderPlain(chat)).toContain("⚙️ $ npm test → done");
+    expect(renderPlain(chat)).toContain("% $ npm test → done");
 
     chat.addChild(new AssistantMessageComponent());
     const second = createBashRow("npm run lint");
     chat.addChild(second);
     const liveHeight = chat.render(100).length;
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
-    expect(renderPlain(chat).match(/⚙️/g)).toHaveLength(1);
+    expect(renderPlain(chat).match(/%/g)).toHaveLength(1);
     expect(renderPlain(chat)).toContain("• npm run lint");
 
     settle(second, "lint passed");
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
-    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output.match(/%/g)).toHaveLength(1);
     expect(output).toContain("• npm test → done");
     expect(output).toContain("• npm run lint → done");
   });
@@ -392,11 +391,131 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(second, "lint passed");
 
     const output = renderPlain(chat, 36);
-    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output.match(/%/g)).toHaveLength(1);
     expect(output).toContain("• npm test → done");
     expect(output).toContain("• npm run lint → done");
     expect(output).not.toContain("tests passed");
     expect(output).not.toContain("lint passed");
+  });
+
+  test("runs chat container hooks during grouped renders and restores after", () => {
+    const chat = new Container();
+    const first = createBashRow("npm test");
+    const second = createBashRow("npm run lint");
+    chat.addChild(first);
+    chat.addChild(second);
+    settle(first, "tests passed");
+    settle(second, "lint passed");
+
+    const calls: Array<{ container: object; width: number }> = [];
+    let restores = 0;
+    const hook: ChatContainerHook = (container, _children, width) => {
+      calls.push({ container, width });
+      return () => {
+        restores += 1;
+      };
+    };
+    chatContainerHooks().add(hook);
+    try {
+      const output = renderPlain(chat);
+      expect(output.match(/%/g)).toHaveLength(1);
+      expect(output).toContain("• npm test → done");
+      expect(calls).toEqual([{ container: chat, width: 100 }]);
+      expect(restores).toBe(1);
+    } finally {
+      chatContainerHooks().delete(hook);
+    }
+  });
+
+  test("a failing chat container hook does not break grouping", () => {
+    const chat = new Container();
+    const first = createBashRow("npm test");
+    const second = createBashRow("npm run lint");
+    chat.addChild(first);
+    chat.addChild(second);
+    settle(first, "tests passed");
+    settle(second, "lint passed");
+
+    const badHook: ChatContainerHook = () => {
+      throw new Error("boom");
+    };
+    chatContainerHooks().add(badHook);
+    try {
+      const output = renderPlain(chat);
+      expect(output.match(/%/g)).toHaveLength(1);
+      expect(output).toContain("• npm test → done");
+    } finally {
+      chatContainerHooks().delete(badHook);
+    }
+  });
+
+  test("truncation ellipsis inherits the row tone", () => {
+    const codes: Record<string, number> = { muted: 90, error: 31 };
+    const ansiTheme = {
+      bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+      fg: (color: string, text: string) =>
+        `\x1b[${codes[color] ?? 37}m${text}\x1b[0m`,
+      bg: (_color: string, text: string) => text,
+    };
+    for (const handler of sessionHandlers) {
+      handler({}, { ui: { theme: ansiTheme, setToolsExpanded() {} } });
+    }
+    try {
+      const settledChat = new Container();
+      const settled = createBashRow(
+        "a-command-with-a-very-long-target-and-more",
+      );
+      settledChat.addChild(settled);
+      settle(settled, "ok");
+      const settledOutput = settledChat.render(48).join("\n");
+      expect(settledOutput).toContain("\x1b[90m…");
+      expect(settledOutput).not.toContain("\x1b[31m");
+
+      const failedChat = new Container();
+      const failed = createBashRow("another-command-with-a-very-long-target");
+      failedChat.addChild(failed);
+      settle(failed, "boom", true);
+      const failedOutput = failedChat.render(48).join("\n");
+      expect(failedOutput).toContain("\x1b[31m…");
+      expect(failedOutput).not.toContain("\x1b[90m…");
+    } finally {
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
+      }
+    }
+  });
+
+  test("respects an empty self-rendered tool that opts out of display", () => {
+    const definition = {
+      name: "silent_self",
+      label: "Silent",
+      description: "renders no transcript row",
+      parameters: { type: "object", properties: {} },
+      renderShell: "self" as const,
+      execute() {
+        throw new Error("not executed");
+      },
+      renderCall() {
+        return new EmptyComponent();
+      },
+      renderResult() {
+        return new EmptyComponent();
+      },
+    };
+    const row = new ToolExecutionComponent(
+      "silent_self",
+      "silent-1",
+      {},
+      {},
+      definition as never,
+      { requestRender() {} } as never,
+      process.cwd(),
+    );
+    const chat = new Container();
+    chat.addChild(row);
+    settle(row, "hidden result");
+
+    expect(renderPlain(chat)).toBe("");
   });
 
   test("collapses a settled self-rendered MCP row to call and outcome", () => {
@@ -406,7 +525,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "# Search Results (1 found)\n\n## 1. vibecheck");
 
     const output = renderPlain(chat);
-    expect(output).toContain('⚙️ glean_search {"query":"vibecheck"} → done');
+    expect(output).toContain('% glean_search {"query":"vibecheck"} → done');
     expect(output.split("\n")).toHaveLength(1);
     expect(output).not.toContain("Search Results");
   });
@@ -426,8 +545,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output.split("\n")).toHaveLength(1);
-    // Self-rendered rows never adopt the built-in edit diff heuristic.
-    expect(output).toContain('edit {"path":"a.ts"} → done');
+    // Self-rendered rows never adopt the built-in edit diff heuristic, and
+    // edit-shaped args label by path like Pi's native call line.
+    expect(output).toContain("edit a.ts → done");
     expect(output).not.toContain("→ +1/-1");
     expect(output).not.toContain("edited a.ts");
   });
@@ -450,8 +570,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain('• edit {"path":"a.ts"} → done');
-    expect(output).toContain('• edit {"path":"b.ts"} → done');
+    expect(output).toContain("• edit a.ts → done");
+    expect(output).toContain("• edit b.ts → done");
     expect(output).not.toContain("→ +1/-1");
   });
 
@@ -641,7 +761,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(settled).not.toContain("more detail");
   });
 
-  test("wraps collapsed self-rendered rows in a background box", () => {
+  test("keeps collapsed self-rendered rows unboxed", () => {
     const chat = new Container();
     const row = createMcpRow("mcp-box", { query: "x" });
     chat.addChild(row);
@@ -650,7 +770,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const container = (
       row as unknown as { selfRenderContainer: { children: unknown[] } }
     ).selfRenderContainer;
-    expect(container.children[0]).toBeInstanceOf(Box);
+    expect(container.children[0]).not.toBeInstanceOf(Box);
+    const rendered = chat.render(100).join("\n");
+    expect(rendered).not.toMatch(/\x1b\[(?:4[0-7]|48;)/);
   });
 
   test("groups adjacent settled MCP rows with real call summaries", () => {
@@ -712,7 +834,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     );
 
     const output = renderPlain(chat);
-    expect(output.match(/⚙️/g)).toHaveLength(2);
+    expect(output.match(/%/g)).toHaveLength(2);
     expect(output).toContain('glean_search {"query":"x"} → done');
     expect(output).toContain(
       'glean_search {"query":"y"} → Error: not connected to server "glean"',
@@ -731,7 +853,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output.match(/⚙️/g)).toHaveLength(1);
+    expect(output.match(/%/g)).toHaveLength(1);
     expect(output).toContain('• glean_search {"query":"alpha"}');
     expect(output).toContain('• glean_search {"query":"beta"}');
   });
@@ -753,7 +875,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       // The call label keeps at least one literal character (never just the
       // ellipsis) and the error tail keeps its arrow even at tiny widths;
       // only tail text beyond the budget gets cut.
-      expect(output.match(/^\s*⚙️\s+(\S)/)?.[1]).toBe("g");
+      expect(output.match(/^\s*%\s+(\S)/)?.[1]).toBe("g");
       expect(output).toContain("→");
       expect(output).not.toContain("glean_employee_search");
       expect(output.length).toBeLessThanOrEqual(width);
@@ -960,5 +1082,93 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain('some_tool {"tool":"hammer"} → done');
+  });
+});
+
+describe("composition with pi-content-layout", () => {
+  type PiHandler = (event: unknown, ctx: unknown) => void;
+
+  function installBoth(layoutFirst: boolean): { fireShutdown: () => void } {
+    const starts: PiHandler[] = [];
+    const shutdowns: PiHandler[] = [];
+    const pi = {
+      on(event: string, handler: PiHandler) {
+        if (event === "session_start") starts.push(handler);
+        if (event === "session_shutdown") shutdowns.push(handler);
+      },
+    } as ExtensionAPI;
+    const ctx = {
+      mode: "tui",
+      ui: {
+        theme: extensionTheme,
+        setToolsExpanded() {},
+        getEditorComponent: () => undefined,
+        setEditorComponent() {},
+      },
+    };
+    const fireStart = () => {
+      for (const handler of starts) handler({}, ctx);
+    };
+    const fireShutdown = () => {
+      for (const handler of shutdowns.splice(0)) handler({}, ctx);
+    };
+    if (layoutFirst) {
+      // Retire the beforeEach install so content-layout wraps the native
+      // container render first; markers' factory then wraps content-layout.
+      for (const handler of shutdownHandlers.splice(0)) handler();
+      contentLayout(pi);
+      fireStart();
+      toolCallMarkers(pi);
+      fireStart();
+    } else {
+      toolCallMarkers(pi);
+      contentLayout(pi);
+      fireStart();
+    }
+    return { fireShutdown };
+  }
+
+  function buildTranscript(): Container {
+    const chat = new Container();
+    chat.addChild(
+      new AssistantMessageComponent({
+        role: "assistant",
+        content: [{ type: "text", text: "neighbor" }],
+        stopReason: "stop",
+      } as never),
+    );
+    chat.addChild(new Text("Reloaded keybindings", 1, 0));
+    const first = createBashRow("npm test");
+    const second = createBashRow("npm run lint");
+    chat.addChild(first);
+    chat.addChild(second);
+    settle(first, "tests passed");
+    settle(second, "lint passed");
+    return chat;
+  }
+
+  function expectGroupedAndInset(output: string): void {
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output).toContain("• npm test → done");
+    expect(output).toContain("• npm run lint → done");
+    expect(output).toMatch(/^ {2}Reloaded keybindings/m);
+  }
+
+  test("grouping and the system-text inset compose when markers installs first", () => {
+    const { fireShutdown } = installBoth(false);
+    try {
+      expectGroupedAndInset(renderPlain(buildTranscript()));
+    } finally {
+      fireShutdown();
+    }
+  });
+
+  test("grouping and the system-text inset compose when content-layout installs first", () => {
+    const { fireShutdown } = installBoth(true);
+    try {
+      expectGroupedAndInset(renderPlain(buildTranscript()));
+    } finally {
+      fireShutdown();
+    }
   });
 });
