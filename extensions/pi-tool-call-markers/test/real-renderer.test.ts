@@ -221,8 +221,14 @@ describe("tool-call-markers with Pi's real renderer", () => {
       }) as never;
 
     const assistant = new AssistantMessageComponent(message("stop"), true);
-    assistant.updateContent(message(), true);
-    assistant.updateContent(message("stop"), false);
+    // Older pinned typings declare updateContent(message); the streaming
+    // flag exists at runtime on current Pi.
+    const updateContent = assistant.updateContent.bind(assistant) as (
+      message: unknown,
+      streaming?: boolean,
+    ) => void;
+    updateContent(message(), true);
+    updateContent(message("stop"), false);
 
     const line = assistant
       .render(40)
