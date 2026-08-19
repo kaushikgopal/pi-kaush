@@ -259,7 +259,8 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output.match(/%/g)).toHaveLength(1);
-    expect(output).toContain("% read");
+    expect(output).toMatch(/^ {2}%$/m);
+    expect(output).toContain("    read");
     expect(output).toContain("• one.md");
     expect(output).toContain("• two.md");
     expect(output).toContain("• three.md");
@@ -392,7 +393,8 @@ describe("tool-call-markers grouping", () => {
 
       const output = chat.render(100).join("\n");
       const stripped = output.replace(/<\/?\w+>/g, "");
-      expect(stripped).toContain("% read");
+      expect(stripped).toMatch(/^ {2}%$/m);
+      expect(stripped).toContain("    read");
       expect(stripped).toContain("• one.md");
       expect(stripped).toContain("→ done");
       const colors = new Set(
@@ -536,15 +538,14 @@ describe("tool-call-markers grouping", () => {
 
     const renderedLines = chat.render(100).map(stripAnsi);
     const output = renderedLines.filter((line) => line.trim()).join("\n");
-    expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain("% read");
+    expect(output.match(/%/g)).toHaveLength(1);
     expect(output).toMatch(
-      /• one\.md → 1 line\n\s*• two\.md → 1 line\n\s*% write\n\s*• one\.md → written\n\s*• two\.md → written/,
+      /    read\n\s*• one\.md → 1 line\n\s*• two\.md → 1 line\n\s*    write\n\s*• one\.md → written\n\s*• two\.md → written/,
     );
-    const writeHeading = renderedLines.findIndex((line) =>
-      line.includes("% write"),
+    const writeHeading = renderedLines.findIndex(
+      (line) => line.trim() === "write",
     );
-    expect(renderedLines[writeHeading - 1]?.trim()).toBe("");
+    expect(renderedLines[writeHeading - 1]).toContain("• two.md");
   });
 
   test("preserves call order when a tool name reappears", () => {
@@ -554,10 +555,9 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("bash", "last"));
 
     const output = renderPlain(chat);
-    expect(output.match(/%/g)).toHaveLength(3);
-    expect(output).toContain("% $");
+    expect(output.match(/%/g)).toHaveLength(1);
     expect(output).toMatch(
-      /• first → done\n\s*% read\n\s*• middle\.md → 1 line\n\s*% \$\n\s*• last → done/,
+      /    \$\n\s*• first → done\n\s*    read\n\s*• middle\.md → 1 line\n\s*    \$\n\s*• last → done/,
     );
   });
 
@@ -913,8 +913,9 @@ describe("tool-call-markers grouping", () => {
     grouped.addChild(succeeded("read", "one.md"));
     grouped.addChild(succeeded("read", "two.md"));
     const lines = grouped.render(80).map(stripAnsi);
-    expect(lines.find((line) => line.includes("%"))).toMatch(/^  % read$/);
-    expect(lines.find((line) => line.includes("•"))).toMatch(/^    • /);
+    expect(lines.find((line) => line.trim() === "%")).toMatch(/^  %$/);
+    expect(lines.find((line) => line.trim() === "read")).toMatch(/^    read$/);
+    expect(lines.find((line) => line.includes("•"))).toMatch(/^      • /);
   });
 
   test("keeps the inset idempotent across duplicate installs", () => {
@@ -1143,7 +1144,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(first);
     chat.addChild(second);
 
-    expect(renderPlain(chat).match(/%/g)).toHaveLength(2);
+    expect(renderPlain(chat).match(/%/g)).toHaveLength(1);
     first.setExpanded(true);
     second.setExpanded(true);
 

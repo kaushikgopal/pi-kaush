@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Group consecutive tool blocks under one `%` marker with per-tool sub-headings and nested sub-bullets, dropping the blank lines between tool sections (F25's compact goal, with the hierarchy that makes it readable).
 - Render subagent calls as an unboxed plan — `% subagent` heading with chain/parallel counts and numbered steps as they execute, agent names in accent with emojis scraped from the native plan component (args fallback) — replacing the accent-rail card; failed subagents follow the full-red failure tone.
 - Strip display sequences and control bytes (notably `\r` from progress writers like git) from collapsed-row text so command output cannot return the cursor to column 0 and overwrite the row.
 - Color the truncation ellipsis to match its row tone (`muted` settled, `error` failed) instead of the terminal default foreground left by pi-tui's truncation reset.

@@ -1075,8 +1075,9 @@ function compactBulletLine(
   width: number,
   theme: ThemeLike,
   color = "muted",
+  indentSpaces = 2,
 ): string {
-  const prefix = `  ${theme.fg(color, "•")} `;
+  const prefix = `${" ".repeat(indentSpaces)}${theme.fg(color, "•")} `;
   const indent = visibleWidth(prefix);
   if (width <= indent) return truncateToWidth(prefix, width, "", false);
   const available = width - indent;
@@ -1094,22 +1095,34 @@ function groupedCallComponent(
 ): ComponentLike {
   return {
     render(width: number): string[] {
-      const lines: string[] = [];
+      // One marker for the whole consecutive block; each tool run gets a
+      // sub-heading, and calls nest one level deeper as sub-bullets. No blank
+      // lines inside the block — the hierarchy carries the separation.
+      const lines: string[] = [
+        truncateToWidth(
+          theme.fg("muted", theme.bold(GROUP_MARKER)),
+          width,
+          "",
+          false,
+        ),
+      ];
       let previousToolName: string | undefined;
       for (const row of rows) {
-        if (lines.length === 0 || row.toolName !== previousToolName) {
-          if (lines.length > 0) lines.push("");
+        if (row.toolName !== previousToolName) {
           const token =
             row.toolName === "bash" ? "$" : (row.toolName ?? "tool");
-          const heading = `${theme.fg(
-            "muted",
-            theme.bold(GROUP_MARKER),
-          )} ${theme.fg("muted", theme.bold(token))}`;
-          lines.push(truncateToWidth(heading, width, "", false));
+          lines.push(
+            truncateToWidth(
+              `  ${theme.fg("muted", theme.bold(token))}`,
+              width,
+              "",
+              false,
+            ),
+          );
           previousToolName = row.toolName;
         }
         const color = rowHasFailed(row) ? "error" : "muted";
-        const call = renderedCallSummary(row, Math.max(1, width - 4), theme);
+        const call = renderedCallSummary(row, Math.max(1, width - 6), theme);
         const outcome = renderedGroupedOutcome(row, theme);
         lines.push(
           compactBulletLine(
@@ -1118,6 +1131,7 @@ function groupedCallComponent(
             width,
             theme,
             color,
+            4,
           ),
         );
       }
