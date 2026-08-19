@@ -61,6 +61,7 @@ type PresentationPatchState = {
   theme?: ThemeLike;
   collapseParallel: boolean;
   groupCache: WeakMap<ToolExecutionRow, GroupRenderCache>;
+  collapsedCache: WeakMap<ToolExecutionRow, CollapsedRenderCache>;
   rowVersions: WeakMap<ToolExecutionRow, number>;
   rowGroups: WeakMap<ToolExecutionRow, ToolExecutionRow[]>;
   rowSignatures: WeakMap<ToolExecutionRow, string>;
@@ -81,6 +82,14 @@ type GroupRenderCache = {
   lines: string[];
   members: ToolExecutionRow[];
   memberVersions: number[];
+  themeSample: string;
+  width: number;
+};
+
+type CollapsedRenderCache = {
+  lines: string[];
+  signature: string;
+  version: number;
   themeSample: string;
   width: number;
 };
@@ -114,6 +123,33 @@ function sanitizeInline(text: string): string {
 
 function hasVisibleContent(line: string): boolean {
   return stripAnsi(line).trim().length > 0;
+}
+
+// State-transition fingerprint used by both the updateDisplay version bump
+// and the settled-row render cache. It deliberately covers only shape
+// transitions (partial/expanded/result/error): while a row is partial its
+// content streams and it is never cached, and once settled the rendered
+// content is fully determined by this fingerprint + width + theme.
+function rowSignatureOf(row: ToolExecutionRow): string {
+  return `${row.isPartial}|${row.expanded}|${row.result ? 1 : 0}|${row.result?.isError ? 1 : 0}`;
+}
+
+// Theme samples are five theme.fg calls; computing them per row per frame
+// would reintroduce the per-keystroke cost the render caches remove, so
+// cache by theme object identity (a theme switch swaps the object).
+const themeSamples = new WeakMap<ThemeLike, string>();
+function themeSampleFor(theme: ThemeLike): string {
+  let sample = themeSamples.get(theme);
+  if (!sample) {
+    sample =
+      theme.fg("toolTitle", "x") +
+      theme.fg("muted", "x") +
+      theme.fg("dim", "x") +
+      theme.fg("warning", "x") +
+      theme.fg("error", "x");
+    themeSamples.set(theme, sample);
+  }
+  return sample;
 }
 
 type InsetLayout = {
@@ -1115,12 +1151,7 @@ function renderGroupedToolRows(
 ): string[] {
   const theme = state.theme;
   if (!theme) return state.originalRender.call(row, width);
-  const themeSample =
-    theme.fg("toolTitle", "x") +
-    theme.fg("muted", "x") +
-    theme.fg("dim", "x") +
-    theme.fg("warning", "x") +
-    theme.fg("error", "x");
+  const themeSample = themeSampleFor(theme);
   const cached = state.groupCache.get(row);
   const hasLiveMembers = rows.some(isLiveRow);
   if (
@@ -1330,6 +1361,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     const state: PresentationPatchState = {
       collapseParallel: envEnabled(COLLAPSE_PARALLEL_ENV, true),
       groupCache: new WeakMap(),
+      collapsedCache: new WeakMap(),
       rowVersions: new WeakMap(),
       rowGroups: new WeakMap(),
       rowSignatures: new WeakMap(),
@@ -1342,7 +1374,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       // Group members always bump so their leader's cache refreshes; other
       // rows only bump on state transitions, so bash's per-second invalidate
       // ticks and resize invalidations stop busting caches.
-      const signature = `${this.isPartial}|${this.expanded}|${this.result ? 1 : 0}|${this.result?.isError ? 1 : 0}`;
+      const signature = rowSignatureOf(this);
       if (
         state.rowGroups.has(this) ||
         state.rowSignatures.get(this) !== signature
@@ -1357,18 +1389,72 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       this: ToolExecutionRow,
       width: number,
     ): string[] {
-      const lines = state.originalRender.call(this, width);
+      const theme = state.theme;
       if (
         typeof this.expanded !== "boolean" ||
         typeof this.isPartial !== "boolean" ||
         this.expanded ||
-        !state.theme ||
-        (lines.length === 0 && (this.imageComponents?.length ?? 0) === 0)
+        !theme
       ) {
+        return state.originalRender.call(this, width);
+      }
+
+      // ================================================================
+      // Settled-row render cache — PLEASE DO NOT REMOVE THIS FAST PATH.
+      // ================================================================
+      // Pi's TUI re-renders the whole transcript on every keystroke, and
+      // the collapsed-row decoration below rebuilds strings for every row
+      // it touches. On a long session (~1,000 messages, hundreds of tool
+      // rows) that measured at ~80 ms per keystroke — visible input lag.
+      //
+      // Settled rows (not partial, not expanded) have fully static render
+      // output, so their collapsed lines are cached keyed by width +
+      // rowSignatureOf + rowVersions + theme sample. updateDisplay bumps
+      // rowVersions on every real state transition, and partial rows
+      // bypass the cache entirely because their content streams. This
+      // mirrors the existing groupCache discipline; keep them in sync.
+      // ================================================================
+      if (!this.isPartial) {
+        const signature = rowSignatureOf(this);
+        const version = state.rowVersions.get(this) ?? 0;
+        const themeSample = themeSampleFor(theme);
+        const cached = state.collapsedCache.get(this);
+        if (
+          cached &&
+          cached.width === width &&
+          cached.signature === signature &&
+          cached.version === version &&
+          cached.themeSample === themeSample
+        ) {
+          return cached.lines;
+        }
+        const lines = state.originalRender.call(this, width);
+        if (lines.length === 0 && (this.imageComponents?.length ?? 0) === 0) {
+          return lines;
+        }
+        try {
+          const collapsed = renderCollapsedToolRow(this, width, theme);
+          state.collapsedCache.set(this, {
+            lines: collapsed,
+            signature,
+            version,
+            themeSample,
+            width,
+          });
+          return collapsed;
+        } catch {
+          return lines;
+        }
+      }
+
+      // Partial (streaming) rows keep the collapsed presentation but are
+      // never cached: their content changes with every streamed chunk.
+      const lines = state.originalRender.call(this, width);
+      if (lines.length === 0 && (this.imageComponents?.length ?? 0) === 0) {
         return lines;
       }
       try {
-        return renderCollapsedToolRow(this, width, state.theme);
+        return renderCollapsedToolRow(this, width, theme);
       } catch {
         return lines;
       }
