@@ -13,6 +13,7 @@ import {
 } from "../src/container-hooks.ts";
 import contentLayout from "../../pi-content-layout/src/index.ts";
 import toolCallMarkers from "../src/index.ts";
+import registerThinkingMarkers from "../src/thinking-block-merger.ts";
 
 const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const sessionHandlers: Array<(event: unknown, ctx: unknown) => void> = [];
@@ -27,15 +28,20 @@ const extensionTheme = {
 };
 
 function install(): void {
-  toolCallMarkers({
+  const api = {
     on(event: string, handler: (event: unknown, ctx: unknown) => void) {
       if (event === "session_start") sessionHandlers.push(handler);
       if (event === "session_shutdown")
         shutdownHandlers.push(handler as () => void);
     },
-  } as ExtensionAPI);
+  } as ExtensionAPI;
+  toolCallMarkers(api);
+  registerThinkingMarkers(api);
   for (const handler of sessionHandlers) {
-    handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
+    handler(
+      {},
+      { mode: "tui", ui: { theme: extensionTheme, setToolsExpanded() {} } },
+    );
   }
 }
 
@@ -206,6 +212,28 @@ afterEach(() => {
 });
 
 describe("tool-call-markers with Pi's real renderer", () => {
+  test("renders hidden thought labels non-italic in the experiment color", () => {
+    const message = (stopReason?: string) =>
+      ({
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "ponder" }],
+        stopReason,
+      }) as never;
+
+    const assistant = new AssistantMessageComponent(message("stop"), true);
+    assistant.updateContent(message(), true);
+    assistant.updateContent(message("stop"), false);
+
+    const line = assistant
+      .render(40)
+      .find((candidate) => candidate.includes("Thought"));
+    expect(line).toBeDefined();
+    // The label Text node is swapped for a self-styled one: italic-off plus
+    // the experiment color, with no italic-on anywhere on the line.
+    expect(line).toContain("\x1b[23m\x1b[38;2;255;184;108m+ Thought");
+    expect(line).not.toContain("\x1b[3m");
+  });
+
   test("collapses a successful singleton to its call and outcome", () => {
     const chat = new Container();
     const row = createBashRow("npm test");
