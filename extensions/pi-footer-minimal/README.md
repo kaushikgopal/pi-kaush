@@ -1,30 +1,42 @@
 # @pi-kaush/pi-footer-minimal
 
-A minimal [Pi](https://pi.dev) footer: cost and context on the first line, token stats on a second line you toggle on when you want them.
+A minimal [Pi](https://pi.dev) footer: cost and context sit on the first metadata line, and token stats appear on a second line you toggle on when you want them. Both metadata lines sit two columns in from the terminal edges.
 
 ## What it shows
 
-Default (one line):
+One blank row separates the footer from the active prompt surface above it; footer metadata begins on the next row.
+
+Default (one metadata line):
 
 ```text
-~/dev/per/aikado (master) $0.55 • 44.6%/262k          (provider) model • high
+  ~/dev/per/aikado (master) $0.55 • 44.6%/262k                     model • high
 ```
 
-After `/footer-more-stats` (two lines):
+While the agent is working, an animated spinner appears immediately left of the model in a stable right-aligned position (replacing Pi's native working row):
 
 ```text
-~/dev/per/aikado (master) $0.55 • 44.6%/262k          (provider) model • high
-↑228k ↓72k ¢99.6% • 🔌 2/3
+  ~/dev/per/aikado (master) $0.55 • 44.6%/262k                   ⠋ model • high
 ```
 
-- **Line 1:** cwd `(branch)` [session], session cost, and context usage (colorized at 60%/80% thresholds). Model, active agent, and thinking level stay right-aligned.
-- **Line 2** (via `/footer-more-stats [on|off|toggle]`, off by default): cumulative input/output tokens, cache-hit percentage, and a compact 🔌 MCP badge, plus any other extension statuses.
+After `/footer-more-stats` (two metadata lines):
 
-When the terminal is narrow, line 1 degrades in stages: the `(provider)` prefix drops first, then the cwd flattens to its basename, with ellipsis truncation as a last resort. The model name is never sacrificed.
+```text
+  ~/dev/per/aikado (master) $0.55 • 44.6%/262k                     model • high
+  ↑228k ↓72k ¢99.6% • (provider) • 🔌 2/3
+```
+
+- **Line 1:** cwd `(branch)` [session], session cost, and context usage (colorized at 60%/80% thresholds). Model, active agent, and thinking level stay right-aligned. During agent work, Pi's native braille sequence (`⠋`, `⠙`, `⠹`, …) animates immediately left of the model; there is no `Working…` label or provider field on this line.
+- **Line 2** (via `/footer-more-stats [on|off|toggle]`, off by default): cumulative input/output tokens, the gateway provider when multiple providers are available, a compact 🔌 MCP badge, and any other extension statuses.
+
+When the terminal is narrow, line 1 degrades in stages: the cwd flattens to its basename, then the session cost and optional active-agent status drop, with ellipsis truncation as a last resort. The right-aligned spinner/model core never changes shape; while active, the spinner is the highest-priority cell and remains visible even when the model itself must be clipped.
+
+## Working state ownership
+
+On TUI session start the extension calls `ctx.ui.setWorkingVisible(false)`, so Pi's native working row and its 80 ms timer never run. Instead the footer animates its own spinner on a single 80 ms interval, only while the agent is active (`agent_start` → `agent_end`/`agent_settled`). The interval is cleared on settle, footer disposal, and shutdown, and native working visibility is restored on `session_shutdown` so reloading or removing the extension never leaves Pi's status hidden.
 
 ## Why
 
-Pi's native footer already shows token stats; this footer rearranges them to prioritize cost and context at a glance, moves the token detail behind a toggle, and keeps the window clean. It uses only Pi's public extension APIs (`ctx.ui.setFooter`, `footerData`, `ctx.sessionManager`, `ctx.getContextUsage`) and reads other extensions' statuses (MCP badge, active agent) from Pi's status bus — nothing is imported from other packages.
+Pi's native footer already shows token stats; this footer rearranges them to prioritize cost and context at a glance, moves the token detail behind a toggle, places the working spinner beside the model, and keeps the window clean. It uses only Pi's public extension APIs (`ctx.ui.setFooter`, `ctx.ui.setWorkingVisible`, `footerData`, `ctx.sessionManager`, `ctx.getContextUsage`) and reads other extensions' statuses (MCP badge, active agent) from Pi's status bus — nothing is imported from other packages.
 
 ## Install
 

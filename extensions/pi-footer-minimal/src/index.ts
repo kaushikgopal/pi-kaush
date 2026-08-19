@@ -33,12 +33,22 @@ function formatCwdForFooter(cwd: string, home: string | undefined): string {
   return rel === "" ? "~" : `~${sep}${rel}`;
 }
 
+// Shared outer inset with the conversation surface; below this width the
+// decoration drops entirely before content is clipped.
+const EDGE_PAD = 2;
+
 function padFooterLine(line: string, width: number): string {
-  if (width <= 2) return truncateToWidth(line, width, "");
-  const contentWidth = width - 2;
+  if (width <= EDGE_PAD * 2) return truncateToWidth(line, width, "");
+  const contentWidth = width - EDGE_PAD * 2;
   const clipped = truncateToWidth(line, contentWidth, "");
-  return ` ${clipped}${" ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)))} `;
+  const margin = " ".repeat(EDGE_PAD);
+  const fill = " ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)));
+  return `${margin}${clipped}${fill}${margin}`;
 }
+
+// Match Pi's native Loader sequence exactly.
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_INTERVAL_MS = 80;
 
 const THINKING_COLORS: Record<string, ThemeColor> = {
   off: "thinkingOff",
@@ -53,6 +63,48 @@ const THINKING_COLORS: Record<string, ThemeColor> = {
 export default function (pi: ExtensionAPI) {
   let showMoreStats = false;
   let requestFooterRender: (() => void) | undefined;
+  let isWorking = false;
+  let spinnerIndex = 0;
+  let spinnerTimer: ReturnType<typeof setInterval> | undefined;
+  let hidNativeWorking = false;
+
+  const stopSpinner = () => {
+    if (spinnerTimer !== undefined) {
+      clearInterval(spinnerTimer);
+      spinnerTimer = undefined;
+    }
+  };
+
+  pi.on("agent_start", () => {
+    isWorking = true;
+    spinnerIndex = 0;
+    stopSpinner();
+    spinnerTimer = setInterval(() => {
+      spinnerIndex = (spinnerIndex + 1) % SPINNER_FRAMES.length;
+      requestFooterRender?.();
+    }, SPINNER_INTERVAL_MS);
+    requestFooterRender?.();
+  });
+
+  const stopWorking = () => {
+    if (!isWorking) return;
+    isWorking = false;
+    stopSpinner();
+    requestFooterRender?.();
+  };
+  // agent_end also covers aborts: an aborted loop still ends.
+  pi.on("agent_end", stopWorking);
+  pi.on("agent_settled", stopWorking);
+
+  pi.on("session_shutdown", (_event, ctx) => {
+    stopWorking();
+    requestFooterRender = undefined;
+    // Never leave Pi's native working row hidden after reload/removal.
+    if (hidNativeWorking) {
+      ctx.ui.setWorkingVisible(true);
+      hidNativeWorking = false;
+    }
+  });
 
   pi.registerCommand("footer-more-stats", {
     description: "Toggle second footer line with token stats",
@@ -79,13 +131,17 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
 
+    // The footer owns the working animation; suppress Pi's native row and timer.
+    ctx.ui.setWorkingVisible(false);
+    hidNativeWorking = true;
+
     ctx.ui.setFooter((tui, theme, footerData) => {
       const rerender = () => tui.requestRender();
       requestFooterRender = rerender;
       const unsubBranch = footerData.onBranchChange(rerender);
 
       function render(width: number): string[] {
-        const contentWidth = Math.max(1, width - 2);
+        const contentWidth = Math.max(1, width - EDGE_PAD * 2);
         const statuses = footerData.getExtensionStatuses();
 
         // Cumulative session usage (same entries native pi counts)
@@ -163,7 +219,7 @@ export default function (pi: ExtensionAPI) {
         const leftFlatNoCost =
           theme.fg("muted", lastName) + prefix + contextPart;
 
-        // Line 1 right: [active agent •] (provider) model • thinking
+        // Line 1 right: [active agent •] [⠋] model • thinking
         let modelSide = theme.fg(
           "muted",
           ctx.model?.name || ctx.model?.id || "no-model",
@@ -177,26 +233,27 @@ export default function (pi: ExtensionAPI) {
             thinkingSuffix,
           );
         }
+        const workingIndicator = isWorking
+          ? `${theme.fg("accent", SPINNER_FRAMES[spinnerIndex] ?? SPINNER_FRAMES[0]!)} `
+          : "";
+        const rightCore = `${workingIndicator}${modelSide}`;
         const activeAgent = statuses.get("active-agent");
         const agentPrefix = activeAgent
           ? `${activeAgent}${theme.fg("dim", " • ")}`
           : "";
-        const rightLean = `${agentPrefix}${modelSide}`;
-        const rightFull =
-          footerData.getAvailableProviderCount() > 1 && ctx.model
-            ? `${theme.fg("dim", `(${ctx.model.provider}) `)}${rightLean}`
-            : rightLean;
+        const rightLean = `${agentPrefix}${rightCore}`;
 
         const fits = (l: string, r: string) =>
           visibleWidth(l) + 2 + visibleWidth(r) <= contentWidth;
         let usedLeft = leftFull;
-        let usedRight = rightFull;
+        let usedRight = rightLean;
         if (!fits(usedLeft, usedRight)) {
-          usedRight = rightLean;
+          usedLeft = leftFlat;
           if (!fits(usedLeft, usedRight)) {
-            usedLeft = leftFlat;
+            usedLeft = leftFlatNoCost;
             if (!fits(usedLeft, usedRight)) {
-              usedLeft = leftFlatNoCost;
+              // Active-agent status is optional; the live spinner and model are not.
+              usedRight = rightCore;
             }
           }
         }
@@ -229,9 +286,11 @@ export default function (pi: ExtensionAPI) {
           }
         }
 
-        const lines: string[] = [padFooterLine(mainLine, width)];
+        // One blank row separates the footer from the active prompt surface
+        // above it; footer metadata begins on the second row.
+        const lines: string[] = ["", padFooterLine(mainLine, width)];
 
-        // Line 2 (toggled with /footer-more-stats): token stats • MCP badge • other statuses
+        // Optional stats line: token stats • MCP badge • other statuses
         if (showMoreStats) {
           const tokenBits: string[] = [];
           if (input) tokenBits.push(`↑${formatTokens(input)}`);
@@ -264,6 +323,9 @@ export default function (pi: ExtensionAPI) {
           const secondBits: string[] = [];
           if (tokenBits.length > 0)
             secondBits.push(theme.fg("dim", tokenBits.join(" ")));
+          if (footerData.getAvailableProviderCount() > 1 && ctx.model) {
+            secondBits.push(theme.fg("dim", `(${ctx.model.provider})`));
+          }
           if (statusBits.length > 0) secondBits.push(statusBits.join(" "));
           const secondLine = secondBits.join(theme.fg("dim", " • "));
           if (secondLine) {
@@ -285,6 +347,7 @@ export default function (pi: ExtensionAPI) {
       return {
         dispose() {
           unsubBranch();
+          stopSpinner();
           if (requestFooterRender === rerender) requestFooterRender = undefined;
         },
         invalidate() {},
