@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
@@ -196,6 +196,7 @@ export function renderSubmittedUserLines(
   width: number,
   theme: Theme,
   inset = contentInset(width),
+  railColor: ThemeColor = "accent",
 ): string[] {
   const blockWidth = width - inset * 2;
   if (inset === 0 || blockWidth <= visibleWidth(PROMPT_RAIL)) {
@@ -207,7 +208,7 @@ export function renderSubmittedUserLines(
   return lines.map((line) => {
     const { controls, content } = splitLeadingSemanticControls(line);
     const recolored = replaceBackground(content, PROMPT_SURFACE_BG);
-    const rail = theme.fg("accent", PROMPT_RAIL);
+    const rail = theme.fg(railColor, PROMPT_RAIL);
     // One extra leading space inside the body, so submitted text sits two
     // columns right of the rail instead of one.
     const body = paintBackground(
@@ -217,4 +218,63 @@ export function renderSubmittedUserLines(
     );
     return `${controls}${margin}${rail}${body}${margin}`;
   });
+}
+
+const RULE_LINE_RE = /^─+$/;
+
+function isRuleLine(line: string | undefined): line is string {
+  return line !== undefined && RULE_LINE_RE.test(stripDisplayAnsi(line).trim());
+}
+
+// `!!` commands draw their rules dim instead of bashMode green, but the
+// component does not store that flag, so sniff the top rule's color to keep
+// the rail consistent with the framing it replaces.
+function sniffsDimRule(rule: string, theme: Theme): boolean {
+  const prefixOf = (colored: string) => colored.slice(0, colored.indexOf("─"));
+  const dimPrefix = prefixOf(theme.fg("dim", "─"));
+  return (
+    dimPrefix.length > 0 &&
+    dimPrefix !== prefixOf(theme.fg("bashMode", "─")) &&
+    rule.startsWith(dimPrefix)
+  );
+}
+
+// Rail tone for a user bash block: failures read red and cancellations
+// yellow, matching the block's status text; anything else keeps the green
+// the rules used (dim for `!!` commands).
+export function bashBlockRailColor(
+  status: string | undefined,
+  topRule: string | undefined,
+  theme: Theme,
+): ThemeColor {
+  if (status === "error") return "error";
+  if (status === "cancelled") return "warning";
+  if (topRule !== undefined && sniffsDimRule(topRule, theme)) return "dim";
+  return "bashMode";
+}
+
+// Reshapes BashExecutionComponent output into the submitted-prompt shell: the
+// leading spacer stays outside the block, the top/bottom rules are dropped,
+// and the remaining lines get one blank padded row at each end plus the rail
+// and dark surface.
+export function renderBashBlockLines(
+  lines: string[],
+  width: number,
+  theme: Theme,
+  status: string | undefined,
+  inset = contentInset(width),
+): string[] {
+  const [spacer, ...rest] = lines;
+  const topRule = isRuleLine(rest[0]) ? rest[0] : undefined;
+  const inner = topRule !== undefined ? rest.slice(1) : rest.slice();
+  if (isRuleLine(inner[inner.length - 1])) inner.pop();
+  const railColor = bashBlockRailColor(status, topRule, theme);
+  const block = renderSubmittedUserLines(
+    ["", ...inner, ""],
+    width,
+    theme,
+    inset,
+    railColor,
+  );
+  return [fitLine(spacer ?? "", width), ...block];
 }

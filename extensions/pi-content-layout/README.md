@@ -1,6 +1,6 @@
 # pi-content-layout
 
-A small Pi extension that insets the main conversation, renders the active editor as a full-width dark surface, and gives submitted prompts a compact rail shell.
+A small Pi extension that insets the main conversation, renders the active editor as a full-width dark surface, and gives submitted prompts and user-run bash blocks a compact rail shell.
 
 ```text
 Assistant output
@@ -15,9 +15,18 @@ Submitted prompt
   ▎                                            darker background
   ▎ prompt text                                darker background
   ▎                                            darker background
+
+User bash (`!` command, failed)
+  ▎                                            darker background, red rail
+  ▎ $ ls ~/matrxi                              darker background
+  ▎ ls: /Users/kg/matrxi: No such file or directory
+  ▎ (exit 1)                                   darker background
+  ▎                                            darker background
 ```
 
 Assistant and submitted-message content keep the two-column outer inset. The active prompt intentionally ignores that inset: its darker background fills the terminal width, with no rail, one extra layout column on each side of Pi's configured editor padding, and one background-colored row above and below the content. Real scroll indicators replace the corresponding padding row when needed. The submitted prompt remains unchanged: it keeps Pi's message padding and the thin rail outside its darker body. Autocomplete stays outside the active surface.
+
+User-run bash blocks (`!` commands) trade Pi's green top/bottom rules for the same rail shell as the submitted prompt, command first and output below. The rail keeps the usual green while running and on success, turns red on a non-zero exit, yellow when cancelled, and stays dim for `!!` commands excluded from context.
 
 ## Install
 
@@ -34,8 +43,9 @@ The package is not published while its version is `0.0.0`; use the repository pa
 The active editor surface and submitted message body paint with a fixed
 near-black `#071312` background (`PROMPT_SURFACE_BG`) so both user-input
 surfaces stay identical; the theme's `selectedBg` token continues to serve
-selections and dialogs. The extension consumes two theme tokens: `accent`
-for the submitted-prompt rail and `muted` for the editor scroll hints.
+selections and dialogs. The extension consumes theme tokens for its rails and hints: `accent`
+for the submitted-prompt rail, `muted` for the editor scroll hints, and
+`bashMode` / `error` / `warning` / `dim` for the user-bash rail.
 
 Themes control colors, while this extension controls width and component
 shape; a theme cannot provide the layout itself.

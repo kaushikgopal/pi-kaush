@@ -1,11 +1,13 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
 import {
+  bashBlockRailColor,
   contentInset,
   insetLines,
   PROMPT_SURFACE_BG,
   renderActiveEditor,
+  renderBashBlockLines,
   renderSubmittedUserLines,
   splitLeadingSemanticControls,
 } from "../src/render.ts";
@@ -16,10 +18,18 @@ const CONTROL_RE =
 const stripControls = (text: string) =>
   text.replace(CONTROL_RE, "").replace(CSI_RE, "");
 
+const FG_CODES: Record<string, number> = {
+  accent: 35,
+  bashMode: 32,
+  error: 31,
+  warning: 33,
+  dim: 90,
+  muted: 90,
+};
+
 const theme = {
   fg(color: string, text: string) {
-    const code = color === "accent" ? 35 : 90;
-    return `\x1b[${code}m${text}\x1b[39m`;
+    return `\x1b[${FG_CODES[color] ?? 37}m${text}\x1b[39m`;
   },
 } as Theme;
 
@@ -122,6 +132,62 @@ describe("active editor", () => {
     const lines = renderActiveEditor(editor, 20, theme);
     expect(stripControls(lines[0] ?? "")).toContain("prompt");
     expect(lines.some((line) => line.includes(PROMPT_SURFACE_BG))).toBe(false);
+  });
+});
+
+describe("bash block", () => {
+  const rule = (color: ThemeColor) => theme.fg(color, "─".repeat(30));
+
+  test("colors the rail from the command outcome", () => {
+    expect(bashBlockRailColor("error", rule("bashMode"), theme)).toBe("error");
+    expect(bashBlockRailColor("cancelled", rule("bashMode"), theme)).toBe(
+      "warning",
+    );
+    expect(bashBlockRailColor("complete", rule("bashMode"), theme)).toBe(
+      "bashMode",
+    );
+    expect(bashBlockRailColor("running", undefined, theme)).toBe("bashMode");
+    // `!!` commands draw dim rules; keep their rail dim too.
+    expect(bashBlockRailColor("complete", rule("dim"), theme)).toBe("dim");
+  });
+
+  test("replaces the rules with a railed dark block and keeps the spacer outside", () => {
+    const native = [
+      "",
+      rule("bashMode"),
+      theme.fg("bashMode", " $ ls ~/matrxi"),
+      "",
+      " ls: /Users/kg/matrxi: No such file or directory",
+      "",
+      theme.fg("error", " (exit 1)"),
+      rule("bashMode"),
+    ];
+    const lines = renderBashBlockLines(native, 32, theme, "error");
+
+    expect(stripControls(lines[0] ?? "")).toMatch(/^\s*$/);
+    expect(lines[0]).not.toContain(PROMPT_SURFACE_BG);
+    expect(
+      lines.slice(1).every((line) => line.includes(PROMPT_SURFACE_BG)),
+    ).toBe(true);
+    expect(lines.every((line) => visibleWidth(line) === 32)).toBe(true);
+    expect(stripControls(lines.join("\n"))).not.toContain("─");
+    // Blank padded rows open and close the block, like the submitted prompt.
+    expect(stripControls(lines[1] ?? "")).toContain("▎");
+    expect(stripControls(lines[1] ?? "").trim()).toBe("▎");
+    expect(stripControls(lines[lines.length - 1] ?? "").trim()).toBe("▎");
+    // Failed commands read as a red-rail block.
+    expect(lines[2]).toContain(`\x1b[31m▎\x1b[39m${PROMPT_SURFACE_BG}`);
+    const commandLine = lines.find((line) =>
+      stripControls(line).includes("$ ls ~/matrxi"),
+    );
+    expect(commandLine).toBeDefined();
+    expect(stripControls(commandLine ?? "")).toContain("▎  $ ls ~/matrxi");
+  });
+
+  test("keeps a green rail for successful commands", () => {
+    const native = ["", rule("bashMode"), theme.fg("bashMode", "$ ls"), ""];
+    const lines = renderBashBlockLines(native, 20, theme, "complete");
+    expect(lines[2]).toContain(`\x1b[32m▎\x1b[39m${PROMPT_SURFACE_BG}`);
   });
 });
 

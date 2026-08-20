@@ -1,5 +1,6 @@
 import {
   AssistantMessageComponent,
+  BashExecutionComponent,
   CustomEditor,
   type ExtensionAPI,
   type KeybindingsManager,
@@ -11,6 +12,7 @@ import {
   type EditorTheme,
   Loader,
   type TUI,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 import {
   chatContainerHooks,
@@ -19,7 +21,9 @@ import {
 import {
   contentInset,
   insetLines,
+  PROMPT_RAIL,
   renderActiveEditor,
+  renderBashBlockLines,
   renderSubmittedUserLines,
 } from "./render.ts";
 
@@ -32,6 +36,9 @@ const SYSTEM_CONTAINER_RENDER_PATCH = Symbol.for(
 );
 const STATUS_LOADER_RENDER_PATCH = Symbol.for(
   "kg.pi.contentLayout.statusLoaderRender.v1",
+);
+const BASH_EXECUTION_RENDER_PATCH = Symbol.for(
+  "kg.pi.contentLayout.bashExecutionRender.v1",
 );
 
 type EditorFactory = (
@@ -60,6 +67,10 @@ type NativeTextRow = RenderRow & {
 type LoaderRow = RenderRow & {
   kind?: unknown;
   paddingX?: unknown;
+};
+
+type BashExecutionRow = RenderRow & {
+  status?: unknown;
 };
 
 type RenderPatchState = {
@@ -334,6 +345,35 @@ function systemContainerDecorator(
   }
 }
 
+// User-run bash blocks (`!` commands) take the submitted-prompt shell: the
+// native green rules are replaced by the rail and dark surface, with the rail
+// recolored from the command's outcome (green normally, red on a non-zero
+// exit, yellow when cancelled).
+function bashExecutionDecorator(
+  original: RenderPatchState["originalRender"],
+  row: RenderRow,
+  width: number,
+  theme: Theme,
+  memo: RenderMemo,
+): string[] {
+  const inset = contentInset(width);
+  const bodyWidth = width - inset * 2 - visibleWidth(PROMPT_RAIL);
+  if (inset === 0 || bodyWidth < 8) return original.call(row, width);
+  const lines = original.call(row, Math.max(1, bodyWidth));
+  const cached = memo.hit(lines);
+  if (cached) return cached;
+  const status = (row as BashExecutionRow).status;
+  const decorated = renderBashBlockLines(
+    lines,
+    width,
+    theme,
+    typeof status === "string" ? status : undefined,
+    inset,
+  );
+  memo.store(lines, decorated);
+  return decorated;
+}
+
 function userDecorator(
   original: RenderPatchState["originalRender"],
   row: RenderRow,
@@ -386,6 +426,7 @@ export default function contentLayout(pi: ExtensionAPI): void {
   let userPatch: RenderPatchState | undefined;
   let systemContainerPatch: RenderPatchState | undefined;
   let statusLoaderPatch: RenderPatchState | undefined;
+  let bashExecutionPatch: RenderPatchState | undefined;
   let editorRegistration:
     | {
         factory: EditorFactory;
@@ -435,6 +476,13 @@ export default function contentLayout(pi: ExtensionAPI): void {
       getTheme,
       statusLoaderDecorator,
     );
+    bashExecutionPatch = installRenderPatch(
+      BashExecutionComponent.prototype as unknown as PatchableRenderPrototype,
+      BASH_EXECUTION_RENDER_PATCH,
+      owner,
+      getTheme,
+      bashExecutionDecorator,
+    );
 
     const previous = ctx.ui.getEditorComponent() as EditorFactory | undefined;
     const factory: EditorFactory = (tui, editorTheme, keybindings) => {
@@ -483,10 +531,17 @@ export default function contentLayout(pi: ExtensionAPI): void {
       owner,
       statusLoaderPatch,
     );
+    uninstallRenderPatch(
+      BashExecutionComponent.prototype as unknown as PatchableRenderPrototype,
+      BASH_EXECUTION_RENDER_PATCH,
+      owner,
+      bashExecutionPatch,
+    );
     assistantPatch = undefined;
     userPatch = undefined;
     systemContainerPatch = undefined;
     statusLoaderPatch = undefined;
+    bashExecutionPatch = undefined;
     activeTheme = undefined;
   });
 }

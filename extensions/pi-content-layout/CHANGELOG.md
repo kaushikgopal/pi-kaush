@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Restyle user-run bash blocks (`!` commands) with the submitted-prompt rail
+  shell: Pi's green top/bottom rules are replaced by the dark surface with a
+  left rail, command first and output below. The rail stays `bashMode` green
+  while running and on success, turns `error` red on a non-zero exit and
+  `warning` yellow when cancelled, and stays dim for `!!` commands excluded
+  from context.
+
 - Pad submitted message text two columns right of the accent rail (one extra leading space inside the body) for more breathing room in the chat log.
 - Paint the active editor surface and submitted message body with a fixed
   `#071312` background (`PROMPT_SURFACE_BG`) instead of the theme's `selectedBg`

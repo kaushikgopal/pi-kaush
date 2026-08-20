@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
+  BashExecutionComponent,
   initTheme,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -30,9 +31,18 @@ const stripControls = (text: string) =>
 
 type TestBackground = "userMessageBg" | "selectedBg";
 
+const FG_CODES: Record<string, number> = {
+  accent: 35,
+  bashMode: 32,
+  error: 31,
+  warning: 33,
+  dim: 90,
+  muted: 90,
+};
+
 const theme = {
   fg(color: string, text: string) {
-    return `\x1b[${color === "accent" ? 35 : 90}m${text}\x1b[39m`;
+    return `\x1b[${FG_CODES[color] ?? 90}m${text}\x1b[39m`;
   },
   bg(color: TestBackground, text: string) {
     return `${this.getBgAnsi(color)}${text}\x1b[49m`;
@@ -480,6 +490,42 @@ describe("native transcript adapters", () => {
     expect(chatContainerHooks().size).toBe(0);
   });
 
+  test("restyles user bash blocks as prompt-style rail blocks", () => {
+    const harness = createHarness(() => new TestEditor());
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    const ui = { requestRender() {} } as unknown as TUI;
+    const bash = new BashExecutionComponent("ls ~/matrxi", ui);
+    bash.appendOutput("ls: /Users/kg/matrxi: No such file or directory\n");
+    bash.setComplete(1, false);
+
+    const lines = bash.render(40);
+    expect(stripControls(lines.join("\n"))).not.toContain("─");
+    expect(stripControls(lines[0] ?? "")).toMatch(/^\s*$/);
+    expect(lines[0]).not.toContain(PROMPT_SURFACE_BG);
+    expect(lines.every((line) => visibleWidth(line) === 40)).toBe(true);
+
+    const commandLine = lines.find((line) =>
+      stripControls(line).includes("$ ls ~/matrxi"),
+    );
+    expect(commandLine).toBeDefined();
+    // A failed exit recolors the rail red, like the (exit 1) status text.
+    expect(commandLine).toContain(`\x1b[31m▎\x1b[39m${PROMPT_SURFACE_BG}`);
+    expect(stripControls(commandLine ?? "")).toContain("▎  $ ls ~/matrxi");
+    const outputLine = lines.find((line) =>
+      stripControls(line).includes("No such"),
+    );
+    expect(outputLine).toContain(PROMPT_SURFACE_BG);
+
+    bash.setComplete(0, false);
+    const successLines = bash.render(40);
+    const successCommand = successLines.find((line) =>
+      stripControls(line).includes("$ ls ~/matrxi"),
+    );
+    expect(successCommand).toContain(`\x1b[32m▎\x1b[39m${PROMPT_SURFACE_BG}`);
+  });
+
   test("restores native message renderers on shutdown", () => {
     const assistantRender = AssistantMessageComponent.prototype.render;
     const userRender = UserMessageComponent.prototype.render;
@@ -488,6 +534,7 @@ describe("native transcript adapters", () => {
     ) as { render: unknown };
     const containerRender = containerPrototype.render;
     const loaderRender = Loader.prototype.render;
+    const bashRender = BashExecutionComponent.prototype.render;
     const harness = createHarness(() => new TestEditor());
 
     harness.fire("session_start");
@@ -497,11 +544,13 @@ describe("native transcript adapters", () => {
     expect(UserMessageComponent.prototype.render).not.toBe(userRender);
     expect(containerPrototype.render).not.toBe(containerRender);
     expect(Loader.prototype.render).not.toBe(loaderRender);
+    expect(BashExecutionComponent.prototype.render).not.toBe(bashRender);
 
     harness.fire("session_shutdown");
     expect(AssistantMessageComponent.prototype.render).toBe(assistantRender);
     expect(UserMessageComponent.prototype.render).toBe(userRender);
     expect(containerPrototype.render).toBe(containerRender);
     expect(Loader.prototype.render).toBe(loaderRender);
+    expect(BashExecutionComponent.prototype.render).toBe(bashRender);
   });
 });
