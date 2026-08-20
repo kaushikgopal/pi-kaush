@@ -5,6 +5,13 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => "/tmp/pi-agent",
 }));
 vi.mock("@earendil-works/pi-tui", () => ({
+  Spacer: class Spacer {
+    constructor(private readonly height = 1) {}
+    invalidate() {}
+    render() {
+      return Array.from({ length: this.height }, () => "");
+    }
+  },
   truncateToWidth(text: string, width: number, suffix = "") {
     if (text.length <= width) return text;
     const clippedSuffix = suffix.slice(0, Math.max(0, width));
@@ -31,6 +38,7 @@ const {
   parseWelcomeResources,
   renderCenteredWelcome,
 } = await import("../src/index.ts");
+const { Spacer } = await import("@earendil-works/pi-tui");
 
 const plainTheme = {
   bold: (text: string) => text,
@@ -557,6 +565,114 @@ describe("welcome resource formatting", () => {
 });
 
 describe("welcome resource-panel bridge", () => {
+  function makeContainer(initialChildren: any[] = []) {
+    return {
+      children: [...initialChildren] as any[],
+      addChild(component: any) {
+        this.children.push(component);
+      },
+      removeChild(component: any) {
+        const index = this.children.indexOf(component);
+        if (index !== -1) this.children.splice(index, 1);
+      },
+      clear() {
+        this.children.splice(0);
+      },
+      invalidate() {},
+      render(width = 1_000) {
+        return this.children.flatMap((child) => child.render(width));
+      },
+    };
+  }
+
+  function makeSection(
+    heading: string,
+    body: string,
+    options: { expanded?: string; onRead?: () => void } = {},
+  ) {
+    return {
+      ...emptyComponent(),
+      getCollapsedText() {
+        options.onRead?.();
+        return `[${heading}]\n${body}`;
+      },
+      ...(options.expanded
+        ? { getExpandedText: () => `[${heading}]\n${options.expanded}` }
+        : {}),
+    };
+  }
+
+  function makeKnownResourceChildren(
+    contextFile = "AGENTS.md",
+    onContextRead?: () => void,
+  ) {
+    return [
+      new Spacer(1),
+      makeSection("Context", `  ${contextFile}`, {
+        ...(onContextRead ? { onRead: onContextRead } : {}),
+      }),
+      new Spacer(1),
+      makeSection("Skills", "  artifactor"),
+      new Spacer(1),
+      makeSection("Prompts", "  /implement"),
+      new Spacer(1),
+      makeSection("Extensions", "  src", {
+        expanded: [
+          "  user",
+          "    ~/dev/pi-kaush/extensions/pi-double-paste/src",
+          "    ~/dev/pi-kaush/extensions/pi-welcome-screen/src",
+        ].join("\n"),
+      }),
+      new Spacer(1),
+      makeSection("Themes", "  dracula"),
+      new Spacer(1),
+    ];
+  }
+
+  function installHeader(reason = "startup") {
+    let sessionStart: ((event: any, context: any) => void) | undefined;
+    welcomeScreen({
+      on(event: string, handler: (event: any, context: any) => void) {
+        if (event === "session_start") sessionStart = handler;
+      },
+    } as never);
+
+    let headerFactory:
+      | ((
+          tui: any,
+          theme: any,
+        ) => { render(width: number): string[]; dispose?(): void })
+      | undefined;
+    sessionStart?.(
+      { reason },
+      {
+        mode: "tui",
+        ui: {
+          setHeader(factory: typeof headerFactory) {
+            headerFactory = factory;
+          },
+        },
+      },
+    );
+    if (!headerFactory) throw new Error("header factory was not installed");
+    return headerFactory;
+  }
+
+  function makeLegacyTui(panel: ReturnType<typeof makeContainer>) {
+    const renderRequests: boolean[] = [];
+    const tui = {
+      children: [
+        makeContainer(),
+        panel,
+        ...Array.from({ length: 7 }, emptyComponent),
+      ],
+      requestRender(force?: boolean) {
+        renderRequests.push(force ?? false);
+      },
+    };
+    return { tui, renderRequests };
+  }
+
   test("does not install a header outside TUI mode", () => {
     let sessionStart: ((event: unknown, context: any) => void) | undefined;
     welcomeScreen({
@@ -580,428 +696,194 @@ describe("welcome resource-panel bridge", () => {
     expect(headerInstalls).toBe(0);
   });
 
-  test("waits for populated resources, caches them, and restores the panel", async () => {
-    let sessionStart: ((event: unknown, context: any) => void) | undefined;
-    welcomeScreen({
-      on(event: string, handler: (event: unknown, context: any) => void) {
-        if (event === "session_start") sessionStart = handler;
-      },
-    } as never);
-
-    let headerFactory:
-      | ((
-          tui: any,
-          theme: any,
-        ) => { render(width: number): string[]; dispose?(): void })
-      | undefined;
-    sessionStart?.(
-      {},
-      {
-        mode: "tui",
-        ui: {
-          setHeader(factory: typeof headerFactory) {
-            headerFactory = factory;
-          },
-        },
-      },
-    );
-
+  test("keeps the native panel mounted until a complete snapshot is ready", async () => {
     let resourceReads = 0;
-    const resourceComponent = {
-      ...emptyComponent(),
-      getCollapsedText() {
-        resourceReads += 1;
-        return [
-          "[Context]",
-          "  AGENTS.md",
-          "[Skills]",
-          "  artifactor",
-          "[Prompts]",
-          "  /implement",
-          "[Extensions]",
-          "  src",
-        ].join("\n");
-      },
-      getExpandedText() {
-        return [
-          "[Extensions]",
-          "  user",
-          "    ~/dev/pi-kaush/extensions/pi-double-paste/src",
-          "    ~/dev/pi-kaush/extensions/pi-welcome-screen/src",
-        ].join("\n");
-      },
-    };
-    const themeComponent = {
-      ...emptyComponent(),
-      getCollapsedText() {
-        return "[Themes]\n  dracula";
-      },
-    };
-    const panel = {
-      children: [] as Array<typeof resourceComponent | typeof themeComponent>,
-      invalidate() {},
-      render() {
-        return [];
-      },
-    };
-    const children = [
-      { ...emptyComponent(), children: [] },
-      panel,
-      ...Array.from({ length: 7 }, emptyComponent),
-    ];
-    const tui = {
-      children,
-      removeChild(component: unknown) {
-        const index = this.children.indexOf(component as never);
-        if (index !== -1) this.children.splice(index, 1);
-      },
-      requestRender() {},
-    };
+    const nativeChildren = makeKnownResourceChildren(
+      "AGENTS.md",
+      () => (resourceReads += 1),
+    );
+    const panel = makeContainer();
+    const { tui, renderRequests } = makeLegacyTui(panel);
+    const header = installHeader()(tui, plainTheme);
 
-    const header = headerFactory?.(tui, plainTheme);
-    expect(tui.children).not.toContain(panel);
-    const loadingRender = header?.render(80).join("\n");
-    expect(loadingRender).not.toContain("[Context]");
-    expect(loadingRender).not.toContain("(none)");
+    expect(tui.children[1]).toBe(panel);
+    expect(header.render(80).join("\n")).not.toContain("[Context]");
     await new Promise((resolve) => setTimeout(resolve, 0));
-    panel.children.push(resourceComponent, themeComponent);
-    expect(header?.render(80).join("\n")).not.toContain("[Context]");
+    expect(tui.children[1]).toBe(panel);
+
+    panel.children.push(...nativeChildren);
     await new Promise((resolve) => setTimeout(resolve, 80));
-    const firstRender = header?.render(80);
-    expect(firstRender?.join("\n")).toContain("• AGENTS.md");
-    expect(firstRender?.join("\n")).toContain(
+
+    const firstRender = header.render(80);
+    expect(firstRender.join("\n")).toContain("• AGENTS.md");
+    expect(firstRender.join("\n")).toContain(
       "~/dev/pi-kaush/extensions/pi-double-paste/src",
     );
-    expect(firstRender?.join("\n")).not.toMatch(/• src\s*$/m);
-    expect(tui.children).not.toContain(panel);
-    expect(header?.render(80)).toBe(firstRender);
+    expect(panel.children).toEqual([]);
+    expect(tui.children[1]).toBe(panel);
+    expect(renderRequests).toContain(true);
+    expect(header.render(80)).toBe(firstRender);
     const readsAfterCapture = resourceReads;
-    header?.render(80);
+    header.render(80);
     expect(resourceReads).toBe(readsAfterCapture);
 
-    header?.dispose?.();
+    header.dispose?.();
+    expect(panel.children).toEqual(nativeChildren);
     expect(tui.children[1]).toBe(panel);
   });
 
-  test("captures resources from Pi 0.84's nested document container", async () => {
-    let sessionStart: ((event: unknown, context: any) => void) | undefined;
-    welcomeScreen({
-      on(event: string, handler: (event: unknown, context: any) => void) {
-        if (event === "session_start") sessionStart = handler;
-      },
-    } as never);
-
-    let headerFactory:
-      | ((
-          tui: any,
-          theme: any,
-        ) => { render(width: number): string[]; dispose?(): void })
-      | undefined;
-    sessionStart?.(
-      {},
-      {
-        mode: "tui",
-        ui: {
-          setHeader(factory: typeof headerFactory) {
-            headerFactory = factory;
-          },
-        },
-      },
-    );
-
-    const resourceComponent = {
-      ...emptyComponent(),
-      getCollapsedText() {
-        return [
-          "[Context]",
-          "  AGENTS.md",
-          "[Skills]",
-          "  artifactor",
-          "[Prompts]",
-          "  /implement",
-          "[Extensions]",
-          "  src",
-        ].join("\n");
-      },
-      getExpandedText() {
-        return [
-          "[Extensions]",
-          "  user",
-          "    ~/dev/pi-kaush/extensions/pi-welcome-screen/src",
-        ].join("\n");
-      },
-    };
-    const themeComponent = {
-      ...emptyComponent(),
-      getCollapsedText() {
-        return "[Themes]\n  dracula";
-      },
-    };
-    const panel = {
-      children: [] as Array<typeof resourceComponent | typeof themeComponent>,
-      invalidate() {},
-      render() {
-        return [];
-      },
-    };
-    const makeContainer = () => ({
-      ...emptyComponent(),
-      children: [] as any[],
-      removeChild(component: unknown) {
-        const index = this.children.indexOf(component as never);
-        if (index !== -1) this.children.splice(index, 1);
-      },
-    });
-    const documentContainer = makeContainer();
-    documentContainer.children.push(makeContainer(), panel, makeContainer());
+  test("keeps Pi 0.84's fullscreen document and resource panel mounted", async () => {
+    const nativeChildren = makeKnownResourceChildren();
+    const panel = makeContainer(nativeChildren);
+    const headerContainer = makeContainer();
+    const chatContainer = makeContainer();
+    const documentContainer = makeContainer([
+      headerContainer,
+      panel,
+      chatContainer,
+    ]);
     const tui = {
       children: [
         documentContainer,
         ...Array.from({ length: 6 }, emptyComponent),
       ],
-      removeChild(component: unknown) {
-        const index = this.children.indexOf(component as never);
-        if (index !== -1) this.children.splice(index, 1);
-      },
       requestRender() {},
     };
 
-    const header = headerFactory?.(tui, plainTheme);
-    expect(documentContainer.children).not.toContain(panel);
-    expect(documentContainer.children).toHaveLength(2);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    panel.children.push(resourceComponent, themeComponent);
-    await new Promise((resolve) => setTimeout(resolve, 80));
-
-    const rendered = header?.render(80).join("\n");
-    expect(rendered).toContain("• AGENTS.md");
-    expect(rendered).toContain(
-      "~/dev/pi-kaush/extensions/pi-welcome-screen/src",
-    );
-    expect(rendered).not.toContain("[Themes]");
-    expect(rendered).not.toContain("dracula");
-    expect(tui.children[0]).toBe(documentContainer);
-
-    header?.dispose?.();
+    const header = installHeader()(tui, plainTheme);
     expect(documentContainer.children[1]).toBe(panel);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(header.render(80).join("\n")).toContain("• AGENTS.md");
+    expect(tui.children[0]).toBe(documentContainer);
+    expect(documentContainer.children).toEqual([
+      headerContainer,
+      panel,
+      chatContainer,
+    ]);
+    expect(panel.children).toEqual([]);
+
+    header.dispose?.();
+    expect(panel.children).toEqual(nativeChildren);
   });
 
-  test("warns in the header when Pi's layout shape is unrecognized", async () => {
-    let sessionStart: ((event: unknown, context: any) => void) | undefined;
-    welcomeScreen({
-      on(event: string, handler: (event: unknown, context: any) => void) {
-        if (event === "session_start") sessionStart = handler;
-      },
-    } as never);
-
-    let headerFactory:
-      | ((
-          tui: any,
-          theme: any,
-        ) => { render(width: number): string[]; dispose?(): void })
-      | undefined;
-    sessionStart?.(
-      {},
-      {
-        mode: "tui",
-        ui: {
-          setHeader(factory: typeof headerFactory) {
-            headerFactory = factory;
-          },
-        },
-      },
-    );
-
+  test("warns only after the TUI layout remains unrecognized", async () => {
     const tui = {
       children: Array.from({ length: 9 }, emptyComponent),
-      removeChild() {},
       requestRender() {},
     };
-    const header = headerFactory?.(tui, plainTheme);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const header = installHeader()(tui, plainTheme);
 
-    const rendered = header?.render(80).join("\n");
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const rendered = header.render(80).join("\n");
     expect(rendered).toContain("█████████");
     expect(rendered).toContain(
       "pi-welcome-screen: unrecognized Pi layout — using native panel",
     );
   });
 
-  test("warns when loaded sections never become parseable", async () => {
-    let sessionStart: ((event: unknown, context: any) => void) | undefined;
-    welcomeScreen({
-      on(event: string, handler: (event: unknown, context: any) => void) {
-        if (event === "session_start") sessionStart = handler;
-      },
-    } as never);
-
-    let headerFactory:
-      | ((
-          tui: any,
-          theme: any,
-        ) => { render(width: number): string[]; dispose?(): void })
-      | undefined;
-    sessionStart?.(
-      {},
-      {
-        mode: "tui",
-        ui: {
-          setHeader(factory: typeof headerFactory) {
-            headerFactory = factory;
-          },
-        },
-      },
-    );
-
-    const resourceComponent = {
-      ...emptyComponent(),
-      getCollapsedText() {
-        return "[Context]\n  AGENTS.md\n[Extensions]\n  some-other-extension";
-      },
-    };
-    const panel = {
-      children: [] as Array<typeof resourceComponent>,
-      invalidate() {},
-      render() {
-        return [];
-      },
-    };
-    const children = [
-      { ...emptyComponent(), children: [] },
-      panel,
-      ...Array.from({ length: 7 }, emptyComponent),
+  test("leaves an incomplete native snapshot unchanged without a layout warning", async () => {
+    const nativeChildren = [
+      new Spacer(1),
+      makeSection("Context", "  AGENTS.md"),
+      new Spacer(1),
+      makeSection("Extensions", "  some-other-extension"),
+      new Spacer(1),
     ];
-    const tui = {
-      children,
-      removeChild(component: unknown) {
-        const index = this.children.indexOf(component as never);
-        if (index !== -1) this.children.splice(index, 1);
-      },
-      requestRender() {},
-    };
+    const panel = makeContainer(nativeChildren);
+    const { tui } = makeLegacyTui(panel);
+    const header = installHeader()(tui, plainTheme);
 
-    const header = headerFactory?.(tui, plainTheme);
-    expect(tui.children).not.toContain(panel);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    panel.children.push(resourceComponent);
     await new Promise((resolve) => setTimeout(resolve, 180));
 
-    const rendered = header?.render(80).join("\n");
-    expect(rendered).toContain("unrecognized Pi layout");
+    expect(header.render(80).join("\n")).not.toContain(
+      "unrecognized Pi layout",
+    );
+    expect(header.render(80).join("\n")).not.toContain("[Context]");
+    expect(panel.children).toEqual(nativeChildren);
     expect(tui.children[1]).toBe(panel);
   });
 
-  async function expectNativePanelFallback(options: {
-    nativeComponent?: any;
-    heading?: string;
-    waitMs?: number;
-  }) {
-    let sessionStart: ((event: unknown, context: any) => void) | undefined;
-    welcomeScreen({
-      on(event: string, handler: (event: unknown, context: any) => void) {
-        if (event === "session_start") sessionStart = handler;
-      },
-    } as never);
-
-    let headerFactory:
-      | ((
-          tui: any,
-          theme: any,
-        ) => { render(width: number): string[]; dispose?(): void })
-      | undefined;
-    sessionStart?.(
-      { reason: "startup" },
-      {
-        mode: "tui",
-        ui: {
-          setHeader(factory: typeof headerFactory) {
-            headerFactory = factory;
-          },
-        },
-      },
-    );
-
-    const resourceComponent = {
-      ...emptyComponent(),
-      getCollapsedText() {
-        return [
-          "[Context]",
-          "  AGENTS.md",
-          "[Skills]",
-          "  artifactor",
-          "[Prompts]",
-          "  /implement",
-          "[Extensions]",
-          "  @pi-kaush/pi-welcome-screen:src/index.ts",
-        ].join("\n");
-      },
-    };
-    const spacer = emptyComponent();
-    const originalPanelChildren = options.nativeComponent
-      ? [resourceComponent, spacer, options.nativeComponent]
-      : [];
-    const panel = {
-      children: [] as any[],
+  test("replaces known rows while preserving diagnostics and third-party rows", async () => {
+    let diagnosticRenders = 0;
+    let thirdPartyRenders = 0;
+    const diagnostic = {
       invalidate() {},
       render() {
-        return this.children.flatMap((child) => child.render(1_000));
+        diagnosticRenders += 1;
+        return ["[Extension issues]", "  broken-extension.ts"];
       },
     };
-    const children = [
-      { ...emptyComponent(), children: [] },
-      panel,
-      ...Array.from({ length: 7 }, emptyComponent),
+    const thirdParty = {
+      ...emptyComponent(),
+      getCollapsedText: () => "[Future startup info]\n  important detail",
+      render() {
+        thirdPartyRenders += 1;
+        return ["[Future startup info]", "  important detail"];
+      },
+    };
+    const diagnosticSpacer = new Spacer(1);
+    const trailingSpacer = new Spacer(1);
+    const knownChildren = makeKnownResourceChildren();
+    const originalChildren = [
+      ...knownChildren,
+      diagnostic,
+      diagnosticSpacer,
+      thirdParty,
+      trailingSpacer,
     ];
-    const tui = {
-      children,
-      removeChild(component: unknown) {
-        const index = this.children.indexOf(component as never);
-        if (index !== -1) this.children.splice(index, 1);
-      },
-      requestRender() {},
+    const panel = makeContainer(originalChildren);
+    const { tui } = makeLegacyTui(panel);
+    const header = installHeader()(tui, plainTheme);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(header.render(80).join("\n")).toContain("• AGENTS.md");
+    expect(panel.children).toEqual([
+      diagnostic,
+      diagnosticSpacer,
+      thirdParty,
+      trailingSpacer,
+    ]);
+    expect(diagnosticRenders).toBe(0);
+    expect(thirdPartyRenders).toBe(0);
+
+    header.dispose?.();
+    expect(panel.children).toEqual(originalChildren);
+  });
+
+  test("reconciles resource rows rebuilt after session_start", async () => {
+    const thirdParty = {
+      ...emptyComponent(),
+      getCollapsedText: () => "[Third party]\n  retained",
     };
+    const initialChildren = makeKnownResourceChildren("AGENTS.md");
+    const panel = makeContainer([...initialChildren, thirdParty]);
+    const { tui } = makeLegacyTui(panel);
+    const header = installHeader("reload")(tui, plainTheme);
 
-    const header = headerFactory?.(tui, plainTheme);
-    expect(tui.children).not.toContain(panel);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    panel.children.push(...originalPanelChildren);
-    await new Promise((resolve) => setTimeout(resolve, options.waitMs ?? 80));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(header.render(80).join("\n")).toContain("• AGENTS.md");
+    expect(panel.children).toEqual([thirdParty]);
 
-    const renderedHeader = header?.render(80).join("\n") ?? "";
-    expect(renderedHeader).toContain("█████████");
-    expect(renderedHeader).not.toContain("[Context]");
-    // Expected fallbacks (diagnostics, unknown sections, quiet startup)
-    // restore Pi's panel without crying wolf.
-    expect(renderedHeader).not.toContain("unrecognized Pi layout");
-    expect(tui.children[1]).toBe(panel);
-    expect(panel.children).toEqual(originalPanelChildren);
-    if (options.heading) {
-      expect(panel.render().join("\n")).toContain(options.heading);
-    }
+    const rebuiltChildren = makeKnownResourceChildren("AGENTS-reloaded.md");
+    panel.children.splice(
+      0,
+      panel.children.length,
+      ...rebuiltChildren,
+      thirdParty,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 70));
 
-    header?.dispose?.();
-    expect(tui.children.filter((child) => child === panel)).toHaveLength(1);
-  }
+    const rendered = header.render(80).join("\n");
+    expect(rendered).toContain("• AGENTS-reloaded.md");
+    expect(rendered).not.toContain("• AGENTS.md");
+    expect(panel.children).toEqual([thirdParty]);
 
-  test("keeps the custom brand and restores Pi's untouched panel for diagnostics", () =>
-    expectNativePanelFallback({
-      nativeComponent: {
-        invalidate() {},
-        render: () => ["[Extension issues]", "  broken-extension.ts"],
-      },
-      heading: "[Extension issues]",
-    }));
-
-  test("keeps the custom brand and restores Pi's untouched panel for unknown native sections", () =>
-    expectNativePanelFallback({
-      nativeComponent: {
-        invalidate() {},
-        getCollapsedText: () => "[Future startup info]\n  important detail",
-        render: () => ["[Future startup info]", "  important detail"],
-      },
-      heading: "[Future startup info]",
-    }));
-
-  test("restores Pi's native panel after three resource retries", () =>
-    expectNativePanelFallback({ waitMs: 180 }));
+    header.dispose?.();
+    expect(panel.children).toEqual([...rebuiltChildren, thirdParty]);
+    expect(
+      panel.children.some((child) => initialChildren.includes(child)),
+    ).toBe(false);
+  });
 });

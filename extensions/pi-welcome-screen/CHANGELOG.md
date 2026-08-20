@@ -5,7 +5,8 @@
 - Reserve two internal padding columns on both sides of the welcome layout at normal widths, degrading only when a tiny terminal needs the content space.
 - Show the active theme name next to the Pi version in the brand header, e.g. `v0.84.0 [cobalt2]`.
 - Fix resource capture on Pi 0.84, where the loaded-resources panel moved inside a document container; both the nested 0.84 and flat 0.80–0.83 layouts are detected.
-- Warn in the header when Pi's startup layout is unrecognized (`unrecognized Pi layout — using native panel`) instead of degrading silently, so future Pi layout changes get noticed. Expected fallbacks like startup diagnostics stay silent.
+- Keep Pi's resource panel mounted for fullscreen scrolling, wait for a complete snapshot, preserve diagnostic and third-party rows, and reconcile native rows rebuilt during `/reload`.
+- Warn in the header when Pi's startup layout is unrecognized (`unrecognized Pi layout — using native panel`) instead of degrading silently. Incomplete resource snapshots stay native without being mislabeled as layout failures.
 
 ## 0.1.4
 

@@ -10,7 +10,7 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 - **Context files in load order** — shows exactly which instructions Pi loaded and the order in which they apply.
 - **Extensions grouped by source** — separates Pi-local extensions, installed packages, and linked source paths.
 - **Responsive layout** — adapts from a stacked view to a wide brand over two resource columns, then a dedicated brand beside two resource columns, while reserving two side-padding columns at normal widths and degrading that padding only on tiny terminals.
-- **Fail-safe behavior** — if the startup data or UI shape is unfamiliar, restores Pi's untouched native resource panel instead of hiding information. When the layout itself is unrecognized, the header says so instead of degrading silently.
+- **Fail-safe behavior** — waits for a complete resource snapshot, preserves diagnostics and third-party startup rows, and leaves incomplete native data untouched. When the layout itself is unrecognized, the header says so instead of degrading silently.
 
 ## Install
 
@@ -32,9 +32,9 @@ Use `--no-extensions` before `-e` to test it without your other configured exten
 
 ## Compatibility
 
-The extension installs its header through Pi's public `ctx.ui.setHeader()` API. Pi 0.80.6 does not expose structured startup-resource data, so the extension also uses a narrowly guarded bridge to inspect and temporarily relocate Pi's native startup-resource panel.
+The extension installs its header through Pi's public `ctx.ui.setHeader()` API. Pi does not expose structured startup-resource data, so the extension also uses a narrowly guarded bridge to inspect the native startup-resource panel.
 
-Every expected component shape is checked before it is touched. If Pi changes the panel, exposes an unknown section, or produces incomplete resource data, the extension restores Pi's untouched native panel rather than hiding information. Tested against Pi 0.80.6 through 0.84.0, including the nested document-container layout introduced in Pi 0.84.
+The bridge recognizes the flat Pi 0.80–0.83 layout and the document-container layout introduced in Pi 0.84. It keeps Pi's document and resource panel mounted for regular and fullscreen rendering, then removes only the known context, skill, prompt, extension, and theme rows after a complete replacement snapshot is ready. Diagnostics, unknown sections, and third-party rows remain in place; incomplete snapshots remain entirely native. Tested against Pi 0.80.6 through 0.84.0.
 
 Like any custom-header extension, it shares Pi's single header slot. If another extension also calls `setHeader()`, the last installed header wins; neither extension needs to replace the editor or intercept terminal input.
 
@@ -44,9 +44,9 @@ The package contains readable TypeScript and has:
 
 - no runtime dependencies or install scripts;
 - no network, subprocess, clipboard, prompt, tool, model, or telemetry access;
-- no background work after the startup resource snapshot completes.
+- no background work after the short startup capture window completes.
 
-At startup it reads only the names of entries in Pi's local extension directory and the text already rendered in Pi's startup-resource panel so extensions can be grouped by provenance. Resource capture uses at most three short 50 ms retries and is then disposed or replaced by Pi's native panel.
+At startup it reads only the names of entries in Pi's local extension directory and the text already rendered in Pi's startup-resource panel so extensions can be grouped by provenance. Resource capture uses at most three short 50 ms retries, including a brief reconciliation window for `/reload`.
 
 ## Development
 
