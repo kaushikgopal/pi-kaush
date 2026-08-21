@@ -1,6 +1,6 @@
 # pi-content-layout
 
-A small Pi extension that insets the main conversation, renders the active editor as a full-width dark surface, and gives submitted prompts and user-run bash blocks a compact rail shell.
+A small Pi extension that insets the main conversation, renders the active editor as a full-width dark surface, and gives submitted prompts a compact rail shell.
 
 ```text
 Assistant output
@@ -15,18 +15,23 @@ Submitted prompt
   ▎                                            darker background
   ▎ prompt text                                darker background
   ▎                                            darker background
-
-User bash (`!` command, failed)
-  ▎                                            darker background, red rail
-  ▎ $ ls ~/matrxi                              darker background
-  ▎ ls: /Users/kg/matrxi: No such file or directory
-  ▎ (exit 1)                                   darker background
-  ▎                                            darker background
 ```
 
 Assistant and submitted-message content keep the two-column outer inset. The active prompt intentionally ignores that inset: its darker background fills the terminal width, with no rail, one extra layout column on each side of Pi's configured editor padding, and one background-colored row above and below the content. Real scroll indicators replace the corresponding padding row when needed. The submitted prompt remains unchanged: it keeps Pi's message padding and the thin rail outside its darker body. Autocomplete stays outside the active surface.
 
-User-run bash blocks (`!` commands) trade Pi's green top/bottom rules for the same rail shell as the submitted prompt, command first and output below. The rail keeps the usual green while running and on success, turns red on a non-zero exit, yellow when cancelled, and stays dim for `!!` commands excluded from context.
+## Scope boundary
+
+This package owns the transcript **surface**: the message inset, system-text
+and status-rule alignment, the editor surface, and the submitted-prompt
+shell for user messages. It deliberately never renders tool execution rows
+today: collapsed tool calls, grouping, subagent plans, thinking labels, and
+user-run `!` bash blocks all live in `@pi-kaush/pi-tool-call-markers` (which
+also owns the rail shell those blocks use).
+
+The one cross-package contract is spacing: `!` blocks align with message
+text at this package's message inset, so `pi-tool-call-markers` mirrors
+`contentInset` for its bash blocks (see its `src/bash-block.ts`). Change
+indentation in both packages together.
 
 ## Install
 
@@ -59,7 +64,7 @@ Pi does not currently expose public renderers for native user and assistant mess
 For the complete visual system, combine this package with:
 
 - `@pi-kaush/pi-footer-minimal` for matching footer inset and footer working state; and
-- `@pi-kaush/pi-tool-call-markers` for unboxed tool rows, subagent plans, and thinking markers.
+- `@pi-kaush/pi-tool-call-markers` for unboxed tool rows, subagent plans, thinking markers, and user-run `!` bash blocks.
 
 ## License
 

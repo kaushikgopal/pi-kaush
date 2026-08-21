@@ -21,6 +21,7 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 - **Quiet-turn grouping.** Sequential calls can join across an assistant row with no visible prose or thinking. Visible assistant content remains a boundary.
 - **MCP and self-rendered tools.** Their stable call labels, compact arguments, pending state, success, and first error line use the same collapsed shell. Native self-rendered details return when expanded.
 - **Images remain visible.** Image fallback text and terminal image components render below the corresponding marker with the same inset.
+- **User-run `!` bash blocks.** Execution display is owned here: user-typed commands trade Pi's green rules for the railed prompt shell (dark surface, status-colored rail) that submitted prompts use.
 - **Native expansion remains authoritative.** `Ctrl+O` restores Pi's full individual tool rendering, including complete results, custom renderers, and error details.
 
 ## Subagent plans
@@ -42,6 +43,12 @@ Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `& s
 Settled `edit` calls keep their change visible without expanding: the call line gains a `+added/-removed` outcome stat, and the hunk renders as a bounded diff block underneath (`+` lines in the added tone, `-` in the removed tone, context muted, folded regions as `...`, capped at 12 lines with a count tail). The full native diff — line numbers, intra-line word highlights — still returns with `Ctrl+O`.
 
 Files and paths in collapsed rows are preserved as displayed by Pi: hyperlink-wrapped paths (Pi wraps `read` call paths in OSC 8 hyperlinks) keep their visible text when sanitized for one-line rows.
+
+## Scope boundary
+
+This package owns every **execution row** in the transcript: collapsed tool calls, tool grouping, subagent plans, thinking labels, and user-run `!` bash blocks (reshaped into the railed prompt shell). Transcript _surface_ layout — message insets, system-text and status-rule alignment, the editor surface, and the submitted-prompt shell for user messages — belongs to `@pi-kaush/pi-content-layout`, which never renders tool rows.
+
+One shared visual contract crosses the line: `!` blocks align with message text, so their inset mirrors `pi-content-layout`'s message `contentInset` (see `src/bash-block.ts`). Change indentation in both packages together.
 
 ## Bundled thinking-block extension
 
