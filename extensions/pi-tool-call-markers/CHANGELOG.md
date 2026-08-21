@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix: preserve the visible text of hyperlink-wrapped paths in collapsed rows. Pi renders `read` call paths as OSC 8 hyperlinks (`ESC]8;;url ESC\ <path> ESC]8;; ESC\`); the previous greedy OSC strip consumed the path text along with the sequences, collapsing `% read: README.md:1-400` to `% read: :1-400`. OSC payloads now end at their first BEL/ST terminator, so `read`/`write`/`ls` rows show their filenames again.
+- Show settled `edit` changes inline: the call line gains a `+added/-removed` outcome stat, and the display diff from `result.details.diff` renders as a bounded block underneath (`+` lines in the added tone, `-` in the removed tone, context muted, `...` for folded regions; capped at 12 lines with a `+N more` tail). `Ctrl+O` still returns Pi's full native diff.
+- Render subagent plans with a `&` marker instead of `%`, so delegated calls read differently from ordinary tool rows (both the parsed plan shape and the generic fallback).
 - Render every collapsed tool call as a `% tool: call → outcome` line with the tool name bolded — one marker per call, no bullets, no blank lines between sections; grouped blocks share only their leading blank row (supersedes the nested sub-heading layout).
 - Render subagent calls as an unboxed plan — `% subagent` heading with chain/parallel counts and numbered steps as they execute, agent names in accent with emojis scraped from the native plan component (args fallback) — replacing the accent-rail card; failed subagents follow the full-red failure tone.
 - Strip display sequences and control bytes (notably `\r` from progress writers like git) from collapsed-row text so command output cannot return the cursor to column 0 and overwrite the row.

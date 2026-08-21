@@ -25,17 +25,23 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 
 ## Subagent plans
 
-A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic:
+A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic, marked with `&` instead of the ordinary `%` tool marker:
 
 ```text
-  % subagent chain (3 steps) [repo-review]
+  & subagent chain (3 steps) [repo-review]
     1. 🐝 bee [workhorse] Challenge the compatibility conclusion…
     2. 🐝 bee …
 ```
 
-Single calls stay on one `% subagent <agent> [profile] <task preview>` row; chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers). Agent display names (emoji + name) are scraped from the native plan component with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
+Single calls stay on one `& subagent <agent> [profile] <task preview>` row; chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers). Agent display names (emoji + name) are scraped from the native plan component with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
 
-Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `% subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
+Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `& subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
+
+## Edit diffs
+
+Settled `edit` calls keep their change visible without expanding: the call line gains a `+added/-removed` outcome stat, and the hunk renders as a bounded diff block underneath (`+` lines in the added tone, `-` in the removed tone, context muted, folded regions as `...`, capped at 12 lines with a count tail). The full native diff — line numbers, intra-line word highlights — still returns with `Ctrl+O`.
+
+Files and paths in collapsed rows are preserved as displayed by Pi: hyperlink-wrapped paths (Pi wraps `read` call paths in OSC 8 hyperlinks) keep their visible text when sanitized for one-line rows.
 
 ## Bundled thinking-block extension
 
