@@ -15,6 +15,7 @@ const expected = [
   "LICENSE",
   "README.md",
   "package.json",
+  "src/bash-block.ts",
   "src/container-hooks.ts",
   "src/index.ts",
   "src/thinking-block-merger.ts",

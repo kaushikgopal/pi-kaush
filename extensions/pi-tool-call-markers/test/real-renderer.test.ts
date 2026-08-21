@@ -1,11 +1,22 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
+  BashExecutionComponent,
   createBashToolDefinition,
   initTheme,
   ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import { Box, Container, Text } from "@earendil-works/pi-tui";
+import {
+  Box,
+  Container,
+  Text,
+  type TUI,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
+import { PROMPT_RAIL, PROMPT_SURFACE_BG } from "../src/bash-block.ts";
+
+// Captured at module load, before any beforeEach install patches it.
+const NATIVE_BASH_RENDER = BashExecutionComponent.prototype.render;
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   type ChatContainerHook,
@@ -1217,6 +1228,99 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain('some_tool: {"tool":"hammer"} → done');
+  });
+});
+
+describe("user bash blocks", () => {
+  const codes: Record<string, number> = {
+    accent: 35,
+    bashMode: 32,
+    error: 31,
+    warning: 33,
+    dim: 90,
+  };
+  const ansiTheme = {
+    bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+    fg: (color: string, text: string) =>
+      `\x1b[${codes[color] ?? 37}m${text}\x1b[0m`,
+    bg: (_color: string, text: string) => text,
+  };
+  const stripControls = (text: string) =>
+    text.replace(ANSI_RE, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
+
+  function withTheme(fn: () => void): void {
+    for (const handler of sessionHandlers) {
+      handler({}, { ui: { theme: ansiTheme, setToolsExpanded() {} } });
+    }
+    try {
+      fn();
+    } finally {
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
+      }
+    }
+  }
+
+  function createBashBlock(command: string): BashExecutionComponent {
+    return new BashExecutionComponent(command, { requestRender() {} } as TUI);
+  }
+
+  test("restyles a user bash block as a prompt-style rail block", () => {
+    withTheme(() => {
+      const bash = createBashBlock("ls ~/matrxi");
+      bash.appendOutput("ls: /Users/kg/matrxi: No such file or directory\n");
+      bash.setComplete(1, false);
+
+      const lines = bash.render(40);
+      expect(stripControls(lines.join("\n"))).not.toContain("─");
+      expect(stripControls(lines[0] ?? "")).toMatch(/^\s*$/);
+      expect(lines[0]).not.toContain(PROMPT_SURFACE_BG);
+      expect(lines.every((line) => visibleWidth(line) === 40)).toBe(true);
+
+      const commandLine = lines.find((line) =>
+        stripControls(line).includes("$ ls ~/matrxi"),
+      );
+      expect(commandLine).toBeDefined();
+      // A failed exit recolors the rail red, like the (exit 1) status text.
+      expect(commandLine).toContain(
+        `\x1b[31m${PROMPT_RAIL}\x1b[0m${PROMPT_SURFACE_BG}`,
+      );
+      expect(stripControls(commandLine ?? "")).toContain(
+        `${PROMPT_RAIL}  $ ls ~/matrxi`,
+      );
+      const outputLine = lines.find((line) =>
+        stripControls(line).includes("No such"),
+      );
+      expect(outputLine).toContain(PROMPT_SURFACE_BG);
+
+      bash.setComplete(0, false);
+      const successLines = bash.render(40);
+      const successCommand = successLines.find((line) =>
+        stripControls(line).includes("$ ls ~/matrxi"),
+      );
+      expect(successCommand).toContain(
+        `\x1b[32m${PROMPT_RAIL}\x1b[0m${PROMPT_SURFACE_BG}`,
+      );
+    });
+  });
+
+  test("falls back to the native shell on very narrow widths", () => {
+    withTheme(() => {
+      const bash = createBashBlock("ls");
+      bash.setComplete(0, false);
+      const lines = bash.render(4);
+      expect(lines.length).toBeGreaterThan(0);
+      expect(stripControls(lines.join("\n"))).not.toContain(PROMPT_RAIL);
+    });
+  });
+
+  test("installs and restores the bash block renderer with the session", () => {
+    // beforeEach install fired session_start with the pass-through theme.
+    expect(BashExecutionComponent.prototype.render).not.toBe(
+      NATIVE_BASH_RENDER,
+    );
+    for (const handler of shutdownHandlers.splice(0)) handler();
+    expect(BashExecutionComponent.prototype.render).toBe(NATIVE_BASH_RENDER);
   });
 });
 

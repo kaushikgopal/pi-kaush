@@ -5,8 +5,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
-  BashExecutionComponent,
   initTheme,
+  ToolExecutionComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
@@ -490,40 +490,45 @@ describe("native transcript adapters", () => {
     expect(chatContainerHooks().size).toBe(0);
   });
 
-  test("restyles user bash blocks as prompt-style rail blocks", () => {
+  test("leaves tool execution rows byte-identical to Pi's own rendering", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);
+
+    // Tool rows are pi-tool-call-markers' domain; installing the surface
+    // layout must not reshape, inset, or paint them in any way.
+    const definition = {
+      name: "bash",
+      label: "bash",
+      description: "boundary test row",
+      parameters: { type: "object", properties: {} },
+      execute() {
+        throw new Error("not executed");
+      },
+      renderCall() {
+        return new Text("$ npm test", 0, 0);
+      },
+      renderResult(result: {
+        content: Array<{ type: string; text?: string }>;
+      }) {
+        const detail = result.content.find((c) => c.type === "text")?.text;
+        return new Text(String(detail), 0, 0);
+      },
+    };
+    const row = new ToolExecutionComponent(
+      "bash",
+      "boundary-1",
+      { command: "npm test" },
+      {},
+      definition as never,
+      { requestRender() {} } as never,
+      process.cwd(),
+    );
+    const native = row.render(50);
+
     harness.fire("session_start");
-
-    const ui = { requestRender() {} } as unknown as TUI;
-    const bash = new BashExecutionComponent("ls ~/matrxi", ui);
-    bash.appendOutput("ls: /Users/kg/matrxi: No such file or directory\n");
-    bash.setComplete(1, false);
-
-    const lines = bash.render(40);
-    expect(stripControls(lines.join("\n"))).not.toContain("─");
-    expect(stripControls(lines[0] ?? "")).toMatch(/^\s*$/);
-    expect(lines[0]).not.toContain(PROMPT_SURFACE_BG);
-    expect(lines.every((line) => visibleWidth(line) === 40)).toBe(true);
-
-    const commandLine = lines.find((line) =>
-      stripControls(line).includes("$ ls ~/matrxi"),
-    );
-    expect(commandLine).toBeDefined();
-    // A failed exit recolors the rail red, like the (exit 1) status text.
-    expect(commandLine).toContain(`\x1b[31m▎\x1b[39m${PROMPT_SURFACE_BG}`);
-    expect(stripControls(commandLine ?? "")).toContain("▎  $ ls ~/matrxi");
-    const outputLine = lines.find((line) =>
-      stripControls(line).includes("No such"),
-    );
-    expect(outputLine).toContain(PROMPT_SURFACE_BG);
-
-    bash.setComplete(0, false);
-    const successLines = bash.render(40);
-    const successCommand = successLines.find((line) =>
-      stripControls(line).includes("$ ls ~/matrxi"),
-    );
-    expect(successCommand).toContain(`\x1b[32m▎\x1b[39m${PROMPT_SURFACE_BG}`);
+    const installed = row.render(50);
+    expect(installed).toEqual(native);
+    expect(installed.join("\n")).not.toContain(PROMPT_SURFACE_BG);
   });
 
   test("restores native message renderers on shutdown", () => {
@@ -534,7 +539,6 @@ describe("native transcript adapters", () => {
     ) as { render: unknown };
     const containerRender = containerPrototype.render;
     const loaderRender = Loader.prototype.render;
-    const bashRender = BashExecutionComponent.prototype.render;
     const harness = createHarness(() => new TestEditor());
 
     harness.fire("session_start");
@@ -544,13 +548,11 @@ describe("native transcript adapters", () => {
     expect(UserMessageComponent.prototype.render).not.toBe(userRender);
     expect(containerPrototype.render).not.toBe(containerRender);
     expect(Loader.prototype.render).not.toBe(loaderRender);
-    expect(BashExecutionComponent.prototype.render).not.toBe(bashRender);
 
     harness.fire("session_shutdown");
     expect(AssistantMessageComponent.prototype.render).toBe(assistantRender);
     expect(UserMessageComponent.prototype.render).toBe(userRender);
     expect(containerPrototype.render).toBe(containerRender);
     expect(Loader.prototype.render).toBe(loaderRender);
-    expect(BashExecutionComponent.prototype.render).toBe(bashRender);
   });
 });

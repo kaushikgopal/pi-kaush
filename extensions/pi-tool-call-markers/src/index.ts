@@ -10,6 +10,10 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import {
+  installBashBlockPatch,
+  uninstallBashBlockPatch,
+} from "./bash-block.ts";
 import { runChatContainerHooks } from "./container-hooks.ts";
 
 const OUTER_INSET = 2;
@@ -1583,14 +1587,17 @@ function uninstallPresentationPatch(
 export default function (pi: ExtensionAPI) {
   const patch = installPresentationPatch();
   const grouping = patch ? installGroupingPatch(patch) : undefined;
+  const bashPatch = installBashBlockPatch();
 
   pi.on("session_start", (_event, ctx) => {
     if (patch) patch.theme = ctx.ui.theme;
+    if (bashPatch) bashPatch.theme = ctx.ui.theme;
     ctx.ui.setToolsExpanded(false);
   });
 
   pi.on("session_shutdown", () => {
     uninstallGroupingPatch(grouping);
     uninstallPresentationPatch(patch);
+    uninstallBashBlockPatch(bashPatch);
   });
 }

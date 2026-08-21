@@ -2,12 +2,12 @@
 
 ## Unreleased
 
-- Restyle user-run bash blocks (`!` commands) with the submitted-prompt rail
-  shell: Pi's green top/bottom rules are replaced by the dark surface with a
-  left rail, command first and output below. The rail stays `bashMode` green
-  while running and on success, turns `error` red on a non-zero exit and
-  `warning` yellow when cancelled, and stays dim for `!!` commands excluded
-  from context.
+- Move user-run `!` bash block styling to `@pi-kaush/pi-tool-call-markers`,
+  which now owns every execution row (tools, grouping, subagents, thinking
+  labels, and bash blocks). This package narrows to the transcript surface:
+  message insets, system-text and status-rule alignment, the editor surface,
+  and the submitted-prompt shell for user messages. One spacing contract with
+  markers remains: bash blocks align at this package's message inset.
 
 - Pad submitted message text two columns right of the accent rail (one extra leading space inside the body) for more breathing room in the chat log.
 - Paint the active editor surface and submitted message body with a fixed
