@@ -178,6 +178,54 @@ function createMcpRow(
   );
 }
 
+// Mirrors Pi's formatReadCall: a bold tool title, an accent path wrapped in
+// an OSC 8 hyperlink (`ESC]8;;url ESC\ <path> ESC]8;; ESC\`), a warning
+// line range, and a dim expand hint. `terminator` lets tests exercise BEL
+// (\x07) as well as ST (ESC\) terminated hyperlinks.
+function createReadRow(
+  path: string,
+  terminator = "\x1b\\",
+): ToolExecutionComponent {
+  const definition = {
+    name: "read",
+    label: "read",
+    description: "test read renderer",
+    parameters: { type: "object", properties: {} },
+    execute() {
+      throw new Error("not executed");
+    },
+    renderCall() {
+      return new Text(
+        `\x1b[1mread\x1b[0m \x1b]8;;file:///${path}${terminator}\x1b[35m${path}\x1b[0m\x1b]8;;${terminator}\x1b[33m:1-400\x1b[0m\x1b[2m (Ctrl+O to expand)\x1b[0m`,
+        0,
+        0,
+      );
+    },
+    renderResult(
+      result: { content: Array<{ type: string; text?: string }> },
+      options: { expanded: boolean },
+    ) {
+      const detail = result.content.find(
+        (content) => content.type === "text",
+      )?.text;
+      return new Text(
+        options.expanded ? `FULL ${detail}` : String(detail),
+        0,
+        0,
+      );
+    },
+  };
+  return new ToolExecutionComponent(
+    "read",
+    `read-${path}`,
+    { path, offset: 1, limit: 400 },
+    {},
+    definition as never,
+    { requestRender() {} } as never,
+    process.cwd(),
+  );
+}
+
 function settle(
   row: ToolExecutionComponent,
   output: string,
@@ -618,6 +666,29 @@ describe("tool-call-markers with Pi's real renderer", () => {
     row.setExpanded(true);
     const expanded = renderPlain(chat);
     expect(expanded).toContain("FULL result body");
+  });
+
+  test("preserves a read path wrapped in an OSC 8 hyperlink", () => {
+    const chat = new Container();
+    const row = createReadRow("tools/kb_mcp/README.md");
+    chat.addChild(row);
+    settle(row, "alpha\nbeta\ngamma\n");
+
+    const output = renderPlain(chat);
+    expect(output).toContain("% read: tools/kb_mcp/README.md:1-400 → 3 lines");
+    expect(output).not.toContain("% read: :1-400");
+    expect(output).not.toMatch(/\x1b\]/);
+  });
+
+  test("preserves a read path wrapped in a BEL-terminated hyperlink", () => {
+    const chat = new Container();
+    const row = createReadRow("package.json", "\x07");
+    chat.addChild(row);
+    settle(row, "one\ntwo\n");
+
+    const output = renderPlain(chat);
+    expect(output).toContain("% read: package.json:1-400 → 2 lines");
+    expect(output).not.toContain("% read: :1-400");
   });
 
   test("collapses a failed self-rendered MCP row to an error line", () => {
