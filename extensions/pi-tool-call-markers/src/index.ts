@@ -14,6 +14,7 @@ import { runChatContainerHooks } from "./container-hooks.ts";
 
 const OUTER_INSET = 2;
 const GROUP_MARKER = "%";
+const SUBAGENT_MARKER = "&";
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
@@ -910,7 +911,10 @@ function collapsedHeadline(
   // Failed rows render entirely in error so the row reads as the one that
   // failed, not just its outcome tail. Only the tool name is bold.
   const color = rowHasFailed(row) ? "error" : "muted";
-  const marker = `${theme.fg(color, GROUP_MARKER)} `;
+  const marker = `${theme.fg(
+    color,
+    row.toolName === "subagent" ? SUBAGENT_MARKER : GROUP_MARKER,
+  )} `;
   const budget = Math.max(1, width - visibleWidth(marker));
   const label = collapsedCallLabel(row, budget, theme, color);
   const outcome = collapsedOutcome(row, budget, theme);
@@ -1073,7 +1077,7 @@ function renderSubagentPlan(
       `${step.profile ? ` [${sanitizeInline(step.profile)}]` : ""} ${subagentStepPreview(step.task)}`,
     );
 
-  const marker = `${theme.fg(color, theme.bold(GROUP_MARKER))} `;
+  const marker = `${theme.fg(color, theme.bold(SUBAGENT_MARKER))} `;
   const budget = Math.max(1, width - visibleWidth(marker));
   const outcome = failed
     ? collapsedOutcome(row, budget, theme)
