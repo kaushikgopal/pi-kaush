@@ -596,6 +596,64 @@ function diffCounts(diff: string): { added: number; removed: number } {
   return { added, removed };
 }
 
+// Pi's edit tool (renderShell "self") stores its display diff in
+// result.details.diff — lines like `+27 <content>`, `-27 <content>`,
+// ` 28 <context>`, plus `...` for folded regions. Self-rendered rows
+// normally keep only their one-line call label; edits additionally show
+// the change as a bounded diff block under the summary and a +a/-b stat in
+// the outcome tail, so the hunk stays visible without Ctrl+O while
+// expanded rows keep Pi's native rendering.
+const EDIT_DIFF_LINE_RE = /^([+\-\s])(\s*\d*)(.*)$/;
+const MAX_EDIT_DIFF_LINES = 12;
+
+function editDiffText(row: ToolExecutionRow): string | undefined {
+  if (row.toolName !== "edit") return undefined;
+  if (!row.result || row.isPartial !== false || rowHasFailed(row))
+    return undefined;
+  const diff = row.result.details?.diff;
+  return typeof diff === "string" && diff.length > 0 ? diff : undefined;
+}
+
+function renderedEditDiffStat(row: ToolExecutionRow): string | undefined {
+  const diff = editDiffText(row);
+  if (diff === undefined) return undefined;
+  const { added, removed } = diffCounts(diff);
+  return added + removed === 0 ? "applied" : `+${added}/-${removed}`;
+}
+
+function renderedEditDiffLines(
+  row: ToolExecutionRow,
+  theme: ThemeLike,
+): string[] {
+  const diff = editDiffText(row);
+  if (diff === undefined) return [];
+  const raw = diff.split("\n");
+  if (raw[raw.length - 1] === "") raw.pop();
+  const lines: string[] = [];
+  for (const line of raw.slice(0, MAX_EDIT_DIFF_LINES)) {
+    const clean = sanitizeInline(line).trimEnd();
+    if (clean.trim() === "...") {
+      lines.push(theme.fg("muted", "  ..."));
+      continue;
+    }
+    const match = EDIT_DIFF_LINE_RE.exec(clean);
+    if (!match) continue;
+    const color =
+      match[1] === "+"
+        ? "toolDiffAdded"
+        : match[1] === "-"
+          ? "toolDiffRemoved"
+          : "toolDiffContext";
+    lines.push(theme.fg(color, `  ${match[1]}${match[2]}${match[3]}`));
+  }
+  if (raw.length > MAX_EDIT_DIFF_LINES) {
+    lines.push(
+      theme.fg("muted", `  ... +${raw.length - MAX_EDIT_DIFF_LINES} more`),
+    );
+  }
+  return lines;
+}
+
 function outcomeSummary(row: ToolExecutionRow): string | undefined {
   // Self-rendered tools own their result framing; the built-in heuristics
   // (line counts, diff stats) describe default-shell rows only, so their
@@ -836,7 +894,11 @@ function collapsedOutcome(
     const elapsed = liveElapsedText(row);
     return theme.fg("warning", elapsed ? `… · ${elapsed}` : "…");
   }
-  if (row.getRenderShell?.() === "self") return renderedGenericOutcome(theme);
+  if (row.getRenderShell?.() === "self") {
+    const editStat = renderedEditDiffStat(row);
+    if (editStat) return theme.fg("muted", `→ ${editStat}`);
+    return renderedGenericOutcome(theme);
+  }
   return renderedOutcome(row, theme);
 }
 
@@ -1106,6 +1168,9 @@ function renderCollapsedToolRow(
       ? renderSubagentPlan(row, layout.contentWidth, theme)
       : undefined;
   const body = plan ?? [collapsedHeadline(row, layout.contentWidth, theme)];
+  if (row.toolName === "edit") {
+    body.push(...renderedEditDiffLines(row, theme));
+  }
   body.push(...imageResultLines(row, layout.contentWidth, theme));
   return ["", ...insetLines(body, width)];
 }
@@ -1117,8 +1182,12 @@ function groupedCallComponent(
   return {
     render(width: number): string[] {
       // Every member renders like a singleton — `% tool: call → outcome` per
-      // line with the tool name bolded — no bullets or internal blanks.
-      return rows.map((row) => collapsedHeadline(row, width, theme));
+      // line with the tool name bolded — no bullets or internal blanks;
+      // settled edits keep their change visible with a bounded diff block.
+      return rows.flatMap((row) => [
+        collapsedHeadline(row, width, theme),
+        ...(row.toolName === "edit" ? renderedEditDiffLines(row, theme) : []),
+      ]);
     },
     invalidate() {},
   };

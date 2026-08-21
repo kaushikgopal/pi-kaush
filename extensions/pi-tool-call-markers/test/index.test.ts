@@ -758,9 +758,12 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    // Self-rendered tools never adopt the built-in edit diff heuristic.
-    expect(output).toContain('% edit: {"label":"one.ts"} → done');
-    expect(output).toContain('% edit: {"label":"two.ts"} → done');
+    // Self-rendered edit rows label by args, show a diff stat, and keep the
+    // change visible as a bounded diff block; the call preview is ignored.
+    expect(output).toContain('% edit: {"label":"one.ts"} → +1/-1');
+    expect(output).toContain('% edit: {"label":"two.ts"} → +1/-1');
+    expect(output).toContain("  +new");
+    expect(output).toContain("  -old");
     expect(output).not.toContain("diff header");
     expect(output).not.toContain("large changed line");
   });
@@ -793,16 +796,17 @@ describe("tool-call-markers grouping", () => {
     expect(renderPlain(chat)).toContain("result:one.ts");
   });
 
-  test("forces a generic outcome for a self-rendered built-in-named tool", () => {
+  test("shows the diff stat and block for a self-rendered built-in-named tool", () => {
     const chat = new MockContainer();
     const row = succeeded("edit", "one.ts", "self");
-    // Even an edit result carrying diff details stays generic for self shells.
+    // An edit result carrying diff details surfaces the change for self shells.
     row.result!.details = { diff: "+new\n-old" };
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain('edit: {"label":"one.ts"} → done');
-    expect(output).not.toContain("+1/-1");
+    expect(output).toContain('edit: {"label":"one.ts"} → +1/-1');
+    expect(output).toContain("  +new");
+    expect(output).not.toContain("done");
   });
 
   test("keeps image output below its independently inset marker", () => {

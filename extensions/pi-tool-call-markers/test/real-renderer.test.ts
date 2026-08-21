@@ -612,7 +612,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).not.toContain("Search Results");
   });
 
-  test("forces a generic outcome for a singleton self-rendered built-in-named tool", () => {
+  test("shows the diff stat and block for a singleton self-rendered edit row", () => {
     const chat = new Container();
     const row = createMcpRow("mcp-edit-1", { path: "a.ts" }, "edit", "self");
     chat.addChild(row);
@@ -626,15 +626,15 @@ describe("tool-call-markers with Pi's real renderer", () => {
     );
 
     const output = renderPlain(chat);
-    expect(output.split("\n")).toHaveLength(1);
-    // Self-rendered rows never adopt the built-in edit diff heuristic, and
-    // edit-shaped args label by path like Pi's native call line.
-    expect(output).toContain("edit: a.ts → done");
-    expect(output).not.toContain("→ +1/-1");
+    // Edit rows label by path like Pi's native call line, keep the summary
+    // line, and surface the change as a +a/-b stat plus a bounded diff block.
+    expect(output).toContain("edit: a.ts → +1/-1");
+    expect(output).toContain("  +new");
+    expect(output).toContain("  -old");
     expect(output).not.toContain("edited a.ts");
   });
 
-  test("uses generic outcomes for grouped self-rendered built-in-named tools", () => {
+  test("shows diff blocks for grouped self-rendered edit rows", () => {
     const chat = new Container();
     const rows = ["a.ts", "b.ts"].map((path) =>
       createMcpRow(`mcp-edit-${path}`, { path }, "edit", "self"),
@@ -652,9 +652,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain("% edit: a.ts → done");
-    expect(output).toContain("% edit: b.ts → done");
-    expect(output).not.toContain("→ +1/-1");
+    expect(output).toContain("% edit: a.ts → +1/-1");
+    expect(output).toContain("% edit: b.ts → +1/-1");
+    expect(output).toContain("  +x");
+    expect(output).toContain("  -y");
+    expect(output).not.toContain("edited");
   });
 
   test("restores a self-rendered MCP row when expanded", () => {
@@ -689,6 +691,34 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat);
     expect(output).toContain("% read: package.json:1-400 → 2 lines");
     expect(output).not.toContain("% read: :1-400");
+  });
+
+  test("caps a long edit diff block with a folded tail", () => {
+    const chat = new Container();
+    const row = createMcpRow(
+      "mcp-edit-long",
+      { path: "big.ts" },
+      "edit",
+      "self",
+    );
+    chat.addChild(row);
+    const diff = Array.from(
+      { length: 15 },
+      (_, index) => `+${index + 1} added line ${index}`,
+    ).join("\n");
+    row.updateResult(
+      {
+        content: [{ type: "text", text: "edited" }],
+        details: { diff },
+        isError: false,
+      },
+      false,
+    );
+
+    const output = renderPlain(chat);
+    expect(output).toContain("  +1 added line 0");
+    expect(output).toContain("  ... +3 more");
+    expect(output).not.toContain("added line 12");
   });
 
   test("collapses a failed self-rendered MCP row to an error line", () => {
