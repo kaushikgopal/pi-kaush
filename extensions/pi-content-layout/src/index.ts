@@ -17,6 +17,7 @@ import {
   chatContainerHooks,
   runChatContainerHooks,
 } from "./container-hooks.ts";
+import { renderIntercomMessage } from "./intercom-message.ts";
 import {
   contentInset,
   insetLines,
@@ -381,6 +382,14 @@ function decorateEditor(
 }
 
 export default function contentLayout(pi: ExtensionAPI): void {
+  // Restyle pi-intercom's inbound message box to sit on this package's
+  // transcript columns. Pi resolves message renderers in extension load
+  // order (first registration wins), so this must load before pi-intercom
+  // to take effect; without pi-intercom installed the registration is inert.
+  pi.registerMessageRenderer("intercom_message", (message, options, theme) =>
+    renderIntercomMessage(message.details, options.expanded, theme),
+  );
+
   const owner = {};
   let activeTheme: Theme | undefined;
   let assistantPatch: RenderPatchState | undefined;

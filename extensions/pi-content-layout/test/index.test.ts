@@ -119,7 +119,8 @@ function createHarness(previous?: EditorFactory) {
     on(event: string, handler: Handler) {
       handlers.set(event, handler);
     },
-  } as ExtensionAPI);
+    registerMessageRenderer() {},
+  } as unknown as ExtensionAPI);
 
   return {
     context,

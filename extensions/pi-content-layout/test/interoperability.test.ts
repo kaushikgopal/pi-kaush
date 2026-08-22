@@ -88,6 +88,7 @@ function setup(order: "inline-first" | "layout-first") {
       handlers.set(event, list);
     },
     registerCommand() {},
+    registerMessageRenderer() {},
     getThinkingLevel: () => "off",
     events: {
       emit(channel: string, payload: unknown) {

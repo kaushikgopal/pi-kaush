@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Restyle pi-intercom's inbound `intercom_message` box onto the shared
+  transcript columns (frame border on the marker column, title and body text
+  on the text column) and drop the redundant `Ctrl+O expands` title hint.
+  Requires this package to load before `pi-intercom`; falls back to Pi's
+  default custom-message box for malformed payloads.
+
 - Render active input with the theme's `userMessageText` foreground, restoring
   that base color after embedded ANSI resets while preserving inline identifier
   highlighting.
