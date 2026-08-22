@@ -14,6 +14,15 @@ export interface SessionPick {
   name: string | null;
 }
 
+export function isSessionPick(value: unknown): value is SessionPick {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  if (!Object.prototype.hasOwnProperty.call(value, "name")) return false;
+  const name = (value as Record<string, unknown>).name;
+  return name === null || typeof name === "string";
+}
+
 export interface ResolveInput {
   pick: SessionPick | undefined;
   defaultName: string | undefined;

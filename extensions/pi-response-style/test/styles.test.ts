@@ -53,6 +53,19 @@ Body.
     expect(style?.description).toBe("first second");
   });
 
+  it("replaces terminal controls and collapses metadata whitespace", () => {
+    const content = `---
+title: "Tabs\\t Escape\\e DEL\\x7F C1\\x85 End"
+description: "first\\t\\t second\\e\\x7F\\x85 third"
+---
+
+Body.
+`;
+    const { style } = parseStyleFile("controls", content);
+    expect(style?.title).toBe("Tabs Escape DEL C1 End");
+    expect(style?.description).toBe("first second third");
+  });
+
   it("keeps a body that contains --- lines", () => {
     const { style } = parseStyleFile(
       "dashes",
@@ -140,6 +153,28 @@ describe("loadStyles", () => {
     expect(styles.map((s) => s.name)).toEqual(["good"]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/bad/);
+  });
+
+  it("skips the reserved off name", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-response-style-"));
+    writeFileSync(join(root, "off.md"), VALID);
+
+    const { styles, warnings } = loadStyles(join(root, "missing"), root);
+    expect(styles).toEqual([]);
+    expect(warnings).toContain('response style "off": reserved name, skipped');
+  });
+
+  it("skips control-bearing filenames without echoing them", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-response-style-"));
+    const unsafeName = "unsafe\u001b.md";
+    writeFileSync(join(root, unsafeName), VALID);
+
+    const { styles, warnings } = loadStyles(join(root, "missing"), root);
+    expect(styles).toEqual([]);
+    expect(warnings).toEqual([
+      "response style filename contains terminal control characters, skipped",
+    ]);
+    expect(warnings.join("\n")).not.toContain(unsafeName);
   });
 });
 

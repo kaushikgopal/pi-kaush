@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const STATE_TYPE = "pi-response-style/state";
 
@@ -11,6 +11,8 @@ interface HarnessOptions {
   branch?: unknown[];
   trusted?: boolean;
   projectStyles?: Record<string, string>;
+  userStyles?: Record<string, string>;
+  stateFileMissingParent?: boolean;
 }
 
 async function createHarness(opts: HarnessOptions = {}) {
@@ -27,10 +29,15 @@ async function createHarness(opts: HarnessOptions = {}) {
     join(userDir, "chatty.md"),
     "---\ntitle: Chatty\ndescription: Many words\n---\n\nBe chatty.\n",
   );
+  for (const [file, content] of Object.entries(opts.userStyles ?? {})) {
+    writeFileSync(join(userDir, file), content);
+  }
 
   process.env.PI_RESPONSE_STYLE_BUNDLED_DIR = bundledDir;
   process.env.PI_RESPONSE_STYLE_DIR = userDir;
-  process.env.PI_RESPONSE_STYLE_STATE_FILE = join(root, "state.json");
+  process.env.PI_RESPONSE_STYLE_STATE_FILE = opts.stateFileMissingParent
+    ? join(root, "missing", "state.json")
+    : join(root, "state.json");
 
   const cwd = join(root, "proj");
   if (opts.projectStyles) {
@@ -90,6 +97,7 @@ async function createHarness(opts: HarnessOptions = {}) {
     isProjectTrusted: () => opts.trusted ?? false,
   };
 
+  vi.resetModules();
   const { default: extension } = await import("../src/index.ts");
   extension(pi as never);
 
@@ -175,6 +183,56 @@ describe("/response-style picker", () => {
     expect(h.inject()).toContain("# Communication");
   });
 
+  it("disambiguates duplicate non-TUI labels by style name", async () => {
+    const duplicateStyle = (body: string) =>
+      `---\ntitle: Same\ndescription: Same description\n---\n\n${body}\n`;
+    const h = await createHarness({
+      selectChoice: "Same — Same description [second-style]",
+      userStyles: {
+        "first-style.md": duplicateStyle("Use the first style."),
+        "second-style.md": duplicateStyle("Use the second style."),
+      },
+    });
+
+    await h.runCommand("");
+
+    expect(h.appended).toEqual([
+      { type: STATE_TYPE, data: { name: "second-style" } },
+    ]);
+    expect(h.inject()).toContain("Use the second style.");
+    expect(h.inject()).not.toContain("Use the first style.");
+    expect(h.emitted.at(-1)).toEqual({
+      name: "pi-response-style:changed",
+      payload: {
+        name: "second-style",
+        title: "Same",
+        defaultName: undefined,
+      },
+    });
+  });
+
+  it("refuses an ambiguous non-TUI selection instead of guessing", async () => {
+    const duplicateStyle = (body: string) =>
+      `---\ntitle: Same\ndescription: Same description\n---\n\n${body}\n`;
+    const h = await createHarness({
+      selectChoice: "Same — Same description [first-style]",
+      userStyles: {
+        "first-style.md": duplicateStyle("Use the first style."),
+        "second-style.md": duplicateStyle("Use the second style."),
+        "trap.md":
+          "---\ntitle: Same\ndescription: Same description [first-style]\n---\n\nTrap body.\n",
+      },
+    });
+
+    await h.runCommand("");
+
+    expect(h.appended).toEqual([]);
+    expect(
+      h.notifications.some((msg) => msg.includes("more than one style")),
+    ).toBe(true);
+    expect(h.notifications.some((msg) => msg.includes("unchanged"))).toBe(true);
+  });
+
   it("completions offer style names and off", async () => {
     const h = await createHarness();
     const values = h.completions("")?.map((item) => item.value);
@@ -222,6 +280,31 @@ describe("session restore and injection", () => {
     expect(prompt.startsWith("BASE")).toBe(true);
   });
 
+  it("ignores a null matching entry and does not persist it during compaction", async () => {
+    const h = await createHarness({
+      branch: [{ type: "custom", customType: STATE_TYPE, data: null }],
+    });
+
+    expect(() => h.sessionStart()).not.toThrow();
+    expect(h.inject()).toBe("BASE");
+    h.handlers.session_compact?.({} as never, {});
+    expect(h.appended).toEqual([]);
+  });
+
+  it("restores an older valid pick after a malformed matching entry", async () => {
+    const h = await createHarness({
+      branch: [
+        { type: "custom", customType: STATE_TYPE, data: { name: "terse" } },
+        { type: "custom", customType: STATE_TYPE, data: {} },
+      ],
+    });
+
+    await h.sessionStart();
+    expect(h.inject()).toContain("Be terse.");
+    h.handlers.session_compact?.({} as never, {});
+    expect(h.appended).toEqual([{ type: STATE_TYPE, data: { name: "terse" } }]);
+  });
+
   it("re-persists the pick across compaction", async () => {
     const h = await createHarness({
       selectChoice: "Terse — Few words",
@@ -233,6 +316,43 @@ describe("session restore and injection", () => {
       type: STATE_TYPE,
       data: { name: "terse" },
     });
+  });
+});
+
+describe("persistence failures", () => {
+  it("keeps a selected style active when last-used state cannot be written", async () => {
+    const h = await createHarness({
+      selectChoice: "Terse — Few words",
+      stateFileMissingParent: true,
+    });
+
+    await expect(h.runCommand("")).resolves.toBeUndefined();
+    expect(h.appended).toEqual([{ type: STATE_TYPE, data: { name: "terse" } }]);
+    expect(h.statuses["response-style"]).toBe("Terse");
+    expect(h.inject()).toContain("Be terse.");
+    expect(h.emitted.at(-1)?.payload.name).toBe("terse");
+    expect(h.notifications).toContain(
+      "Could not save last-used response style.",
+    );
+  });
+
+  it("keeps a selected style active when the default cannot be written", async () => {
+    const h = await createHarness({
+      selectChoice: "Terse — Few words",
+      confirmAnswer: true,
+    });
+    mkdirSync(join(h.userDir, "config.json"));
+
+    await expect(h.runCommand("")).resolves.toBeUndefined();
+    expect(h.appended).toEqual([{ type: STATE_TYPE, data: { name: "terse" } }]);
+    expect(h.statuses["response-style"]).toBe("Terse");
+    expect(h.inject()).toContain("Be terse.");
+    expect(h.notifications).toContain("Could not save default response style.");
+    expect(
+      h.notifications.some((message) =>
+        message.startsWith("Default response style:"),
+      ),
+    ).toBe(false);
   });
 });
 

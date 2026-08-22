@@ -23,6 +23,7 @@ import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { buildInjection, loadStyles, type Style } from "./styles.ts";
 import { buildPickerItems, OFF_VALUE, showStylePicker } from "./picker.ts";
 import {
+  isSessionPick,
   readDefaultName,
   readLastUsed,
   resolveActive,
@@ -96,7 +97,11 @@ export default function piResponseStyle(pi: ExtensionAPI) {
     sessionPick = { name: style.name };
     active = style.name;
     pi.appendEntry(STATE_TYPE, sessionPick);
-    writeLastUsed(stateFile, style.name);
+    try {
+      writeLastUsed(stateFile, style.name);
+    } catch {
+      ctx.ui.notify("Could not save last-used response style.", "warning");
+    }
     syncUi(ctx);
     ctx.ui.notify(`Response style: ${style.title}`, "info");
   }
@@ -119,7 +124,12 @@ export default function piResponseStyle(pi: ExtensionAPI) {
         `Also make "${style.title}" your default?`,
       )
     ) {
-      writeDefaultName(userStylesDir, style.name);
+      try {
+        writeDefaultName(userStylesDir, style.name);
+      } catch {
+        ctx.ui.notify("Could not save default response style.", "warning");
+        return;
+      }
       // Becoming the default hides the footer marker.
       syncUi(ctx);
       ctx.ui.notify(`Default response style: ${style.title}`, "info");
@@ -173,14 +183,36 @@ export default function piResponseStyle(pi: ExtensionAPI) {
           active,
           readDefaultName(userStylesDir),
         );
-        const labels = items.map(
+        const baseLabels = items.map(
           (item) => `${item.label} — ${item.description}`,
         );
+        const labelCounts = new Map<string, number>();
+        for (const label of baseLabels) {
+          labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+        }
+        const labels = baseLabels.map((label, index) =>
+          labelCounts.get(label)! > 1
+            ? `${label} [${items[index]!.value}]`
+            : label,
+        );
         const choice = await ctx.ui.select("Response style:", labels);
-        pickedName =
-          choice === undefined
-            ? null
-            : (items[labels.indexOf(choice)]?.value ?? null);
+        if (choice === undefined) {
+          pickedName = null;
+        } else {
+          const firstMatch = labels.indexOf(choice);
+          // A disambiguated duplicate label can itself collide with another
+          // style's rendered label; never guess which row was picked.
+          if (firstMatch !== -1 && labels.lastIndexOf(choice) !== firstMatch) {
+            ctx.ui.notify(
+              "That selection matches more than one style; rename one of the duplicates.",
+              "warning",
+            );
+            pickedName = null;
+          } else {
+            pickedName =
+              firstMatch === -1 ? null : (items[firstMatch]?.value ?? null);
+          }
+        }
       }
       if (pickedName === null) {
         ctx.ui.notify("Response style unchanged", "info");
@@ -211,7 +243,9 @@ export default function piResponseStyle(pi: ExtensionAPI) {
       .getBranch()
       .filter(
         (entry): entry is CustomEntry<SessionPick> =>
-          entry.type === "custom" && entry.customType === STATE_TYPE,
+          entry.type === "custom" &&
+          entry.customType === STATE_TYPE &&
+          isSessionPick(entry.data),
       )
       .pop()?.data;
     resolve(ctx);

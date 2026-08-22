@@ -33,10 +33,15 @@ export function buildInjection(style: Style): string {
   return `\n\n# Communication\n\n${GUARDRAIL}\n\n${style.body}\n`;
 }
 
-/** Collapse newlines so frontmatter values can never mangle picker rows or the injection header. */
+const TERMINAL_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+/** Normalize metadata so it cannot mangle picker rows or the injection header. */
 function oneLine(value: unknown): string {
   return typeof value === "string"
-    ? value.replace(/\s*\n\s*/g, " ").trim()
+    ? value
+        .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
     : "";
 }
 
@@ -85,6 +90,16 @@ function readDirStyles(
   }
   for (const file of files) {
     const name = file.replace(/\.md$/, "");
+    if (name === "off") {
+      warnings.push('response style "off": reserved name, skipped');
+      continue;
+    }
+    if (TERMINAL_CONTROL.test(file)) {
+      warnings.push(
+        "response style filename contains terminal control characters, skipped",
+      );
+      continue;
+    }
     let content: string;
     try {
       content = readFileSync(join(dir, file), "utf8");
