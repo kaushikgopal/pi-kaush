@@ -30,8 +30,6 @@ const LAYOUT_NOTICE =
   "pi-welcome-screen: unrecognized Pi layout — using native panel";
 const RESOURCE_PANEL_INDEX = 1;
 
-let cachedLocalExtensionNames: Set<string> | undefined;
-
 const PI_BANNER = ["█████████", "███   ███", "██████   ███", "███      ███"];
 
 type WelcomeSection = "Context" | "Skills" | "Prompts" | "Extensions";
@@ -169,7 +167,6 @@ function isWelcomeScreenExtension(name: string): boolean {
     name === "welcome-screen" ||
     name === "pi-welcome-screen" ||
     name === "@pi-kaush/pi-welcome-screen" ||
-    name === "src" ||
     /\/(?:pi-)?welcome-screen(?:\/|$)/.test(normalized)
   );
 }
@@ -384,11 +381,9 @@ function classifyCompactExtensionLabels(
 }
 
 function getLocalExtensionNames(): Set<string> {
-  if (cachedLocalExtensionNames) return cachedLocalExtensionNames;
-
   const extensionsDir = join(getAgentDir(), "extensions");
   try {
-    cachedLocalExtensionNames = new Set(
+    return new Set(
       readdirSync(extensionsDir, { withFileTypes: true }).flatMap((entry) => {
         if (/\.[cm]?[jt]s$/.test(entry.name))
           return normalizeExtensionName(entry.name);
@@ -402,9 +397,8 @@ function getLocalExtensionNames(): Set<string> {
       }),
     );
   } catch {
-    cachedLocalExtensionNames = new Set();
+    return new Set();
   }
-  return cachedLocalExtensionNames;
 }
 
 export function parseWelcomeResources(

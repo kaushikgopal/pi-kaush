@@ -1,5 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+const localExtensionFixture = vi.hoisted(() => ({
+  filenames: [] as string[],
+}));
+
+vi.mock("node:fs", () => ({
+  existsSync: () => true,
+  readdirSync: () =>
+    localExtensionFixture.filenames.map((name) => ({
+      name,
+      isDirectory: () => false,
+    })),
+}));
+
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   VERSION: "0.80.6",
   getAgentDir: () => "/tmp/pi-agent",
@@ -75,6 +88,7 @@ const originalOffline = process.env.PI_OFFLINE;
 
 beforeEach(() => {
   process.env.PI_OFFLINE = "1";
+  localExtensionFixture.filenames = [];
 });
 
 afterEach(() => {
@@ -213,6 +227,19 @@ describe("welcome resource formatting", () => {
     expect(rendered).not.toMatch(/• src\s*$/m);
   });
 
+  test("refreshes local extension names between resource captures", () => {
+    localExtensionFixture.filenames = ["alpha.ts"];
+    const alphaResources = parseWelcomeResources(`[Extensions]\n  alpha`);
+
+    expect(alphaResources.extensions).toEqual(["alpha"]);
+    expect(alphaResources.packageExtensions).toEqual([]);
+
+    localExtensionFixture.filenames = ["beta.ts"];
+    const betaResources = parseWelcomeResources(`[Extensions]\n  beta`);
+
+    expect(betaResources.extensions).toEqual(["beta"]);
+    expect(betaResources.packageExtensions).toEqual([]);
+  });
   test("keeps context files in load order and renders one item per row", () => {
     const loadOrder = [
       "zeta/AGENTS.md",
@@ -787,7 +814,7 @@ describe("welcome resource-panel bridge", () => {
       new Spacer(1),
       makeSection("Context", "  AGENTS.md"),
       new Spacer(1),
-      makeSection("Extensions", "  some-other-extension"),
+      makeSection("Extensions", "  src"),
       new Spacer(1),
     ];
     const panel = makeContainer(nativeChildren);
