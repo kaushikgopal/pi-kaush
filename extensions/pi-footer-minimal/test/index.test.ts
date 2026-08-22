@@ -14,10 +14,55 @@ const theme = {
   fg: (_color: string, text: string) => text,
 };
 
-function createHarness() {
+type HarnessOptions = {
+  entries?: any[];
+  contextUsage?: { percent: number | null; contextWindow: number } | undefined;
+  statuses?: Map<string, string>;
+  model?: Partial<{
+    id: string;
+    name: string;
+    provider: string;
+    reasoning: boolean;
+    contextWindow: number;
+  }>;
+  thinkingLevel?: string;
+  footerTheme?: { fg(color: string, text: string): string };
+};
+
+function usageEntry(
+  input: number,
+  output: number,
+  cacheRead = 0,
+  cacheWrite = 0,
+  totalCost = 0,
+) {
+  return {
+    type: "message",
+    message: {
+      role: "assistant",
+      usage: {
+        input,
+        output,
+        cacheRead,
+        cacheWrite,
+        totalTokens: input + output + cacheRead + cacheWrite,
+        cost: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          total: totalCost,
+        },
+      },
+    },
+  };
+}
+
+function createHarness(options: HarnessOptions = {}) {
   const handlers = new Map<string, Handler>();
   const commands = new Map<string, (args: string, ctx: unknown) => unknown>();
   const workingVisibility: boolean[] = [];
+  const notifications: Array<{ message: string; level: string }> = [];
   let footerFactory:
     | ((tui: any, theme: any, footerData: any) => Footer)
     | undefined;
@@ -33,7 +78,7 @@ function createHarness() {
     on(event: string, handler: Handler) {
       handlers.set(event, handler);
     },
-    getThinkingLevel: () => "off",
+    getThinkingLevel: () => options.thinkingLevel ?? "off",
   } as never);
 
   const context = {
@@ -44,34 +89,17 @@ function createHarness() {
       provider: "provider",
       reasoning: false,
       contextWindow: 262_000,
+      ...options.model,
     },
     sessionManager: {
       getCwd: () => "/workspace/very/long/project",
       getSessionName: () => "session",
-      getEntries: () => [
-        {
-          type: "message",
-          message: {
-            role: "assistant",
-            usage: {
-              input: 1,
-              output: 1,
-              cacheRead: 0,
-              cacheWrite: 0,
-              totalTokens: 2,
-              cost: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                total: 1.23,
-              },
-            },
-          },
-        },
-      ],
+      getEntries: () => options.entries ?? [usageEntry(1, 1, 0, 0, 1.23)],
     },
-    getContextUsage: () => ({ percent: 44.6, contextWindow: 262_000 }),
+    getContextUsage: () =>
+      "contextUsage" in options
+        ? options.contextUsage
+        : { percent: 44.6, contextWindow: 262_000 },
     ui: {
       setFooter(factory: typeof footerFactory) {
         footerFactory = factory;
@@ -79,7 +107,9 @@ function createHarness() {
       setWorkingVisible(visible: boolean) {
         workingVisibility.push(visible);
       },
-      notify() {},
+      notify(message: string, level: string) {
+        notifications.push({ message, level });
+      },
     },
   };
 
@@ -90,6 +120,7 @@ function createHarness() {
     context,
     commands,
     fire,
+    notifications,
     workingVisibility,
     get renderRequests() {
       return renderRequests;
@@ -103,9 +134,9 @@ function createHarness() {
             renderRequests++;
           },
         },
-        theme,
+        options.footerTheme ?? theme,
         {
-          getExtensionStatuses: () => new Map(),
+          getExtensionStatuses: () => options.statuses ?? new Map(),
           getGitBranch: () => "branch",
           getAvailableProviderCount: () => 2,
           onBranchChange: () => () => {},
@@ -203,17 +234,111 @@ describe("narrow footer degradation", () => {
     expect(truncated).toMatch(/model$/);
   });
 
-  test("drops path and cost before clipping the model", () => {
-    const harness = createHarness();
+  test("drops the active agent before clipping the model", () => {
+    const harness = createHarness({
+      statuses: new Map([["active-agent", "Working…"]]),
+    });
     const footer = harness.start();
 
     const leftLean = "project (branch) • session 44.6%/262k";
-    const rightCore = "model";
-    const line = mainLine(footer, widthFor(leftLean, rightCore) - 1);
+    const rightWithAgent = "Working… • model";
+    expect(
+      mainLine(footer, widthFor(leftLean, rightWithAgent)).trim(),
+    ).toContain(rightWithAgent);
+
+    const line = mainLine(footer, widthFor(leftLean, rightWithAgent) - 1);
     expect(line).not.toContain("Working…");
     expect(line).not.toContain("$1.23");
-    expect(line).not.toContain("(provider)");
     expect(line).toMatch(/model\s+$/);
+  });
+});
+
+describe("usage and context", () => {
+  test("calculates the cache hit rate from cumulative usage", () => {
+    const harness = createHarness({
+      entries: [usageEntry(100, 10, 900), usageEntry(900, 20, 100, 1_000)],
+    });
+    const footer = harness.start();
+    harness.commands.get("footer-more-stats")?.("on", harness.context);
+
+    expect(footer.render(100)[2]).toContain("↑1.0k ↓30 ¢33.3%");
+  });
+
+  test.each([
+    [undefined, "?/262k"],
+    [{ percent: null, contextWindow: 262_000 }, "?/262k"],
+  ])("renders unavailable context as unknown", (contextUsage, expected) => {
+    const footer = createHarness({ contextUsage }).start();
+    const line = mainLine(footer, 100);
+
+    expect(line).toContain(expected);
+    expect(line).not.toContain("0.0%/262k");
+  });
+
+  test.each([
+    [59.9, "muted"],
+    [60, "warning"],
+    [80, "error"],
+  ])("colors %s%% context as %s", (percent, expectedColor) => {
+    const footer = createHarness({
+      contextUsage: { percent, contextWindow: 262_000 },
+      footerTheme: {
+        fg: (color, text) => `[${color}]${text}[/${color}]`,
+      },
+    }).start();
+
+    expect(mainLine(footer, 200)).toContain(
+      `[${expectedColor}]${percent.toFixed(1)}%/262k[/${expectedColor}]`,
+    );
+  });
+});
+
+describe("extension status and command boundaries", () => {
+  test.each([
+    ["MCP 2/3", "🔌 2/3"],
+    ["3 servers enabled (2 connected)", "🔌 2/3"],
+    ["MCP: 4/5 servers", "🔌 4/5"],
+  ])("compacts MCP status %s", (status, expected) => {
+    const harness = createHarness({
+      statuses: new Map([["mcp", status]]),
+    });
+    const footer = harness.start();
+    harness.commands.get("footer-more-stats")?.("on", harness.context);
+
+    expect(footer.render(100)[2]).toContain(expected);
+  });
+
+  test("shows the selected thinking level and color", () => {
+    const footer = createHarness({
+      model: { reasoning: true },
+      thinkingLevel: "high",
+      footerTheme: {
+        fg: (color, text) =>
+          `\x1b[${color === "thinkingHigh" ? "35" : "0"}m${text}\x1b[0m`,
+      },
+    }).start();
+
+    expect(mainLine(footer, 200)).toContain("\x1b[35m • high\x1b[0m");
+  });
+
+  test("warns without changing state for an invalid stats command", async () => {
+    const harness = createHarness();
+    const footer = harness.start();
+    expect(footer.render(100)).toHaveLength(2);
+
+    await harness.commands.get("footer-more-stats")?.(
+      "sometimes",
+      harness.context,
+    );
+
+    expect(harness.notifications).toEqual([
+      {
+        message: "Usage: /footer-more-stats [on|off|toggle]",
+        level: "warning",
+      },
+    ]);
+    expect(harness.renderRequests).toBe(0);
+    expect(footer.render(100)).toHaveLength(2);
   });
 });
 

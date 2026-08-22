@@ -107,7 +107,6 @@ export default function (pi: ExtensionAPI) {
           cacheRead = 0,
           cacheWrite = 0,
           cost = 0;
-        let cacheHitRate: number | undefined;
         for (const entry of ctx.sessionManager.getEntries()) {
           let usage: Usage | undefined;
           if (
@@ -129,9 +128,6 @@ export default function (pi: ExtensionAPI) {
           cacheRead += usage.cacheRead;
           cacheWrite += usage.cacheWrite;
           cost += usage.cost.total;
-          const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
-          if (promptTokens > 0)
-            cacheHitRate = (usage.cacheRead / promptTokens) * 100;
         }
 
         // Context usage, colorized by thresholds matching statusline.sh: <60 gray, 60-79 orange, >=80 red
@@ -140,7 +136,7 @@ export default function (pi: ExtensionAPI) {
           contextUsage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
         const percent = contextUsage?.percent ?? 0;
         const percentLabel =
-          contextUsage?.percent !== null
+          contextUsage?.percent != null
             ? `${percent.toFixed(1)}%/${formatTokens(contextWindow)}`
             : `?/${formatTokens(contextWindow)}`;
         let contextColored: string;
@@ -249,8 +245,13 @@ export default function (pi: ExtensionAPI) {
           const tokenBits: string[] = [];
           if (input) tokenBits.push(`↑${formatTokens(input)}`);
           if (output) tokenBits.push(`↓${formatTokens(output)}`);
-          if (cacheRead > 0 && cacheHitRate !== undefined) {
-            tokenBits.push(`¢${cacheHitRate.toFixed(1)}%`);
+          if (cacheRead > 0) {
+            const promptTokens = input + cacheRead + cacheWrite;
+            if (promptTokens > 0) {
+              tokenBits.push(
+                `¢${((cacheRead / promptTokens) * 100).toFixed(1)}%`,
+              );
+            }
           }
           const statusBits = Array.from(statuses.entries())
             .filter(([key]) => key !== "active-agent")
