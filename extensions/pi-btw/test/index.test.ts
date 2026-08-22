@@ -449,6 +449,32 @@ describe("Herdr", () => {
     expect(harness.notifications.at(-1)?.level).toBe("info");
   });
 
+  test("does not retry incidental busy text", async () => {
+    const restore = setHerdr(true);
+    vi.useFakeTimers();
+    let starts = 0;
+    const failure = "Pi failed after seeing agent_pane_busy in unrelated prose";
+    const harness = createHarness(async (_command, args) => {
+      if (args[0] === "pane") return paneSplit();
+      starts++;
+      return { code: 1, stdout: "", stderr: failure };
+    });
+
+    try {
+      const launch = harness.btw("Side question");
+      await vi.runAllTimersAsync();
+      await launch;
+    } finally {
+      restore();
+    }
+
+    expect(starts).toBe(1);
+    expect(harness.notifications.at(-1)).toMatchObject({
+      level: "error",
+      message: expect.stringContaining(failure),
+    });
+  });
+
   test("leaves a failed pane available for inspection", async () => {
     const restore = setHerdr(true);
     const calls: string[][] = [];
@@ -485,7 +511,7 @@ describe("Herdr", () => {
     );
   });
 
-  test("requires a completed persisted response for the native CLI fork", async () => {
+  test("requires a persisted session file for the native CLI fork", async () => {
     const restore = setHerdr(true);
     const harness = createHarness(
       async () => {
@@ -498,6 +524,36 @@ describe("Herdr", () => {
     } finally {
       restore();
     }
+    expect(harness.notifications[0]?.message).toContain(
+      "at least one completed response",
+    );
+  });
+
+  test("requires a conversation leaf for the native CLI fork", async () => {
+    const restore = setHerdr(true);
+    writeFileSync(
+      sessionFile,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "test-session",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        cwd: "/tmp/project",
+      })}\n`,
+    );
+    const harness = createHarness(
+      async () => {
+        throw new Error("must not launch");
+      },
+      { leafId: null },
+    );
+
+    try {
+      await harness.btw("Side question");
+    } finally {
+      restore();
+    }
+
     expect(harness.notifications[0]?.message).toContain(
       "at least one completed response",
     );

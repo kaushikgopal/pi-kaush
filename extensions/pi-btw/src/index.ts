@@ -32,8 +32,6 @@ function execFailure(result: ExecResult, fallback: string): string | undefined {
 }
 
 function isHerdrPaneBusy(result: ExecResult): boolean {
-  const output = `${result.stderr}\n${result.stdout}`;
-  if (output.includes("agent_pane_busy")) return true;
   try {
     const parsed = JSON.parse(result.stderr || result.stdout) as {
       error?: { code?: unknown };
@@ -228,7 +226,11 @@ async function runBtw(
   }
 
   const sessionFile = ctx.sessionManager.getSessionFile();
-  if (!sessionFile || !existsSync(sessionFile)) {
+  if (
+    !sessionFile ||
+    !existsSync(sessionFile) ||
+    !ctx.sessionManager.getLeafId()
+  ) {
     ctx.ui.notify(
       "/btw needs at least one completed response before it can fork context.",
       "warning",
