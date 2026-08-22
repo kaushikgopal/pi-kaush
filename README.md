@@ -7,6 +7,7 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 | Package                                                               | Description                                                                                |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)               | Activate a configured Pi agent as a persistent mode in the current session.                |
+| [`@pi-kaush/pi-better-read-edit`](./extensions/pi-better-read-edit)   | Pair tagged local reads with strict, context-efficient hashline edits.                     |
 | [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)           | Paste the same large block twice to expand Pi's paste markers into editable text.          |
 | [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) | Highlight and route inline Pi skill, agent, and prompt-template references.                |
 | [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction) | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns.        |
@@ -16,7 +17,7 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 | [`@pi-kaush/pi-content-layout`](./extensions/pi-content-layout)       | Inset the conversation; use a full-width dark editor and a compact submitted-prompt shell. |
 | [`@pi-kaush/pi-footer-minimal`](./extensions/pi-footer-minimal)       | Show cost/context in an inset footer.                                                      |
 
-Every package is independently versioned and published to npm. Runtime source is readable TypeScript, and packages avoid runtime dependencies where practical.
+Every package is independently versioned and publishable to npm. Runtime source is readable TypeScript, and packages avoid runtime dependencies where practical.
 
 ### Retired packages
 
@@ -58,6 +59,7 @@ Then launch Pi from any project and point `-e` at the extension's entry file, re
 ```sh
 pi -e ~/path/to/pi-kaush/extensions/pi-double-paste/src/index.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-agent-mode/src/index.ts
+pi -e ~/path/to/pi-kaush/extensions/pi-better-read-edit/src/index.ts
 pi \
   -e ~/path/to/pi-kaush/extensions/pi-inline-identifier/src/skill.ts \
   -e ~/path/to/pi-kaush/extensions/pi-inline-identifier/src/agent.ts \
