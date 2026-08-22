@@ -14,9 +14,10 @@ const CSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 const stripAnsi = (text: string) => text.replace(CSI_RE, "");
 
 const FG_CODES: Record<string, number> = {
-  dim: 90,
-  muted: 90,
-  toolTitle: 36,
+  muted: 94,
+  text: 97,
+  bashMode: 32,
+  mdHeading: 33,
 };
 
 const theme = {
@@ -78,6 +79,28 @@ describe("intercom message frame", () => {
     }
     expect(lines[1]?.indexOf("Detailed Atomic audit")).toBe(textColumn);
     expect(lines[2]?.indexOf("To reply:")).toBe(textColumn);
+  });
+
+  test("paints the frame bash green, the body muted, and the name orange", () => {
+    const component = renderIntercomMessage(details, false, theme);
+    const lines = component?.render(100) ?? [];
+
+    // The frame uses the bashMode token, like the rules around `!` blocks.
+    expect(lines[0]).toContain("\x1b[32m╭");
+    expect(lines.at(-1)).toContain("\x1b[32m╰");
+    for (const line of lines.slice(1, -1)) {
+      expect(line).toContain("\x1b[32m│");
+    }
+
+    // Title: "From: " muted, sender name in the mdHeading orange, cwd
+    // suffix muted again.
+    expect(lines[0]).toContain("\x1b[94mFrom: \x1b[39m");
+    expect(lines[0]).toContain("\x1b[33msubagent-chat\x1b[39m");
+    expect(lines[0]).toContain("\x1b[94m (/tmp/aikado)\x1b[39m");
+
+    // Body preview and meta line are muted, not default text or dim.
+    expect(lines[1]).toContain("\x1b[94mDetailed Atomic audit");
+    expect(lines[2]).toContain("\x1b[94mTo reply:");
   });
 
   test("keeps the expand hint out of the title and inside the meta line", () => {

@@ -18,11 +18,7 @@ import {
   runChatContainerHooks,
 } from "../src/container-hooks.ts";
 import contentLayout from "../src/index.ts";
-import {
-  ACTIVE_SIDE_PADDING,
-  OUTER_INSET,
-  PROMPT_SURFACE_BG,
-} from "../src/render.ts";
+import { ACTIVE_SIDE_PADDING, OUTER_INSET } from "../src/render.ts";
 
 const CSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 const CONTROL_RE =
@@ -30,7 +26,12 @@ const CONTROL_RE =
 const stripControls = (text: string) =>
   text.replace(CONTROL_RE, "").replace(CSI_RE, "");
 
-type TestBackground = "userMessageBg" | "selectedBg";
+const SURFACE_BG = "\x1b[48;5;22m";
+
+function bgAnsiFor(color: string): string {
+  if (color === "customMessageBg") return SURFACE_BG;
+  return color === "userMessageBg" ? "\x1b[44m" : "\x1b[40m";
+}
 
 const FG_CODES: Record<string, number> = {
   accent: 35,
@@ -49,12 +50,10 @@ const theme = {
   getFgAnsi(color: ThemeColor) {
     return `\x1b[${FG_CODES[color] ?? 90}m`;
   },
-  bg(color: TestBackground, text: string) {
-    return `${this.getBgAnsi(color)}${text}\x1b[49m`;
+  bg(color: string, text: string) {
+    return `${bgAnsiFor(color)}${text}\x1b[49m`;
   },
-  getBgAnsi(color: TestBackground) {
-    return color === "userMessageBg" ? "\x1b[44m" : "\x1b[40m";
-  },
+  getBgAnsi: bgAnsiFor,
 } as Theme;
 
 type EditorFactory = (
@@ -178,7 +177,7 @@ describe("editor factory composition", () => {
     expect(stripControls(lines[1] ?? "")).toMatch(/^ changed/);
     expect(stripControls(lines[2] ?? "")).toMatch(/^\s+$/);
     expect(lines.every((line) => visibleWidth(line) === 30)).toBe(true);
-    expect(lines.every((line) => line.includes(PROMPT_SURFACE_BG))).toBe(true);
+    expect(lines.every((line) => line.includes(SURFACE_BG))).toBe(true);
     expect(lines[1]).toContain(`${theme.getFgAnsi("userMessageText")}changed`);
     expect(stripControls(lines.join("\n"))).not.toContain("▎");
 
@@ -338,10 +337,8 @@ describe("native transcript adapters", () => {
     expect(userLines).toHaveLength(3);
     expect(userLines.every((line) => visibleWidth(line) === 40)).toBe(true);
     expect(stripControls(userLines[1] ?? "")).toContain("  ▎  hello from user");
-    expect(userLines.every((line) => line.includes(PROMPT_SURFACE_BG))).toBe(
-      true,
-    );
-    expect(userLines[1]).toContain(`\x1b[35m▎\x1b[39m${PROMPT_SURFACE_BG}`);
+    expect(userLines.every((line) => line.includes(SURFACE_BG))).toBe(true);
+    expect(userLines[1]).toContain(`\x1b[35m▎\x1b[39m${SURFACE_BG}`);
   });
 
   test("status, assistant, rail, and editor text share the outer inset column", () => {
@@ -535,7 +532,7 @@ describe("native transcript adapters", () => {
     harness.fire("session_start");
     const installed = row.render(50);
     expect(installed).toEqual(native);
-    expect(installed.join("\n")).not.toContain(PROMPT_SURFACE_BG);
+    expect(installed.join("\n")).not.toContain(SURFACE_BG);
   });
 
   test("restores native message renderers on shutdown", () => {

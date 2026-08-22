@@ -4,7 +4,6 @@ import { describe, expect, test } from "vitest";
 import {
   contentInset,
   insetLines,
-  PROMPT_SURFACE_BG,
   renderActiveEditor,
   renderSubmittedUserLines,
   splitLeadingSemanticControls,
@@ -25,12 +24,17 @@ const FG_CODES: Record<string, number> = {
   muted: 90,
 };
 
+const SURFACE_BG = "\x1b[48;5;22m";
+
 const theme = {
   fg(color: ThemeColor, text: string) {
     return `${this.getFgAnsi(color)}${text}\x1b[39m`;
   },
   getFgAnsi(color: ThemeColor) {
     return `\x1b[${FG_CODES[color] ?? 37}m`;
+  },
+  getBgAnsi(color: string) {
+    return color === "customMessageBg" ? SURFACE_BG : "\x1b[40m";
   },
 } as Theme;
 
@@ -92,10 +96,10 @@ describe("active editor", () => {
     expect(stripControls(lines[1] ?? "")).toMatch(/^ prompt/);
     expect(stripControls(lines[2] ?? "")).toMatch(/^\s+$/);
     expect(stripControls(lines[3] ?? "")).toMatch(/^→ option/);
-    expect(
-      lines.slice(0, 3).every((line) => line.includes(PROMPT_SURFACE_BG)),
-    ).toBe(true);
-    expect(lines[3]).not.toContain(PROMPT_SURFACE_BG);
+    expect(lines.slice(0, 3).every((line) => line.includes(SURFACE_BG))).toBe(
+      true,
+    );
+    expect(lines[3]).not.toContain(SURFACE_BG);
     expect(stripControls(lines.slice(0, 3).join("\n"))).not.toContain("▎");
     expect(stripControls(lines.join("\n"))).not.toContain("─");
     expect(editor.borderColor).toBe(originalBorder);
@@ -118,18 +122,16 @@ describe("active editor", () => {
     const foreground = theme.getFgAnsi("userMessageText");
     expect(contentLine).toContain(`${foreground}base`);
     expect(contentLine).toContain(
-      `\x1b[0m${PROMPT_SURFACE_BG}${foreground}after-zero`,
+      `\x1b[0m${SURFACE_BG}${foreground}after-zero`,
     );
     expect(contentLine).toContain(`\x1b[39m${foreground}after-default`);
     expect(contentLine).toContain(
       `\x1b[35maccent\x1b[39m${foreground}after-accent`,
     );
-    expect(contentLine).toContain(
-      `\x1b[38;5;0m${PROMPT_SURFACE_BG}indexed-black`,
-    );
+    expect(contentLine).toContain(`\x1b[38;5;0m${SURFACE_BG}indexed-black`);
     expect(contentLine).not.toContain(`\x1b[38;5;0m${foreground}indexed-black`);
     expect(contentLine).toContain(
-      `\x1b[0;35m${PROMPT_SURFACE_BG}combined-accent\x1b[39m${foreground}after-combined`,
+      `\x1b[0;35m${SURFACE_BG}combined-accent\x1b[39m${foreground}after-combined`,
     );
   });
 
@@ -151,7 +153,7 @@ describe("active editor", () => {
     expect(stripControls(lines[0] ?? "")).toMatch(/^  ↑ 2 more/);
     expect(stripControls(lines[1] ?? "")).toMatch(/^ prompt/);
     expect(stripControls(lines[2] ?? "")).toMatch(/^\s+$/);
-    expect(lines.every((line) => line.includes(PROMPT_SURFACE_BG))).toBe(true);
+    expect(lines.every((line) => line.includes(SURFACE_BG))).toBe(true);
   });
 
   test("fails open to native rendering when the editor has no border hook", () => {
@@ -164,7 +166,7 @@ describe("active editor", () => {
     };
     const lines = renderActiveEditor(editor, 20, theme);
     expect(stripControls(lines[0] ?? "")).toContain("prompt");
-    expect(lines.some((line) => line.includes(PROMPT_SURFACE_BG))).toBe(false);
+    expect(lines.some((line) => line.includes(SURFACE_BG))).toBe(false);
   });
 });
 
@@ -183,8 +185,14 @@ describe("submitted user block", () => {
     expect(lines[0]?.startsWith(`${zoneStart}  `)).toBe(true);
     expect(lines[2]?.startsWith(`${zoneEnd}  `)).toBe(true);
     expect(lines.every((line) => !line.includes("\x1b[45m"))).toBe(true);
-    expect(lines.every((line) => line.includes(PROMPT_SURFACE_BG))).toBe(true);
+    expect(lines.every((line) => line.includes(SURFACE_BG))).toBe(true);
     expect(stripControls(lines[1] ?? "")).toContain("  ▎  hello");
-    expect(lines[1]).toContain(`\x1b[35m▎\x1b[39m${PROMPT_SURFACE_BG}`);
+    expect(lines[1]).toContain(`\x1b[35m▎\x1b[39m${SURFACE_BG}`);
+  });
+
+  test("falls back to the legacy surface hex when the theme lacks getBgAnsi", () => {
+    const themeWithoutBg = { ...theme, getBgAnsi: undefined } as Theme;
+    const lines = renderSubmittedUserLines([" hello"], 30, themeWithoutBg);
+    expect(lines[0]).toContain("\x1b[48;2;7;19;18m");
   });
 });

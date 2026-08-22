@@ -55,10 +55,14 @@ class IntercomMessageComponent implements Component {
 
     if (boxWidth < MIN_BOX_WIDTH) {
       const text = truncateToWidth(`From: ${senderName}`, boxWidth, "");
-      return [margin + text + margin];
+      return [margin + this.theme.fg("muted", text) + margin];
     }
 
-    const border = (text: string) => this.theme.fg("muted", text);
+    // The frame borrows the bash-mode border green — the same token Pi uses
+    // for the rules around user-run `!` shell blocks. Everything textual
+    // inside the frame is muted, matching tool-row summaries.
+    const border = (text: string) => this.theme.fg("bashMode", text);
+    const bodyColor = (text: string) => this.theme.fg("muted", text);
     // Columns inside the frame: │ + space + content(innerWidth) + space + │.
     const innerWidth = boxWidth - 4;
 
@@ -69,18 +73,29 @@ class IntercomMessageComponent implements Component {
     };
     const bottomBorder = `${margin}${border(`╰${"─".repeat(boxWidth - 2)}╯`)}${margin}`;
 
-    const title = `From: ${senderName}${from.cwd ? ` (${from.cwd})` : ""}`;
+    // The sender name alone rides the mdHeading token — an amber/orange in
+    // both cobalt2 and Pi's stock themes, matching the Thought label.
+    const titlePrefix = "From: ";
+    const title = `${titlePrefix}${senderName}${from.cwd ? ` (${from.cwd})` : ""}`;
     const titleText = truncateToWidth(title, Math.max(1, innerWidth - 1), "");
+    const nameEnd = Math.min(
+      titleText.length,
+      titlePrefix.length + senderName.length,
+    );
+    const styledTitle =
+      bodyColor(titleText.slice(0, titlePrefix.length)) +
+      this.theme.fg("mdHeading", titleText.slice(titlePrefix.length, nameEnd)) +
+      bodyColor(titleText.slice(nameEnd));
     const dashes = "─".repeat(
       Math.max(1, innerWidth - visibleWidth(titleText)),
     );
-    const topBorder = `${margin}${border("╭")} ${this.theme.fg("toolTitle", titleText)} ${border(dashes + "╮")}${margin}`;
+    const topBorder = `${margin}${border("╭")} ${styledTitle} ${border(dashes + "╮")}${margin}`;
 
     const lines: string[] = [topBorder];
 
     if (!this.expanded) {
       this.collapsedPreview ??= this.bodyText.replace(/\s+/g, " ").trim();
-      lines.push(frameLine(this.theme.fg("text", this.collapsedPreview)));
+      lines.push(frameLine(bodyColor(this.collapsedPreview)));
 
       const meta: string[] = [];
       if (this.details.replyCommand) {
@@ -97,7 +112,7 @@ class IntercomMessageComponent implements Component {
         meta.push(`Reply to ${replyTo.slice(0, 8)}`);
       }
       meta.push("Ctrl+O to expand");
-      lines.push(frameLine(this.theme.fg("dim", meta.join(" · "))));
+      lines.push(frameLine(bodyColor(meta.join(" · "))));
       lines.push(bottomBorder);
       return lines;
     }
@@ -109,13 +124,13 @@ class IntercomMessageComponent implements Component {
       };
     }
     for (const line of this.wrappedBody.lines) {
-      lines.push(frameLine(this.theme.fg("text", line)));
+      lines.push(frameLine(bodyColor(line)));
     }
 
     if (this.details.replyCommand) {
       lines.push(frameLine(""));
       const replyLines = wrapTextWithAnsi(
-        this.theme.fg("dim", `To reply: ${this.details.replyCommand}`),
+        bodyColor(`To reply: ${this.details.replyCommand}`),
         innerWidth,
       );
       for (const line of replyLines) {
@@ -127,18 +142,14 @@ class IntercomMessageComponent implements Component {
     if (attachments?.length) {
       lines.push(frameLine(""));
       for (const attachment of attachments) {
-        lines.push(
-          frameLine(this.theme.fg("dim", `Attachment: ${attachment.name}`)),
-        );
+        lines.push(frameLine(bodyColor(`Attachment: ${attachment.name}`)));
       }
     }
 
     const replyTo = this.details.message?.replyTo;
     if (replyTo && !this.details.message?.expectsReply) {
       lines.push(frameLine(""));
-      lines.push(
-        frameLine(this.theme.fg("dim", `Reply to ${replyTo.slice(0, 8)}`)),
-      );
+      lines.push(frameLine(bodyColor(`Reply to ${replyTo.slice(0, 8)}`)));
     }
 
     lines.push(bottomBorder);

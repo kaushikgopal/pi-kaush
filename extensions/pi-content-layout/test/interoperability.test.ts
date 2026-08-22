@@ -17,7 +17,6 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, test } from "vitest";
-import { PROMPT_SURFACE_BG } from "../src/render.ts";
 import registerFooter from "../../pi-footer-minimal/src/index.ts";
 import {
   type InlineIdentifierFeature,
@@ -46,7 +45,12 @@ type Footer = {
   dispose(): void;
 };
 
-type TestBackground = "userMessageBg" | "selectedBg";
+const SURFACE_BG = "\x1b[48;5;22m";
+
+function bgAnsiFor(color: string): string {
+  if (color === "customMessageBg") return SURFACE_BG;
+  return color === "userMessageBg" ? "\x1b[44m" : "\x1b[40m";
+}
 
 const theme = {
   bold: (text: string) => text,
@@ -65,12 +69,10 @@ const theme = {
             : 90;
     return `\x1b[${code}m`;
   },
-  bg(color: TestBackground, text: string) {
-    return `${this.getBgAnsi(color)}${text}\x1b[49m`;
+  bg(color: string, text: string) {
+    return `${bgAnsiFor(color)}${text}\x1b[49m`;
   },
-  getBgAnsi(color: TestBackground) {
-    return color === "userMessageBg" ? "\x1b[44m" : "\x1b[40m";
-  },
+  getBgAnsi: bgAnsiFor,
 } as Theme;
 
 function setup(order: "inline-first" | "layout-first") {
@@ -248,7 +250,7 @@ describe.each(["inline-first", "layout-first"] as const)(
       expect(editorLine).toContain(
         `\x1b[35m@x\x1b[39m${theme.getFgAnsi("userMessageText")}`,
       );
-      expect(editorLine).toContain(PROMPT_SURFACE_BG);
+      expect(editorLine).toContain(SURFACE_BG);
 
       const thinkingMessage = {
         role: "assistant",

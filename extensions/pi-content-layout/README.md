@@ -38,11 +38,14 @@ indentation in both packages together.
 When [`pi-intercom`](https://www.npmjs.com/package/pi-intercom) is installed,
 this package restyles its inbound `intercom_message` box onto the shared
 transcript columns: the frame's left border sits on the tool-marker column
-(the outer inset), the `From:` title and body text share the text column used
-by tool rows and Thought labels, and the redundant `Ctrl+O expands` title hint
-is dropped (the meta line inside the box keeps `Ctrl+O to expand`). Content is
-unchanged, and expanded view keeps pi-intercom's full body, attachment, and
-reply sections.
+(the outer inset), and the `From:` title and body text share the text column
+used by tool rows and Thought labels. The frame borrows the bash-mode green
+of `!` shell-block rules, all text inside stays muted, and the sender name
+uses the `mdHeading` orange (the Thought-label hue in cobalt2 and Pi's stock
+themes). The redundant
+`Ctrl+O expands` title hint is dropped (the meta line inside the box keeps
+`Ctrl+O to expand`). Content is unchanged, and expanded view keeps
+pi-intercom's full body, attachment, and reply sections.
 
 Pi resolves custom message renderers in extension load order (first
 registration wins), so list this package before `pi-intercom` in `packages`

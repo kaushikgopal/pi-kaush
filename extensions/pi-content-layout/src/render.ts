@@ -6,11 +6,21 @@ export const OUTER_INSET = 2;
 export const PROMPT_RAIL = "▎";
 export const ACTIVE_SIDE_PADDING = 1;
 
-// The prompt surface (active editor block and submitted message body) uses a
-// fixed near-black green tint instead of the theme's selectedBg token so both
-// user-input surfaces stay identical; the theme token remains for selections
-// and dialogs.
-export const PROMPT_SURFACE_BG = "\x1b[48;2;7;19;18m"; // #071312
+// The prompt surface (active editor block and submitted message body) paints
+// with the theme's customMessageBg token, so both user-input surfaces stay
+// identical while following the active theme (cobalt2 maps it to its
+// `actionBlock` var, #071312). customMessageBg is a required pi theme token;
+// the legacy hex remains only as a fallback for theme lookalikes that cannot
+// resolve it (test fakes, older hosts).
+const PROMPT_SURFACE_BG_FALLBACK = "\x1b[48;2;7;19;18m"; // #071312
+
+export function promptSurfaceBg(theme: Theme): string {
+  try {
+    return theme.getBgAnsi("customMessageBg");
+  } catch {
+    return PROMPT_SURFACE_BG_FALLBACK;
+  }
+}
 
 const BORDER_SENTINEL = "\x1b]133;P;pi-content-layout\x07";
 const SGR_PATTERN = /\x1b\[([0-9;]*)m/g;
@@ -158,7 +168,7 @@ function activeBlockLine(
   return paintBackground(
     `${padding}${fitLine(body, innerWidth)}${padding}`,
     width,
-    PROMPT_SURFACE_BG,
+    promptSurfaceBg(theme),
   );
 }
 
@@ -244,16 +254,17 @@ export function renderSubmittedUserLines(
 
   const bodyWidth = blockWidth - visibleWidth(PROMPT_RAIL);
   const margin = " ".repeat(inset);
+  const surfaceBg = promptSurfaceBg(theme);
   return lines.map((line) => {
     const { controls, content } = splitLeadingSemanticControls(line);
-    const recolored = replaceBackground(content, PROMPT_SURFACE_BG);
+    const recolored = replaceBackground(content, surfaceBg);
     const rail = theme.fg(railColor, PROMPT_RAIL);
     // One extra leading space inside the body, so submitted text sits two
     // columns right of the rail instead of one.
     const body = paintBackground(
       ` ${fitLine(recolored, Math.max(1, bodyWidth - 1))}`,
       bodyWidth,
-      PROMPT_SURFACE_BG,
+      surfaceBg,
     );
     return `${controls}${margin}${rail}${body}${margin}`;
   });

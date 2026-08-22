@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Paint the prompt surfaces (active editor, submitted prompt) with the
+  theme's `customMessageBg` token instead of a hardcoded hex, retiring the
+  last fixed color in this package. Falls back to the legacy #071312 only
+  for theme lookalikes that cannot resolve the token.
+- Paint the `intercom_message` frame in the bash-mode green used for `!`
+  shell-block rules, keep all text inside it muted, and render the sender
+  name in the `mdHeading` orange. All colors come from theme tokens.
+
 - Restyle pi-intercom's inbound `intercom_message` box onto the shared
   transcript columns (frame border on the marker column, title and body text
   on the text column) and drop the redundant `Ctrl+O expands` title hint.
