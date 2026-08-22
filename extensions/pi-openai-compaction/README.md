@@ -1,12 +1,12 @@
 # @pi-kaush/pi-openai-compaction
 
-A thin Pi 0.83 extension that uses OpenAI's standalone Responses compaction endpoint without patching Pi core or changing normal `store: false` requests.
+A thin Pi extension that uses OpenAI's standalone Responses compaction endpoint without patching Pi core or changing normal `store: false` requests.
 
 This package is based on `unstableneutron/pi-openai-compaction`, descended from `jordyvandomselaar/pi-openai-compaction`. The original MIT license and attribution are retained.
 
 ## Scope
 
-- Pi: `@earendil-works/pi-coding-agent >=0.83.0 <0.84.0`
+- Pi: `@earendil-works/pi-coding-agent >=0.83.0`
 - Provider: `openai`
 - API: `openai-responses`
 - Endpoint: `POST <effective base URL>/responses/compact`
