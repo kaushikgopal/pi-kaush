@@ -2,6 +2,7 @@ import type {
   ExtensionAPI,
   KeybindingsManager,
   Theme,
+  ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
@@ -38,11 +39,15 @@ const FG_CODES: Record<string, number> = {
   warning: 33,
   dim: 90,
   muted: 90,
+  userMessageText: 37,
 };
 
 const theme = {
-  fg(color: string, text: string) {
-    return `\x1b[${FG_CODES[color] ?? 90}m${text}\x1b[39m`;
+  fg(color: ThemeColor, text: string) {
+    return `${this.getFgAnsi(color)}${text}\x1b[39m`;
+  },
+  getFgAnsi(color: ThemeColor) {
+    return `\x1b[${FG_CODES[color] ?? 90}m`;
   },
   bg(color: TestBackground, text: string) {
     return `${this.getBgAnsi(color)}${text}\x1b[49m`;
@@ -173,6 +178,7 @@ describe("editor factory composition", () => {
     expect(stripControls(lines[2] ?? "")).toMatch(/^\s+$/);
     expect(lines.every((line) => visibleWidth(line) === 30)).toBe(true);
     expect(lines.every((line) => line.includes(PROMPT_SURFACE_BG))).toBe(true);
+    expect(lines[1]).toContain(`${theme.getFgAnsi("userMessageText")}changed`);
     expect(stripControls(lines.join("\n"))).not.toContain("▎");
 
     harness.fire("session_shutdown");

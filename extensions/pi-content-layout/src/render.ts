@@ -88,6 +88,41 @@ function reapplyBackgroundAfterReset(
   });
 }
 
+function leavesForegroundReset(rawParameters: string): boolean {
+  const parameters =
+    rawParameters === "" ? [0] : rawParameters.split(";").map(Number);
+  let foregroundIsDefault = false;
+  for (let index = 0; index < parameters.length; index++) {
+    const parameter = parameters[index];
+    if (parameter === 38) {
+      foregroundIsDefault = false;
+      const mode = parameters[index + 1];
+      if (mode === 5) index += 2;
+      if (mode === 2) index += 4;
+    } else if (parameter === 0 || parameter === 39) {
+      foregroundIsDefault = true;
+    } else if (
+      parameter !== undefined &&
+      ((parameter >= 30 && parameter <= 37) ||
+        (parameter >= 90 && parameter <= 97))
+    ) {
+      foregroundIsDefault = false;
+    }
+  }
+  return foregroundIsDefault;
+}
+
+function paintForeground(text: string, foregroundAnsi: string): string {
+  const content = text.replace(
+    SGR_PATTERN,
+    (sequence, rawParameters: string) =>
+      leavesForegroundReset(rawParameters)
+        ? `${sequence}${foregroundAnsi}`
+        : sequence,
+  );
+  return `${foregroundAnsi}${content}\x1b[39m`;
+}
+
 export function paintBackground(
   line: string,
   width: number,
@@ -113,7 +148,11 @@ function activeBlockLine(
   theme: Theme,
 ): string {
   const hint = isBoundary ? scrollHint(line) : undefined;
-  const body = hint ? theme.fg("muted", ` ${hint}`) : isBoundary ? "" : line;
+  const body = hint
+    ? theme.fg("muted", ` ${hint}`)
+    : isBoundary
+      ? ""
+      : paintForeground(line, theme.getFgAnsi("userMessageText"));
   const innerWidth = Math.max(0, width - ACTIVE_SIDE_PADDING * 2);
   const padding = " ".repeat(ACTIVE_SIDE_PADDING);
   return paintBackground(

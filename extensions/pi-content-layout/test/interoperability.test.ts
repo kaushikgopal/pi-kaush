@@ -2,6 +2,7 @@ import type {
   ExtensionAPI,
   KeybindingsManager,
   Theme,
+  ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
@@ -50,9 +51,19 @@ type TestBackground = "userMessageBg" | "selectedBg";
 const theme = {
   bold: (text: string) => text,
   italic: (text: string) => text,
-  fg(color: string, text: string) {
-    const code = color === "accent" ? 35 : color === "error" ? 31 : 90;
-    return `\x1b[${code}m${text}\x1b[39m`;
+  fg(color: ThemeColor, text: string) {
+    return `${this.getFgAnsi(color)}${text}\x1b[39m`;
+  },
+  getFgAnsi(color: ThemeColor) {
+    const code =
+      color === "accent"
+        ? 35
+        : color === "error"
+          ? 31
+          : color === "userMessageText"
+            ? 37
+            : 90;
+    return `\x1b[${code}m`;
   },
   bg(color: TestBackground, text: string) {
     return `${this.getBgAnsi(color)}${text}\x1b[49m`;
@@ -233,6 +244,9 @@ describe.each(["inline-first", "layout-first"] as const)(
       expect(stripControls(editorLine ?? "")).toMatch(/^  @x/);
       expect(stripControls(editorLine ?? "")).not.toContain("▎");
       expect(editorLine).toContain("\x1b[35m@x\x1b[39m");
+      expect(editorLine).toContain(
+        `\x1b[35m@x\x1b[39m${theme.getFgAnsi("userMessageText")}`,
+      );
       expect(editorLine).toContain(PROMPT_SURFACE_BG);
 
       const thinkingMessage = {

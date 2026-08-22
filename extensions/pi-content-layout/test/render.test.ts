@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { CURSOR_MARKER, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
 import {
@@ -26,8 +26,11 @@ const FG_CODES: Record<string, number> = {
 };
 
 const theme = {
-  fg(color: string, text: string) {
-    return `\x1b[${FG_CODES[color] ?? 37}m${text}\x1b[39m`;
+  fg(color: ThemeColor, text: string) {
+    return `${this.getFgAnsi(color)}${text}\x1b[39m`;
+  },
+  getFgAnsi(color: ThemeColor) {
+    return `\x1b[${FG_CODES[color] ?? 37}m`;
   },
 } as Theme;
 
@@ -96,6 +99,38 @@ describe("active editor", () => {
     expect(stripControls(lines.slice(0, 3).join("\n"))).not.toContain("▎");
     expect(stripControls(lines.join("\n"))).not.toContain("─");
     expect(editor.borderColor).toBe(originalBorder);
+  });
+
+  test("uses the user-message foreground and restores it after ANSI resets", () => {
+    const editor = new FakeEditor();
+    editor.suggestion = false;
+    editor.render = function render(width: number): string[] {
+      const border = this.borderColor("─").repeat(width);
+      const content =
+        "base\x1b[0mafter-zero\x1b[39mafter-default" +
+        "\x1b[35maccent\x1b[39mafter-accent" +
+        "\x1b[38;5;0mindexed-black\x1b[39mafter-indexed" +
+        "\x1b[0;35mcombined-accent\x1b[39mafter-combined";
+      return [border, content.padEnd(width), border];
+    };
+
+    const contentLine = renderActiveEditor(editor, 160, theme)[1] ?? "";
+    const foreground = theme.getFgAnsi("userMessageText");
+    expect(contentLine).toContain(`${foreground}base`);
+    expect(contentLine).toContain(
+      `\x1b[0m${PROMPT_SURFACE_BG}${foreground}after-zero`,
+    );
+    expect(contentLine).toContain(`\x1b[39m${foreground}after-default`);
+    expect(contentLine).toContain(
+      `\x1b[35maccent\x1b[39m${foreground}after-accent`,
+    );
+    expect(contentLine).toContain(
+      `\x1b[38;5;0m${PROMPT_SURFACE_BG}indexed-black`,
+    );
+    expect(contentLine).not.toContain(`\x1b[38;5;0m${foreground}indexed-black`);
+    expect(contentLine).toContain(
+      `\x1b[0;35m${PROMPT_SURFACE_BG}combined-accent\x1b[39m${foreground}after-combined`,
+    );
   });
 
   test("keeps scroll hints inside the padded dark surface", () => {

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Render active input with the theme's `userMessageText` foreground, restoring
+  that base color after embedded ANSI resets while preserving inline identifier
+  highlighting.
 - Move user-run `!` bash block styling to `@pi-kaush/pi-tool-call-markers`,
   which now owns every execution row (tools, grouping, subagents, thinking
   labels, and bash blocks). This package narrows to the transcript surface:

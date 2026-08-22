@@ -48,9 +48,10 @@ The package is not published while its version is `0.0.0`; use the repository pa
 The active editor surface and submitted message body paint with a fixed
 near-black `#071312` background (`PROMPT_SURFACE_BG`) so both user-input
 surfaces stay identical; the theme's `selectedBg` token continues to serve
-selections and dialogs. The extension consumes theme tokens for its rails and hints: `accent`
-for the submitted-prompt rail, `muted` for the editor scroll hints, and
-`bashMode` / `error` / `warning` / `dim` for the user-bash rail.
+selections and dialogs. Active input uses the theme's `userMessageText`
+foreground and restores it after embedded ANSI resets without overriding
+inline identifier colors. The extension also consumes `accent` for the
+submitted-prompt rail and `muted` for editor scroll hints.
 
 Themes control colors, while this extension controls width and component
 shape; a theme cannot provide the layout itself.
