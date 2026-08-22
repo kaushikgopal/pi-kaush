@@ -63,13 +63,13 @@ type ToolExecutionRow = {
 };
 
 type PresentationPatchState = {
+  owners: number;
   theme?: ThemeLike;
   collapseParallel: boolean;
   groupCache: WeakMap<ToolExecutionRow, GroupRenderCache>;
   collapsedCache: WeakMap<ToolExecutionRow, CollapsedRenderCache>;
   rowVersions: WeakMap<ToolExecutionRow, number>;
   rowGroups: WeakMap<ToolExecutionRow, ToolExecutionRow[]>;
-  rowSignatures: WeakMap<ToolExecutionRow, string>;
   originalRender: (width: number) => string[];
   originalUpdateDisplay: () => void;
   patchedRender?: (width: number) => string[];
@@ -77,6 +77,7 @@ type PresentationPatchState = {
 };
 
 type GroupingPatchState = {
+  owners: number;
   presentation: PresentationPatchState;
   originalRender: (width: number) => string[];
   patchedRender?: (width: number) => string[];
@@ -111,12 +112,11 @@ function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, "");
 }
 
-// Command output can carry cursor-moving control bytes (git progress writes
-// \r) and raw terminal sequences. Collapsed rows are single-line, so result
-// and scraped text is stripped of display sequences and control bytes before
-// it can reach a row; a bare \r would otherwise return the cursor to column 0
-// and overwrite the row's own marker.
-const INLINE_CONTROL_RE = /[\x00-\x08\x0b-\x1f\x7f]/g;
+// Command output can carry cursor-moving control bytes, raw terminal
+// sequences, line feeds, and tabs. Collapsed rows are single-line, so result
+// and scraped text is stripped of display sequences and all C0 controls before
+// it can reach a row; otherwise control bytes could split or overwrite it.
+const INLINE_CONTROL_RE = /[\x00-\x1f\x7f]/g;
 // OSC first: the two-byte alternative would otherwise consume `\x1b]` and
 // leave the hyperlink payload behind as visible text. OSC sequences (OSC 8
 // hyperlinks, titles) end at their first BEL/ST terminator; a payload match
@@ -134,11 +134,9 @@ function hasVisibleContent(line: string): boolean {
   return stripAnsi(line).trim().length > 0;
 }
 
-// State-transition fingerprint used by both the updateDisplay version bump
-// and the settled-row render cache. It deliberately covers only shape
-// transitions (partial/expanded/result/error): while a row is partial its
-// content streams and it is never cached, and once settled the rendered
-// content is fully determined by this fingerprint + width + theme.
+// Shape fingerprint used in settled-row cache keys. It protects against
+// direct state mutation followed by render without updateDisplay; real
+// component display updates invalidate the cache through rowVersions.
 function rowSignatureOf(row: ToolExecutionRow): string {
   return `${row.isPartial}|${row.expanded}|${row.result ? 1 : 0}|${row.result?.isError ? 1 : 0}`;
 }
@@ -1183,22 +1181,64 @@ function renderCollapsedToolRow(
   return ["", ...insetLines(body, width)];
 }
 
-function groupedCallComponent(
-  rows: ToolExecutionRow[],
+function groupedChildLabel(
+  row: ToolExecutionRow,
+  width: number,
   theme: ThemeLike,
-): ComponentLike {
-  return {
-    render(width: number): string[] {
-      // Every member renders like a singleton — `% tool: call → outcome` per
-      // line with the tool name bolded — no bullets or internal blanks;
-      // settled edits keep their change visible with a bounded diff block.
-      return rows.flatMap((row) => [
-        collapsedHeadline(row, width, theme),
-        ...(row.toolName === "edit" ? renderedEditDiffLines(row, theme) : []),
-      ]);
-    },
-    invalidate() {},
-  };
+  color: string = "muted",
+): string {
+  const label = collapsedCallLabel(row, width, theme, color);
+  const plain = stripAnsi(label);
+  const toolName = row.toolName ?? "tool";
+  let prefix = "";
+  if (plain === toolName) {
+    prefix = toolName;
+  } else if (plain.startsWith(`${toolName}:`)) {
+    const whitespace = /^\s*/.exec(plain.slice(toolName.length + 1))?.[0] ?? "";
+    prefix = `${toolName}:${whitespace}`;
+  }
+  const prefixWidth = visibleWidth(prefix);
+  const child = sliceByColumn(
+    label,
+    prefixWidth,
+    Math.max(0, visibleWidth(label) - prefixWidth),
+    true,
+  );
+  return child || theme.fg(color, "(no arguments)");
+}
+
+function renderGroupedCallLines(
+  rows: ToolExecutionRow[],
+  width: number,
+  theme: ThemeLike,
+): string[] {
+  const lines: string[] = [];
+  let previousToolName: string | undefined;
+  for (const row of rows) {
+    const toolName = row.toolName ?? "tool";
+    if (toolName !== previousToolName) {
+      lines.push(
+        `${theme.fg("muted", GROUP_MARKER)} ${theme.fg("muted", theme.bold(toolName))}`,
+      );
+      previousToolName = toolName;
+    }
+
+    const color = rowHasFailed(row) ? "error" : "muted";
+    const prefix = `  ${theme.fg(color, "•")} `;
+    const budget = Math.max(1, width - visibleWidth(prefix));
+    const label = groupedChildLabel(row, budget, theme, color);
+    const outcome = collapsedOutcome(row, budget, theme);
+    const suffix = theme.fg(color, "…");
+    lines.push(
+      prefix +
+        (outcome
+          ? fitSummaryTail(label, outcome, budget, suffix)
+          : fitSummary(label, budget, suffix)),
+    );
+    if (row.toolName === "edit")
+      lines.push(...renderedEditDiffLines(row, theme));
+  }
+  return lines;
 }
 
 function sameMembers(
@@ -1247,8 +1287,8 @@ function renderGroupedToolRows(
   }
 
   const layout = insetLayout(width);
-  const summary = groupedCallComponent(rows, theme);
-  const lines = ["", ...insetLines(summary.render(layout.contentWidth), width)];
+  const body = renderGroupedCallLines(rows, layout.contentWidth, theme);
+  const lines = ["", ...insetLines(body, width)];
   if (hasLiveMembers) {
     state.groupCache.delete(row);
   } else {
@@ -1347,12 +1387,14 @@ function installGroupingPatch(
 
     const existing = proto[GROUPING_PATCHED];
     if (existing) {
+      existing.owners++;
       existing.presentation = presentation;
       existing.disabled = false;
       return existing;
     }
 
     const state: GroupingPatchState = {
+      owners: 1,
       presentation,
       originalRender: proto.render,
     };
@@ -1400,10 +1442,12 @@ function installGroupingPatch(
 }
 
 function uninstallGroupingPatch(state: GroupingPatchState | undefined): void {
-  if (!state) return;
+  if (!state || state.owners <= 0) return;
+  state.owners--;
+  if (state.owners > 0) return;
   // Even when another extension's wrapper sits on top of ours, grouping must
-  // not outlive its owner: the wrapper delegates once disabled, and a later
-  // reinstall re-enables it.
+  // not outlive its final owner: the wrapper delegates once disabled, and a
+  // later reinstall re-enables it.
   state.disabled = true;
   const proto = Container?.prototype as unknown as ComponentContainer & {
     [GROUPING_PATCHED]?: GroupingPatchState;
@@ -1427,7 +1471,10 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     if (!proto) return undefined;
 
     const existing = proto[PRESENTATION_PATCHED];
-    if (existing) return existing;
+    if (existing) {
+      existing.owners++;
+      return existing;
+    }
     const legacy = proto[LEGACY_PRESENTATION_PATCHED];
     if (legacy) {
       proto.render = legacy.originalRender;
@@ -1440,30 +1487,24 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       return undefined;
 
     const state: PresentationPatchState = {
+      owners: 1,
       collapseParallel: envEnabled(COLLAPSE_PARALLEL_ENV, true),
       groupCache: new WeakMap(),
       collapsedCache: new WeakMap(),
       rowVersions: new WeakMap(),
       rowGroups: new WeakMap(),
-      rowSignatures: new WeakMap(),
       originalRender: proto.render,
       originalUpdateDisplay: proto.updateDisplay,
     };
     const patchedUpdateDisplay = function updateDisplayWithCollapsedResult(
       this: ToolExecutionRow,
     ): void {
-      // Group members always bump so their leader's cache refreshes; other
-      // rows only bump on state transitions, so bash's per-second invalidate
-      // ticks and resize invalidations stop busting caches.
-      const signature = rowSignatureOf(this);
-      if (
-        state.rowGroups.has(this) ||
-        state.rowSignatures.get(this) !== signature
-      ) {
-        state.rowSignatures.set(this, signature);
-        state.rowVersions.set(this, (state.rowVersions.get(this) ?? 0) + 1);
-        state.groupCache.delete(this);
-      }
+      // Transcript rerenders reuse settled caches, but a real component
+      // display update can change args, results, renderer output, or images
+      // without changing the row's shape signature.
+      state.rowVersions.set(this, (state.rowVersions.get(this) ?? 0) + 1);
+      state.groupCache.delete(this);
+      state.collapsedCache.delete(this);
       state.originalUpdateDisplay.call(this);
     };
     const patchedRender = function renderWithToolPresentation(
@@ -1488,12 +1529,11 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       // it touches. On a long session (~1,000 messages, hundreds of tool
       // rows) that measured at ~80 ms per keystroke — visible input lag.
       //
-      // Settled rows (not partial, not expanded) have fully static render
-      // output, so their collapsed lines are cached keyed by width +
-      // rowSignatureOf + rowVersions + theme sample. updateDisplay bumps
-      // rowVersions on every real state transition, and partial rows
-      // bypass the cache entirely because their content streams. This
-      // mirrors the existing groupCache discipline; keep them in sync.
+      // Settled rows (not partial, not expanded) have static output between
+      // component display updates, so their collapsed lines are cached keyed
+      // by width + rowSignatureOf + rowVersions + theme sample. Every real
+      // updateDisplay call bumps rowVersions and clears both caches; partial
+      // rows bypass the cache because their content streams.
       // ================================================================
       if (!this.isPartial) {
         const signature = rowSignatureOf(this);
@@ -1565,7 +1605,9 @@ function installPresentationPatch(): PresentationPatchState | undefined {
 function uninstallPresentationPatch(
   state: PresentationPatchState | undefined,
 ): void {
-  if (!state) return;
+  if (!state || state.owners <= 0) return;
+  state.owners--;
+  if (state.owners > 0) return;
   const proto =
     ToolExecutionComponent?.prototype as unknown as ToolExecutionRow & {
       [PRESENTATION_PATCHED]?: PresentationPatchState;
@@ -1588,6 +1630,7 @@ export default function (pi: ExtensionAPI) {
   const patch = installPresentationPatch();
   const grouping = patch ? installGroupingPatch(patch) : undefined;
   const bashPatch = installBashBlockPatch();
+  let released = false;
 
   pi.on("session_start", (_event, ctx) => {
     if (patch) patch.theme = ctx.ui.theme;
@@ -1596,6 +1639,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", () => {
+    if (released) return;
+    released = true;
     uninstallGroupingPatch(grouping);
     uninstallPresentationPatch(patch);
     uninstallBashBlockPatch(bashPatch);

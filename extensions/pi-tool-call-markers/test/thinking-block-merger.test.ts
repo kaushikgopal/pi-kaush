@@ -67,6 +67,16 @@ function startSession(theme?: unknown): void {
   }
 }
 
+// mdHeading resolves to cobalt2's orange (#ffb86c) in truecolor; the mock
+// hands back the ready sequence like a real Theme would.
+function mockTheme(colorMode = "truecolor"): unknown {
+  return {
+    getColorMode: () => colorMode,
+    getFgAnsi: (color: string) =>
+      color === "mdHeading" ? "\x1b[38;2;255;184;108m" : "\x1b[39m",
+  };
+}
+
 beforeEach(() => {
   shutdownHandlers.length = 0;
   sessionStartHandlers.length = 0;
@@ -264,9 +274,9 @@ describe("thinking block merger", () => {
     }
   });
 
-  test("replaces label nodes with non-italic cobalt2-orange text", () => {
+  test("replaces label nodes with non-italic mdHeading-colored text", () => {
     vi.useFakeTimers();
-    startSession({ getColorMode: () => "truecolor" });
+    startSession(mockTheme());
     const assistant = new MockAssistantMessageComponent();
 
     vi.setSystemTime(1_000);
@@ -287,15 +297,19 @@ describe("thinking block merger", () => {
   });
 
   test("leaves visible-thinking rows without a replacement node", () => {
-    startSession({ getColorMode: () => "truecolor" });
+    startSession(mockTheme());
     const visible = new MockAssistantMessageComponent();
     visible.hideThinkingBlock = false;
     visible.updateContent(thinkingMessage(), false);
     expect(visible.contentContainer.children).toEqual([]);
   });
 
-  test("maps the orange to the 256-color cube on indexed terminals", () => {
-    startSession({ getColorMode: () => "256color" });
+  test("passes through the theme-resolved sequence on indexed terminals", () => {
+    startSession({
+      getColorMode: () => "256color",
+      getFgAnsi: (color: string) =>
+        color === "mdHeading" ? "\x1b[38;5;215m" : "\x1b[39m",
+    });
     expect(visibleThoughtLabel("+ Thought")).toBe(
       "\x1b[23m\x1b[38;5;215m+ Thought\x1b[39m",
     );
@@ -325,8 +339,36 @@ describe("thinking block merger", () => {
     expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
   });
 
+  test("keeps thinking merging and styling until the final owner shuts down", () => {
+    install();
+    startSession(mockTheme());
+    const patched = MockAssistantMessageComponent.prototype.updateContent;
+    const [firstShutdown, finalShutdown] = shutdownHandlers.splice(0);
+
+    firstShutdown!();
+    firstShutdown!();
+    const assistant = new MockAssistantMessageComponent();
+    assistant.updateContent({
+      content: [
+        { type: "thinking", thinking: "one" },
+        { type: "thinking", thinking: "two" },
+      ],
+    });
+    expect(assistant.lastMessage?.content).toEqual([
+      { type: "thinking", thinking: "one\n\ntwo" },
+    ]);
+    expect(visibleThoughtLabel("+ Thought")).not.toBe("+ Thought");
+    expect(MockAssistantMessageComponent.prototype.updateContent).toBe(patched);
+
+    finalShutdown!();
+    expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+    expect(MockAssistantMessageComponent.prototype.updateContent).not.toBe(
+      patched,
+    );
+  });
+
   test("drops styling again on shutdown", () => {
-    startSession({ getColorMode: () => "truecolor" });
+    startSession(mockTheme());
     expect(visibleThoughtLabel("+ Thought")).not.toBe("+ Thought");
     for (const handler of shutdownHandlers.splice(0)) handler();
     expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");

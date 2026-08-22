@@ -36,6 +36,10 @@ const extensionTheme = {
   bold: (text: string) => text,
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
+  // The Thought-label color now comes from the mdHeading token; cobalt2's
+  // value (#ffb86c) keeps the existing assertions stable.
+  getFgAnsi: (color: string) =>
+    color === "mdHeading" ? "\x1b[38;2;255;184;108m" : "\x1b[39m",
 };
 
 function install(): void {
@@ -463,15 +467,17 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chat.addChild(second);
     const liveHeight = chat.render(100).length;
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
-    expect(renderPlain(chat).match(/%/g)).toHaveLength(2);
-    expect(renderPlain(chat)).toContain("% $: npm run lint");
+    expect(renderPlain(chat).match(/%/g)).toHaveLength(1);
+    expect(renderPlain(chat).match(/•/g)).toHaveLength(2);
+    expect(renderPlain(chat)).toContain("• $: npm run lint");
 
     settle(second, "lint passed");
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
-    expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain("% $: npm test → done");
-    expect(output).toContain("% $: npm run lint → done");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(2);
+    expect(output).toContain("• $: npm test → done");
+    expect(output).toContain("• $: npm run lint → done");
   });
 
   test("groups real settled rows with one-line outcome bullets", () => {
@@ -484,9 +490,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(second, "lint passed");
 
     const output = renderPlain(chat, 36);
-    expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain("% $: npm test → done");
-    expect(output).toContain("% $: npm run lint → done");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(2);
+    expect(output).toContain("• $: npm test → done");
+    expect(output).toContain("• $: npm run lint → done");
     expect(output).not.toContain("tests passed");
     expect(output).not.toContain("lint passed");
   });
@@ -511,8 +518,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chatContainerHooks().add(hook);
     try {
       const output = renderPlain(chat);
-      expect(output.match(/%/g)).toHaveLength(2);
-      expect(output).toContain("% $: npm test → done");
+      expect(output.match(/%/g)).toHaveLength(1);
+      expect(output.match(/•/g)).toHaveLength(2);
+      expect(output).toContain("• $: npm test → done");
       expect(calls).toEqual([{ container: chat, width: 100 }]);
       expect(restores).toBe(1);
     } finally {
@@ -535,8 +543,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chatContainerHooks().add(badHook);
     try {
       const output = renderPlain(chat);
-      expect(output.match(/%/g)).toHaveLength(2);
-      expect(output).toContain("% $: npm test → done");
+      expect(output.match(/%/g)).toHaveLength(1);
+      expect(output.match(/•/g)).toHaveLength(2);
+      expect(output).toContain("• $: npm test → done");
     } finally {
       chatContainerHooks().delete(badHook);
     }
@@ -663,8 +672,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain("% edit: a.ts → +1/-1");
-    expect(output).toContain("% edit: b.ts → +1/-1");
+    expect(output).toContain("% edit");
+    expect(output).toContain("• a.ts → +1/-1");
+    expect(output).toContain("• b.ts → +1/-1");
     expect(output).toContain("  +x");
     expect(output).toContain("  -y");
     expect(output).not.toContain("edited");
@@ -932,8 +942,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).not.toContain("(details omitted)");
-    expect(output).toContain('glean_search: {"query":"alpha"}');
-    expect(output).toContain('glean_search: {"query":"beta"}');
+    expect(output).toContain("% glean_search");
+    expect(output).toContain('• {"query":"alpha"}');
+    expect(output).toContain('• {"query":"beta"}');
     expect(output).toContain("→ done");
     expect(output).not.toContain("alpha results");
   });
@@ -948,16 +959,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output).toContain('glean_search: {"query":"alpha"}');
-    expect(output).toContain('glean_search: {"query":"beta"}');
+    expect(output).toContain('• {"query":"alpha"}');
+    expect(output).toContain('• {"query":"beta"}');
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
 
     settle(first, "alpha results");
     settle(second, "beta results");
     const settled = renderPlain(chat);
-    expect(settled).toContain('glean_search: {"query":"alpha"}');
-    expect(settled).toContain('glean_search: {"query":"beta"}');
+    expect(settled).toContain('• {"query":"alpha"}');
+    expect(settled).toContain('• {"query":"beta"}');
     expect(settled).toContain("→ done");
   });
 
@@ -999,9 +1010,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain('% glean_search: {"query":"alpha"}');
-    expect(output).toContain('% glean_search: {"query":"beta"}');
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(2);
+    expect(output).toContain('• {"query":"alpha"}');
+    expect(output).toContain('• {"query":"beta"}');
   });
 
   test("keeps a literal call-label prefix when the error line is long", () => {
@@ -1314,6 +1326,35 @@ describe("user bash blocks", () => {
     });
   });
 
+  test("keeps the bash decoration until the final owner shuts down", () => {
+    const localStarts: Array<(event: unknown, ctx: unknown) => void> = [];
+    const localShutdowns: Array<() => void> = [];
+    toolCallMarkers({
+      on(event: string, handler: (event: unknown, ctx: unknown) => void) {
+        if (event === "session_start") localStarts.push(handler);
+        if (event === "session_shutdown")
+          localShutdowns.push(handler as () => void);
+      },
+    } as ExtensionAPI);
+    for (const handler of localStarts) {
+      handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
+    }
+    const firstOwnerShutdown = shutdownHandlers.shift()!;
+    const finalOwnerShutdown = localShutdowns[0]!;
+
+    firstOwnerShutdown();
+    firstOwnerShutdown();
+    expect(BashExecutionComponent.prototype.render).not.toBe(
+      NATIVE_BASH_RENDER,
+    );
+    const active = createBashBlock("ls");
+    active.setComplete(0, false);
+    expect(active.render(40).join("\n")).toContain(PROMPT_RAIL);
+
+    finalOwnerShutdown();
+    expect(BashExecutionComponent.prototype.render).toBe(NATIVE_BASH_RENDER);
+  });
+
   test("installs and restores the bash block renderer with the session", () => {
     // beforeEach install fired session_start with the pass-through theme.
     expect(BashExecutionComponent.prototype.render).not.toBe(
@@ -1358,10 +1399,9 @@ describe("composition with pi-content-layout", () => {
     const shutdownNext = () => {
       shutdowns.shift()?.({}, ctx);
     };
+    // Retire the beforeEach install so this helper owns the full lifecycle.
+    for (const handler of shutdownHandlers.splice(0)) handler();
     if (layoutFirst) {
-      // Retire the beforeEach install so content-layout wraps the native
-      // container render first; markers' factory then wraps content-layout.
-      for (const handler of shutdownHandlers.splice(0)) handler();
       contentLayout(pi);
       fireStart();
       toolCallMarkers(pi);
@@ -1394,9 +1434,10 @@ describe("composition with pi-content-layout", () => {
   }
 
   function expectGroupedAndInset(output: string): void {
-    expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain("% $: npm test → done");
-    expect(output).toContain("% $: npm run lint → done");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(2);
+    expect(output).toContain("• $: npm test → done");
+    expect(output).toContain("• $: npm run lint → done");
     expect(output).toMatch(/^ {2}Reloaded keybindings/m);
   }
 

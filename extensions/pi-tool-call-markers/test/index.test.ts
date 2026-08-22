@@ -68,7 +68,11 @@ class MockToolExecutionComponent extends MockContainer {
   args: Record<string, unknown>;
   expanded = false;
   isPartial = true;
-  rendererState?: { startedAt?: number; endedAt?: number };
+  rendererState?: {
+    startedAt?: number;
+    endedAt?: number;
+    compactTitle?: string;
+  };
   result?: {
     isError: boolean;
     output: string;
@@ -258,10 +262,12 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("read", "three.md"));
 
     const output = renderPlain(chat);
-    expect(output.match(/%/g)).toHaveLength(3);
-    expect(output).toContain("% read: one.md");
-    expect(output).toContain("% read: two.md");
-    expect(output).toContain("% read: three.md");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(3);
+    expect(output).toContain("% read");
+    expect(output).toContain("• one.md");
+    expect(output).toContain("• two.md");
+    expect(output).toContain("• three.md");
     expect(output).not.toContain("result:");
   });
 
@@ -306,19 +312,23 @@ describe("tool-call-markers grouping", () => {
   test("sanitizes control bytes and OSC from self-rendered call labels", () => {
     const chat = new MockContainer();
     const row = succeeded("edit", "ignored", "self");
-    row.args = { path: "src/a.ts\x07\x1b]8;;https://evil\x07", edits: [] };
+    row.args = {
+      path: "src/a.ts\nnext\tpart\x07\x1b]8;;https://evil\x07",
+      edits: [],
+    };
     chat.addChild(row);
 
-    const lines = chat.render(100);
-    const plain = lines.map(stripAnsi).join("\n");
-    expect(plain).toContain("% edit: src/a.ts");
+    const lines = chat.render(100).map(stripAnsi);
+    const plain = lines.join("\n");
+    expect(plain).toContain("% edit: src/a.ts next part");
+    expect(lines.filter((line) => line.includes("% edit"))).toHaveLength(1);
     expect(plain).not.toContain("\x07");
     expect(plain).not.toContain("\x1b]");
     // The whole OSC sequence is removed, not just its introducer: no payload
     // text may survive as visible output.
     expect(plain).not.toContain("https://evil");
     expect(plain).not.toContain("8;;");
-    expect(plain).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+    expect(lines.every((line) => !/[\x00-\x1f\x7f]/.test(line))).toBe(true);
   });
 
   test("marks subagent calls with & instead of %", () => {
@@ -337,19 +347,20 @@ describe("tool-call-markers grouping", () => {
     const chat = new MockContainer();
     const row = new MockToolExecutionComponent("subagent", "delegation");
     row.args = {
-      agent: "rev\x1b[2Jiewer",
-      profile: "fa\x1b[31mst",
-      task: "Inspect\rthe plan",
+      agent: "rev\niew\ter\x1b[2J",
+      profile: "fa\tst\nmode\x1b[31m",
+      task: "Inspect\rthe\nplan\tnow",
     };
     row.updateResult({ isError: false, output: "child result" });
     chat.addChild(row);
 
-    const plain = chat.render(100).map(stripAnsi).join("\n");
-    expect(plain).toContain("reviewer");
-    expect(plain).toContain("[fast]");
-    expect(plain).toContain("Inspect the plan");
+    const lines = chat.render(100).map(stripAnsi);
+    const plain = lines.join("\n");
+    expect(plain).toContain("rev iew er");
+    expect(plain).toContain("[fa st mode]");
+    expect(plain).toContain("Inspect the plan now");
     expect(plain).not.toContain("2J");
-    expect(plain).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f]/);
+    expect(lines.every((line) => !/[\x00-\x1f\x7f]/.test(line))).toBe(true);
   });
 
   test("renders failed rows entirely in error", () => {
@@ -386,6 +397,40 @@ describe("tool-call-markers grouping", () => {
     }
   });
 
+  test("renders a failed grouped child entirely in error", () => {
+    const taggingTheme = {
+      bold: (text: string) => text,
+      fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+      bg: (_color: string, text: string) => text,
+    };
+    try {
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme: taggingTheme, setToolsExpanded() {} } });
+      }
+      const chat = new MockContainer();
+      chat.addChild(succeeded("read", "one.md"));
+      const failed = new MockToolExecutionComponent("read", "two.md");
+      failed.updateResult({ isError: true, output: "boom" }, true);
+      chat.addChild(failed);
+
+      const output = chat.render(1_000).join("\n");
+      const failedLine =
+        output.split("\n").find((line) => line.includes("boom")) ?? "";
+      const plain = failedLine.replace(/<\/?\w+>/g, "");
+      expect(plain).toContain("•");
+      expect(plain).toContain("two.md");
+      expect(plain).toContain("boom");
+      const colors = new Set(
+        [...failedLine.matchAll(/<(\w+)>/g)].map((match) => match[1]),
+      );
+      expect(colors).toEqual(new Set(["error"]));
+    } finally {
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme, setToolsExpanded() {} } });
+      }
+    }
+  });
+
   test("renders settled rows in one muted tone", () => {
     const taggingTheme = {
       bold: (text: string) => text,
@@ -403,8 +448,9 @@ describe("tool-call-markers grouping", () => {
 
       const output = chat.render(100).join("\n");
       const stripped = output.replace(/<\/?\w+>/g, "");
-      expect(stripped).toContain("% read: one.md");
-      expect(stripped).toContain("% read: two.md");
+      expect(stripped).toContain("% read");
+      expect(stripped).toContain("• read: one.md");
+      expect(stripped).toContain("• read: two.md");
       expect(stripped).toContain("→ done");
       const colors = new Set(
         [...output.matchAll(/<(\w+)>/g)].map((match) => match[1]),
@@ -503,8 +549,23 @@ describe("tool-call-markers grouping", () => {
     second.updateDisplay();
 
     const output = renderPlain(chat);
-    expect(output).toContain("% read: changed.md");
+    expect(output).toContain("• changed.md");
     expect(output).not.toContain("• two.md");
+  });
+
+  test("refreshes a settled singleton after a display update", () => {
+    const chat = new MockContainer();
+    const row = succeeded("read", "before.md");
+    chat.addChild(row);
+    expect(renderPlain(chat)).toContain("before.md → 1 line");
+
+    row.args.label = "after.md";
+    row.result!.output = "first\nsecond";
+    row.updateDisplay();
+
+    const output = renderPlain(chat);
+    expect(output).toContain("after.md → 2 lines");
+    expect(output).not.toContain("before.md");
   });
 
   test("preserves custom and multiline call summaries", () => {
@@ -519,12 +580,24 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain(
-      "% custom: direct-one · detail-one · extra-one · …",
-    );
-    expect(output).toContain(
-      "% custom: direct-two · detail-two · extra-two · …",
-    );
+    expect(output).toContain("% custom");
+    expect(output).toContain("• direct-one · detail-one · extra-one · …");
+    expect(output).toContain("• direct-two · detail-two · extra-two · …");
+  });
+
+  test("preserves a grouped self-rendered title that does not start with the tool name", () => {
+    const chat = new MockContainer();
+    for (const title of ["Deploy production", "Verify production"]) {
+      const row = succeeded("custom", "ignored", "self");
+      row.rendererState = { compactTitle: title };
+      chat.addChild(row);
+    }
+
+    const output = renderPlain(chat);
+    expect(output).toContain("% custom");
+    expect(output).toContain("• Deploy: production");
+    expect(output).not.toContain("• production");
+    expect(output).not.toContain("(no arguments)");
   });
 
   test("keeps grouped bullets to one line and preserves result tails", () => {
@@ -536,7 +609,7 @@ describe("tool-call-markers grouping", () => {
       .render(24)
       .map(stripAnsi)
       .filter((line) => line.trim());
-    const calls = lines.filter((line) => line.includes("% $:"));
+    const calls = lines.filter((line) => line.includes("•"));
     expect(calls).toHaveLength(2);
     expect(calls.every((line) => line.endsWith("→ done"))).toBe(true);
     expect(lines.every((line) => line.length <= 24)).toBe(true);
@@ -551,9 +624,10 @@ describe("tool-call-markers grouping", () => {
 
     const renderedLines = chat.render(100).map(stripAnsi);
     const output = renderedLines.filter((line) => line.trim()).join("\n");
-    expect(output.match(/%/g)).toHaveLength(4);
+    expect(output.match(/%/g)).toHaveLength(2);
+    expect(output.match(/•/g)).toHaveLength(4);
     expect(output).toMatch(
-      /% read: one\.md → 1 line\n\s*% read: two\.md → 1 line\n\s*% write: one\.md → written\n\s*% write: two\.md → written/,
+      /% read\n\s*• one\.md → 1 line\n\s*• two\.md → 1 line\n\s*% write\n\s*• one\.md → written\n\s*• two\.md → written/,
     );
   });
 
@@ -565,8 +639,9 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output.match(/%/g)).toHaveLength(3);
+    expect(output.match(/•/g)).toHaveLength(3);
     expect(output).toMatch(
-      /% \$: first → done\n\s*% read: middle\.md → 1 line\n\s*% \$: last → done/,
+      /% bash\n\s*• \$: first → done\n\s*% read\n\s*• middle\.md → 1 line\n\s*% bash\n\s*• \$: last → done/,
     );
   });
 
@@ -579,16 +654,18 @@ describe("tool-call-markers grouping", () => {
 
     const liveHeight = chat.render(100).length;
     const liveOutput = renderPlain(chat);
-    expect(liveOutput.match(/%/g)).toHaveLength(2);
-    expect(liveOutput).toContain("% read: one.md → 1 line");
-    expect(liveOutput).toContain("% read: two.md …");
+    expect(liveOutput.match(/%/g)).toHaveLength(1);
+    expect(liveOutput.match(/•/g)).toHaveLength(2);
+    expect(liveOutput).toContain("• one.md → 1 line");
+    expect(liveOutput).toContain("• two.md …");
 
     active.updateResult({ isError: false, output: "result:two.md" });
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
-    expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain("% read: one.md → 1 line");
-    expect(output).toContain("% read: two.md → 1 line");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(2);
+    expect(output).toContain("• one.md → 1 line");
+    expect(output).toContain("• two.md → 1 line");
   });
 
   test("keeps a parallel group at the same height while it settles", () => {
@@ -601,15 +678,17 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("edit", "five.ts"));
 
     const liveHeight = chat.render(100).length;
-    expect(renderPlain(chat).match(/%/g)).toHaveLength(5);
+    expect(renderPlain(chat).match(/%/g)).toHaveLength(1);
+    expect(renderPlain(chat).match(/•/g)).toHaveLength(5);
 
     active.updateResult({ isError: false, output: "result:three.ts" });
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
-    expect(output.match(/%/g)).toHaveLength(5);
-    expect(output).toContain("% edit: one.ts → applied");
-    expect(output).toContain("% edit: three.ts → applied");
-    expect(output).toContain("% edit: five.ts → applied");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(5);
+    expect(output).toContain("• one.ts → applied");
+    expect(output).toContain("• three.ts → applied");
+    expect(output).toContain("• five.ts → applied");
   });
 
   test("extends a group when a later quiet-turn call appears", () => {
@@ -622,18 +701,20 @@ describe("tool-call-markers grouping", () => {
 
     const pendingOutput = renderPlain(chat);
     const pendingHeight = chat.render(100).length;
-    expect(pendingOutput.match(/%/g)).toHaveLength(3);
-    expect(pendingOutput).toContain("% edit: one.ts");
-    expect(pendingOutput).toContain("% edit: two.ts");
-    expect(pendingOutput).toContain("% edit: three.ts …");
+    expect(pendingOutput.match(/%/g)).toHaveLength(1);
+    expect(pendingOutput.match(/•/g)).toHaveLength(3);
+    expect(pendingOutput).toContain("• one.ts");
+    expect(pendingOutput).toContain("• two.ts");
+    expect(pendingOutput).toContain("• three.ts …");
 
     active.updateResult({ isError: false, output: "result:three.ts" });
     const settledOutput = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(pendingHeight);
-    expect(settledOutput.match(/%/g)).toHaveLength(3);
-    expect(settledOutput).toContain("% edit: one.ts");
-    expect(settledOutput).toContain("% edit: two.ts");
-    expect(settledOutput).toContain("% edit: three.ts → applied");
+    expect(settledOutput.match(/%/g)).toHaveLength(1);
+    expect(settledOutput.match(/•/g)).toHaveLength(3);
+    expect(settledOutput).toContain("• one.ts");
+    expect(settledOutput).toContain("• two.ts");
+    expect(settledOutput).toContain("• three.ts → applied");
   });
 
   test("merges a later live call across an empty assistant message immediately", () => {
@@ -647,14 +728,15 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(next);
     const liveHeight = chat.render(100).length;
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
-    expect(renderPlain(chat).match(/%/g)).toHaveLength(2);
+    expect(renderPlain(chat).match(/%/g)).toHaveLength(1);
+    expect(renderPlain(chat).match(/•/g)).toHaveLength(2);
 
     next.updateResult({ isError: false, output: "result:two.md" });
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
-    expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain("% read: one.md");
-    expect(output).toContain("% read: two.md");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output).toContain("• one.md");
+    expect(output).toContain("• two.md");
   });
 
   test("can keep same-turn parallel calls individual via environment", () => {
@@ -669,9 +751,10 @@ describe("tool-call-markers grouping", () => {
     sequential.addChild(succeeded("read", "one.md"));
     sequential.addChild(new MockAssistantMessageComponent());
     sequential.addChild(succeeded("read", "two.md"));
-    expect(renderPlain(sequential).match(/%/g)).toHaveLength(2);
-    expect(renderPlain(sequential)).toContain("% read: one.md");
-    expect(renderPlain(sequential)).toContain("% read: two.md");
+    expect(renderPlain(sequential).match(/%/g)).toHaveLength(1);
+    expect(renderPlain(sequential).match(/•/g)).toHaveLength(2);
+    expect(renderPlain(sequential)).toContain("• one.md");
+    expect(renderPlain(sequential)).toContain("• two.md");
   });
 
   test("merges settled batches across empty assistant messages", () => {
@@ -683,9 +766,10 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("read", "four.md"));
 
     const output = renderPlain(chat);
-    expect(output.match(/%/g)).toHaveLength(4);
-    expect(output).toContain("% read: one.md");
-    expect(output).toContain("% read: four.md");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(4);
+    expect(output).toContain("• one.md");
+    expect(output).toContain("• four.md");
   });
 
   test("keeps visible assistant prose as a grouping boundary", () => {
@@ -710,7 +794,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(failed);
     chat.addChild(new MockToolExecutionComponent("read", "pending.md"));
 
-    expect(renderPlain(chat).match(/%/g)).toHaveLength(4);
+    expect(renderPlain(chat).match(/%/g)).toHaveLength(3);
   });
 
   test("caps in-progress rows to their header line", () => {
@@ -772,8 +856,8 @@ describe("tool-call-markers grouping", () => {
     const output = renderPlain(chat);
     // Self-rendered edit rows label by args, show a diff stat, and keep the
     // change visible as a bounded diff block; the call preview is ignored.
-    expect(output).toContain('% edit: {"label":"one.ts"} → +1/-1');
-    expect(output).toContain('% edit: {"label":"two.ts"} → +1/-1');
+    expect(output).toContain('• {"label":"one.ts"} → +1/-1');
+    expect(output).toContain('• {"label":"two.ts"} → +1/-1');
     expect(output).toContain("  +new");
     expect(output).toContain("  -old");
     expect(output).not.toContain("diff header");
@@ -873,9 +957,10 @@ describe("tool-call-markers grouping", () => {
     hiddenChat.addChild(new MockText("   "));
     hiddenChat.addChild(succeeded("read", "two.md"));
     const output = renderPlain(hiddenChat);
-    expect(output.match(/%/g)).toHaveLength(2);
-    expect(output).toContain("% read: one.md");
-    expect(output).toContain("% read: two.md");
+    expect(output.match(/%/g)).toHaveLength(1);
+    expect(output.match(/•/g)).toHaveLength(2);
+    expect(output).toContain("• one.md");
+    expect(output).toContain("• two.md");
   });
 
   test("uses semantic foregrounds without any ordinary tool background", () => {
@@ -925,11 +1010,12 @@ describe("tool-call-markers grouping", () => {
     grouped.addChild(succeeded("read", "one.md"));
     grouped.addChild(succeeded("read", "two.md"));
     const lines = grouped.render(80).map(stripAnsi);
+    expect(lines.find((line) => line.includes("% read"))).toMatch(/^  % read/);
     expect(lines.find((line) => line.includes("one.md"))).toMatch(
-      /^  % read: one\.md/,
+      /^    • one\.md/,
     );
     expect(lines.find((line) => line.includes("two.md"))).toMatch(
-      /^  % read: two\.md/,
+      /^    • two\.md/,
     );
   });
 
@@ -1142,6 +1228,26 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
     expect(renderPlain(chat)).not.toContain("%");
     expect(renderPlain(chat)).toContain("result:future.md");
+  });
+
+  test("keeps presentation and grouping active until the final owner shuts down", () => {
+    for (const handler of shutdownHandlers.splice(0)) handler();
+    sessionHandlers.length = 0;
+    install();
+    install();
+    const [firstShutdown, finalShutdown] = shutdownHandlers.splice(0);
+    const chat = new MockContainer();
+    chat.addChild(succeeded("read", "one.md"));
+    chat.addChild(succeeded("read", "two.md"));
+
+    firstShutdown!();
+    firstShutdown!();
+    expect(renderPlain(chat)).toContain("% read");
+    expect(renderPlain(chat).match(/•/g)).toHaveLength(2);
+
+    finalShutdown!();
+    expect(renderPlain(chat)).not.toContain("%");
+    expect(renderPlain(chat)).toContain("result:one.md");
   });
 
   test("restores native rendering after shutdown", () => {

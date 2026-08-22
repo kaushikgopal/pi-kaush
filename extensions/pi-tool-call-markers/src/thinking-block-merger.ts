@@ -7,17 +7,17 @@ const SPINNER_INTERVAL_MS = 80;
 
 // Visual experiment for the settled "+ Thought" label. "inherit" keeps Pi's
 // native styling (italic + thinkingText); "gray" sits halfway between the
-// muted and text theme colors. The env var overrides the default so the
-// variants can be compared without editing code or republishing.
+// muted and text theme colors; the default rides the theme's mdHeading token
+// (orange in cobalt2, amber in Pi's stock themes), so the label follows the
+// active theme. The env var overrides the default so the variants can be
+// compared without editing code or republishing.
 const THOUGHT_LABEL_COLOR_ENV = "PI_TOOL_CALL_MARKERS_THOUGHT_COLOR";
-type ThoughtLabelColor = "inherit" | "orange" | "gray";
-const DEFAULT_THOUGHT_LABEL_COLOR: ThoughtLabelColor = "orange";
-// cobalt2's orange token (#ffb86c).
-const THOUGHT_LABEL_ORANGE = { r: 255, g: 184, b: 108 };
+type ThoughtLabelColor = "inherit" | "mdheading" | "gray";
+const DEFAULT_THOUGHT_LABEL_COLOR: ThoughtLabelColor = "mdheading";
 
 function thoughtLabelColorChoice(): ThoughtLabelColor {
   const raw = process.env[THOUGHT_LABEL_COLOR_ENV];
-  return raw === "inherit" || raw === "orange" || raw === "gray"
+  return raw === "inherit" || raw === "mdheading" || raw === "gray"
     ? raw
     : DEFAULT_THOUGHT_LABEL_COLOR;
 }
@@ -151,21 +151,23 @@ function updateThoughtLabelStyle(): void {
   const choice = thoughtLabelColorChoice();
   if (choice === "inherit" || !activeTheme) return;
 
-  let rgb: Rgb | undefined;
-  if (choice === "orange") {
-    rgb = THOUGHT_LABEL_ORANGE;
+  let ansi: string | undefined;
+  if (choice === "mdheading") {
+    // The theme already resolves mdHeading for the active color mode, so no
+    // local RGB-to-cube plumbing is needed for the default.
+    ansi = activeTheme.getFgAnsi?.("mdHeading");
   } else if (activeTheme.getFgAnsi) {
     const muted = parseAnsiFgRgb(activeTheme.getFgAnsi("muted"));
     const text = parseAnsiFgRgb(activeTheme.getFgAnsi("text"));
-    if (muted && text) rgb = midpointRgb(muted, text);
+    if (muted && text) ansi = fgRgbAnsi(midpointRgb(muted, text));
   }
-  if (!rgb) return;
+  if (!ansi) return;
 
   // The styled label replaces Pi's italicized Text node wholesale (see
   // restyleHiddenThinkingLabel). The leading italic-off still matters: the
   // TUI's diff renderer can skip bytes shared with the previously drawn
   // italic line, leaving the terminal in italic state otherwise.
-  thoughtLabelPrefix = `\x1b[23m${fgRgbAnsi(rgb)}`;
+  thoughtLabelPrefix = `\x1b[23m${ansi}`;
   thoughtLabelSuffix = "\x1b[39m";
 }
 
@@ -228,6 +230,7 @@ type ThinkingTiming = {
 };
 
 type ThinkingGroupingPatchState = {
+  owners: number;
   originalUpdateContent: (
     message: AssistantMessageLike,
     ...args: unknown[]
@@ -367,9 +370,13 @@ function installThinkingGroupingPatch():
     if (!proto || typeof proto.updateContent !== "function") return undefined;
 
     const existing = proto[THINKING_GROUPING_PATCHED];
-    if (existing) return existing;
+    if (existing) {
+      existing.owners++;
+      return existing;
+    }
 
     const state: ThinkingGroupingPatchState = {
+      owners: 1,
       originalUpdateContent: proto.updateContent,
       timings: new WeakMap(),
     };
@@ -414,8 +421,10 @@ function installThinkingGroupingPatch():
 
 function uninstallThinkingGroupingPatch(
   state: ThinkingGroupingPatchState | undefined,
-): void {
-  if (!state) return;
+): boolean {
+  if (!state || state.owners <= 0) return false;
+  state.owners--;
+  if (state.owners > 0) return false;
   const proto =
     AssistantMessageComponent?.prototype as unknown as AssistantMessageRow & {
       [THINKING_GROUPING_PATCHED]?: ThinkingGroupingPatchState;
@@ -428,23 +437,27 @@ function uninstallThinkingGroupingPatch(
     proto[THINKING_GROUPING_PATCHED] !== state ||
     proto.updateContent !== state.patchedUpdateContent
   ) {
-    return;
+    return true;
   }
   proto.updateContent = state.originalUpdateContent;
   delete proto[THINKING_GROUPING_PATCHED];
+  return true;
 }
 
 export default function (pi: ExtensionAPI) {
   const patch = installThinkingGroupingPatch();
+  let released = false;
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     activeTheme = ctx.ui.theme as unknown as ThemeDetail;
     updateThoughtLabelStyle();
   });
   pi.on("session_shutdown", () => {
+    if (released) return;
+    released = true;
+    if (patch && !uninstallThinkingGroupingPatch(patch)) return;
     activeTheme = undefined;
     thoughtLabelPrefix = "";
     thoughtLabelSuffix = "";
-    uninstallThinkingGroupingPatch(patch);
   });
 }

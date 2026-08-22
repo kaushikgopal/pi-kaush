@@ -186,6 +186,7 @@ function renderBashBlockLines(
 type BashRow = { status?: unknown };
 
 type BashBlockPatchState = {
+  owners: number;
   theme?: ThemeLike;
   cache: WeakMap<object, { width: number; src: string[]; lines: string[] }>;
   originalRender: (width: number) => string[];
@@ -207,9 +208,13 @@ function installBashBlockPatch(): BashBlockPatchState | undefined {
     if (!proto || typeof proto.render !== "function") return undefined;
 
     const existing = proto[BASH_BLOCK_PATCHED];
-    if (existing) return existing;
+    if (existing) {
+      existing.owners++;
+      return existing;
+    }
 
     const state: BashBlockPatchState = {
+      owners: 1,
       cache: new WeakMap(),
       originalRender: proto.render,
     };
@@ -265,7 +270,9 @@ function installBashBlockPatch(): BashBlockPatchState | undefined {
 }
 
 function uninstallBashBlockPatch(state: BashBlockPatchState | undefined): void {
-  if (!state) return;
+  if (!state || state.owners <= 0) return;
+  state.owners--;
+  if (state.owners > 0) return;
   const proto = BashExecutionComponent?.prototype as unknown as BashRow & {
     [BASH_BLOCK_PATCHED]?: BashBlockPatchState;
     render?: (width: number) => string[];
