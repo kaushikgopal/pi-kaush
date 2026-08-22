@@ -32,12 +32,8 @@ interface ModelReference {
   id: string;
 }
 
-export interface AgentModelSpec {
-  model: string;
-  thinkingLevel?: ThinkingLevel;
-}
-
 export { parseAgentModelSpec };
+export type { AgentModelSpec } from "./model-spec.ts";
 
 // Durable session state is namespaced so it cannot collide with other
 // packages. Legacy Aikado sessions wrote `active-agent-state`; restore reads
@@ -65,6 +61,42 @@ interface ActiveAgentState {
   active: boolean;
   name?: string;
   baseline?: AgentBaseline;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isActiveAgentState(value: unknown): value is ActiveAgentState {
+  if (!isPlainObject(value) || typeof value.active !== "boolean") return false;
+  if (
+    value.active &&
+    (typeof value.name !== "string" || value.name.length === 0)
+  )
+    return false;
+
+  if (value.baseline !== undefined) {
+    if (!isPlainObject(value.baseline)) return false;
+    if (typeof value.baseline.thinkingLevel !== "string") return false;
+    if (
+      !Array.isArray(value.baseline.tools) ||
+      !value.baseline.tools.every((tool) => typeof tool === "string")
+    )
+      return false;
+
+    if (value.baseline.model !== undefined) {
+      if (
+        !isPlainObject(value.baseline.model) ||
+        typeof value.baseline.model.provider !== "string" ||
+        typeof value.baseline.model.id !== "string"
+      )
+        return false;
+    }
+  }
+
+  return true;
 }
 
 export function registerAgentMode(pi: ExtensionAPI) {
@@ -197,8 +229,12 @@ export function registerAgentMode(pi: ExtensionAPI) {
         return false;
       }
       thinkingLevel = modelSpec.thinkingLevel ?? baseline.thinkingLevel;
-    } else {
-      await restoreModel(baseline.model, ctx);
+    } else if (!(await restoreModel(baseline.model, ctx))) {
+      ctx.ui.notify(
+        `Agent ${formatAgentDisplayName(agent)}: could not restore the baseline model; activation aborted.`,
+        "error",
+      );
+      return false;
     }
 
     pi.setThinkingLevel(thinkingLevel);
@@ -215,15 +251,17 @@ export function registerAgentMode(pi: ExtensionAPI) {
       return;
     }
 
-    await restoreModel(activeAgent.baseline.model, ctx);
+    const modelRestored = await restoreModel(activeAgent.baseline.model, ctx);
     pi.setThinkingLevel(activeAgent.baseline.thinkingLevel);
     pi.setActiveTools(activeAgent.baseline.tools);
     activeAgent = undefined;
     updateAgentStatus(ctx);
     persistActiveAgent();
     ctx.ui.notify(
-      "Active agent cleared; previous model and tools restored.",
-      "info",
+      modelRestored
+        ? "Active agent cleared; previous model and tools restored."
+        : "Active agent cleared, but the previous model could not be restored.",
+      modelRestored ? "info" : "warning",
     );
   }
 
@@ -285,14 +323,37 @@ export function registerAgentMode(pi: ExtensionAPI) {
           );
         } else {
           const items = buildAgentPickerItems(agents, activeAgent?.agent.name);
-          const labels = items.map(
+          const baseLabels = items.map(
             (item) => `${item.label} — ${item.description}`,
           );
+          const labelCounts = new Map<string, number>();
+          for (const label of baseLabels) {
+            labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+          }
+          const labels = baseLabels.map((label, index) =>
+            labelCounts.get(label)! > 1
+              ? `${label} [${items[index]!.value}]`
+              : label,
+          );
           const choice = await ctx.ui.select("Activate agent:", labels);
-          picked =
-            choice === undefined
-              ? null
-              : (items[labels.indexOf(choice)]?.value ?? null);
+          if (choice === undefined) {
+            picked = null;
+          } else {
+            const firstMatch = labels.indexOf(choice);
+            if (
+              firstMatch !== -1 &&
+              labels.lastIndexOf(choice) !== firstMatch
+            ) {
+              ctx.ui.notify(
+                "That selection matches more than one agent; rename one of the duplicates.",
+                "warning",
+              );
+              picked = null;
+            } else {
+              picked =
+                firstMatch === -1 ? null : (items[firstMatch]?.value ?? null);
+            }
+          }
         }
         if (!picked) return;
         if (picked === NONE_VALUE) {
@@ -323,7 +384,8 @@ export function registerAgentMode(pi: ExtensionAPI) {
       .filter(
         (entry): entry is CustomEntry<ActiveAgentState> =>
           entry.type === "custom" &&
-          ACTIVE_AGENT_STATE_TYPES.includes(entry.customType),
+          ACTIVE_AGENT_STATE_TYPES.includes(entry.customType) &&
+          isActiveAgentState(entry.data),
       )
       .pop();
     const state = stateEntry?.data;

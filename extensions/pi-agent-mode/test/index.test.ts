@@ -31,7 +31,14 @@ vi.doMock("@earendil-works/pi-coding-agent", () => ({
           ? true
           : raw === "false"
             ? false
-            : raw.replace(/^["']|["']$/g, "");
+            : /^\[.*\]$/.test(raw)
+              ? raw
+                  .slice(1, -1)
+                  .split(",")
+                  .map((value) => value.trim())
+              : /^-?\d+(\.\d+)?$/.test(raw)
+                ? Number(raw)
+                : raw.replace(/^["']|["']$/g, "");
     }
     return {
       frontmatter: frontmatter as T,
@@ -58,9 +65,13 @@ interface PiHarness {
   notifications: Array<[string, string]>;
   statuses: Array<[string, string | undefined]>;
   confirmCalls: number;
+  beforeAgentStart(systemPrompt: string): any;
+  removeModel(id: string): void;
   setAuthUnavailable(value: boolean): void;
   setConfirmResult(value: boolean): void;
+  setCurrentModel(id: string): void;
   setHasUI(value: boolean): void;
+  setSelectResult(value: string | undefined): void;
   sessionStart(): Promise<void>;
   sessionShutdown(): void;
   state(): { model: string; thinkingLevel: string; activeTools: string[] };
@@ -111,6 +122,7 @@ function createHarness(root: string, branch: any[] = []): PiHarness {
   let authUnavailable = false;
   let confirmResult = true;
   let hasUI = false;
+  let selectResult: string | undefined;
   const entries: Array<{ type: string; data?: unknown }> = [];
   const notifications: Array<[string, string]> = [];
   const statuses: Array<[string, string | undefined]> = [];
@@ -136,7 +148,7 @@ function createHarness(root: string, branch: any[] = []): PiHarness {
         confirmCalls++;
         return confirmResult;
       },
-      select: async () => undefined,
+      select: async () => selectResult,
       theme: {
         bold: (value: string) => value,
         fg: (_color: string, value: string) => value,
@@ -194,14 +206,30 @@ function createHarness(root: string, branch: any[] = []): PiHarness {
     get confirmCalls() {
       return confirmCalls;
     },
+    beforeAgentStart(systemPrompt: string) {
+      return handlers.get("before_agent_start")!({ systemPrompt }, ctx);
+    },
+    removeModel(id: string) {
+      const index = models.findIndex((model) => model.id === id);
+      if (index !== -1) models.splice(index, 1);
+    },
     setAuthUnavailable(value: boolean) {
       authUnavailable = value;
     },
     setConfirmResult(value: boolean) {
       confirmResult = value;
     },
+    setCurrentModel(id: string) {
+      const model = models.find((candidate) => candidate.id === id);
+      if (!model) throw new Error(`Unknown model: ${id}`);
+      currentModel = model;
+      ctx.model = model;
+    },
     setHasUI(value: boolean) {
       ctx.hasUI = value;
+    },
+    setSelectResult(value: string | undefined) {
+      selectResult = value;
     },
     sessionStart: async () => {
       await handlers.get("session_start")!(undefined, ctx);
@@ -418,6 +446,82 @@ describe("pi-agent-mode", () => {
     }
   });
 
+  test("aborts restoring a no-model agent when its baseline model is unavailable", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      const dir = join(root, "home", ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "plain.md"),
+        `---\nname: plain\ndescription: plain agent\ntools: read\n---\nWrite plainly.\n`,
+      );
+      const branch = [
+        {
+          id: "ns-1",
+          type: "custom",
+          customType: PI_AGENT_MODE_STATE_TYPE,
+          data: {
+            active: true,
+            name: "plain",
+            baseline: {
+              model: { provider: "provider", id: "baseline" },
+              thinkingLevel: "medium",
+              tools: ["read", "bash"],
+            },
+          },
+        },
+      ];
+      const harness = createHarness(root, branch);
+      harness.setCurrentModel("target");
+      harness.removeModel("baseline");
+
+      await harness.sessionStart();
+
+      expect(harness.state()).toMatchObject({ model: "target" });
+      expect(harness.beforeAgentStart("Base prompt")).toBeUndefined();
+      expect(harness.entries).toHaveLength(0);
+      expect(harness.notifications).toContainEqual([
+        "Agent plain: could not restore the baseline model; activation aborted.",
+        "error",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("clears agent state with a warning when its baseline model is unavailable", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      writeAgent(
+        join(root, "home", ".pi", "agents"),
+        "thinker",
+        "provider/target:high",
+      );
+      const harness = createHarness(root);
+      await harness.activate("thinker");
+      harness.removeModel("baseline");
+
+      await harness.activate("none");
+
+      expect(harness.state()).toEqual({
+        model: "target",
+        thinkingLevel: "medium",
+        activeTools: ["read", "bash"],
+      });
+      expect(harness.entries.at(-1)).toEqual({
+        type: PI_AGENT_MODE_STATE_TYPE,
+        data: { active: false },
+      });
+      expect(harness.statuses.at(-1)).toEqual(["active-agent", undefined]);
+      expect(harness.notifications).toContainEqual([
+        "Active agent cleared, but the previous model could not be restored.",
+        "warning",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("clears with both none and off", async () => {
     const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
     try {
@@ -445,6 +549,33 @@ describe("pi-agent-mode", () => {
         model: "baseline",
         thinkingLevel: "medium",
       });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ignores malformed scalar frontmatter without aborting discovery", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      const dir = join(root, "home", ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "array-tools.md"),
+        `---\nname: array-tools\ndescription: array tools agent\nmodel: provider/plain\ntools: [read, grep]\n---\nArray tools.\n`,
+      );
+      writeFileSync(
+        join(dir, "numeric-emoji.md"),
+        `---\nname: numeric-emoji\ndescription: numeric emoji agent\nmodel: provider/plain\nemoji: 42\n---\nNumeric emoji.\n`,
+      );
+      writeAgent(dir, "valid", "provider/target");
+      const harness = createHarness(root);
+
+      await harness.activate("array-tools");
+      expect(harness.state()).toMatchObject({ model: "plain" });
+      await harness.activate("numeric-emoji");
+      expect(harness.state()).toMatchObject({ model: "plain" });
+      await harness.activate("valid");
+      expect(harness.state()).toMatchObject({ model: "target" });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -580,6 +711,107 @@ describe("pi-agent-mode", () => {
         model: "target",
         thinkingLevel: "high",
       });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("skips malformed persisted agent state entries", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      const malformedEntries = [
+        {
+          id: "bad-name",
+          type: "custom",
+          customType: PI_AGENT_MODE_STATE_TYPE,
+          data: { active: true, name: 42 },
+        },
+        {
+          id: "bad-tools",
+          type: "custom",
+          customType: PI_AGENT_MODE_STATE_TYPE,
+          data: {
+            active: true,
+            name: "plain",
+            baseline: {
+              thinkingLevel: "medium",
+              tools: "read,bash",
+            },
+          },
+        },
+      ];
+      const harness = createHarness(root, malformedEntries);
+
+      await expect(harness.sessionStart()).resolves.toBeUndefined();
+      expect(harness.beforeAgentStart("Base prompt")).toBeUndefined();
+      expect(harness.statuses.at(-1)).toEqual(["active-agent", undefined]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("disambiguates duplicate non-TUI labels by agent value", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      const dir = join(root, "home", ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "first.md"),
+        `---\nname: beta\ndescription: same agent\nemoji: x alpha\nmodel: provider/plain\n---\nFirst.\n`,
+      );
+      writeFileSync(
+        join(dir, "second.md"),
+        `---\nname: alpha beta\ndescription: same agent\nemoji: x\nmodel: provider/target\n---\nSecond.\n`,
+      );
+      const harness = createHarness(root);
+      harness.setHasUI(true);
+      harness.setSelectResult("x alpha beta — same agent [alpha beta]");
+
+      await harness.activate("");
+
+      expect(harness.state()).toMatchObject({ model: "target" });
+      expect(harness.notifications).toContainEqual([
+        "Active agent: x alpha beta",
+        "info",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("cancels an ambiguous non-TUI label collision", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      const dir = join(root, "home", ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "first.md"),
+        `---\nname: beta\ndescription: same agent\nemoji: x alpha\nmodel: provider/plain\n---\nFirst.\n`,
+      );
+      writeFileSync(
+        join(dir, "second.md"),
+        `---\nname: alpha beta\ndescription: same agent\nemoji: x\nmodel: provider/target\n---\nSecond.\n`,
+      );
+      writeFileSync(
+        join(dir, "collision.md"),
+        `---\nname: x alpha beta\ndescription: same agent [beta]\nmodel: provider/target\n---\nCollision.\n`,
+      );
+      const harness = createHarness(root);
+      harness.setHasUI(true);
+      harness.setSelectResult("x alpha beta — same agent [beta]");
+
+      await harness.activate("");
+
+      expect(harness.state()).toEqual({
+        model: "baseline",
+        thinkingLevel: "medium",
+        activeTools: ["read", "bash"],
+      });
+      expect(harness.entries).toHaveLength(0);
+      expect(harness.notifications).toContainEqual([
+        "That selection matches more than one agent; rename one of the duplicates.",
+        "warning",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

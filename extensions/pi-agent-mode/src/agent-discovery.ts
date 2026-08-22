@@ -82,31 +82,46 @@ function loadAgentsFromDir(
       continue;
     }
 
-    const { frontmatter, body } = parseFrontmatter<AgentFrontmatter>(content);
+    try {
+      const { frontmatter, body } = parseFrontmatter<AgentFrontmatter>(content);
+      const name =
+        typeof frontmatter.name === "string" ? frontmatter.name : undefined;
+      const description =
+        typeof frontmatter.description === "string"
+          ? frontmatter.description
+          : undefined;
+      if (!name || !description) continue;
 
-    if (!frontmatter.name || !frontmatter.description) {
+      const tools =
+        typeof frontmatter.tools === "string"
+          ? frontmatter.tools
+              .split(",")
+              .map((tool) => tool.trim())
+              .filter(Boolean)
+          : undefined;
+      const emoji =
+        typeof frontmatter.emoji === "string"
+          ? frontmatter.emoji.trim()
+          : undefined;
+      const model =
+        typeof frontmatter.model === "string" ? frontmatter.model : undefined;
+
+      agents.push({
+        name,
+        description,
+        ...(emoji ? { emoji } : {}),
+        ...(tools && tools.length > 0 ? { tools } : {}),
+        ...(model ? { model } : {}),
+        ...(typeof frontmatter.confirmProjectAgents === "boolean"
+          ? { confirmProjectAgents: frontmatter.confirmProjectAgents }
+          : {}),
+        systemPrompt: body,
+        source,
+        filePath,
+      });
+    } catch {
       continue;
     }
-
-    const tools = frontmatter.tools
-      ?.split(",")
-      .map((t: string) => t.trim())
-      .filter(Boolean);
-
-    const emoji = frontmatter.emoji?.trim();
-    agents.push({
-      name: frontmatter.name,
-      description: frontmatter.description,
-      ...(emoji ? { emoji } : {}),
-      ...(tools && tools.length > 0 ? { tools } : {}),
-      ...(frontmatter.model ? { model: frontmatter.model } : {}),
-      ...(typeof frontmatter.confirmProjectAgents === "boolean"
-        ? { confirmProjectAgents: frontmatter.confirmProjectAgents }
-        : {}),
-      systemPrompt: body,
-      source,
-      filePath,
-    });
   }
 
   return agents;
