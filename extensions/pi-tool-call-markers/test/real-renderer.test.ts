@@ -1339,7 +1339,7 @@ describe("composition with pi-content-layout", () => {
         if (event === "session_shutdown") shutdowns.push(handler);
       },
       registerMessageRenderer() {},
-    } as ExtensionAPI;
+    } as unknown as ExtensionAPI;
     const ctx = {
       mode: "tui",
       ui: {
