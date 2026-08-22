@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import {
   chmodSync,
-  existsSync,
+  lstatSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -47,6 +47,7 @@ import {
   clearPin,
   type ProfilePin,
 } from "./core/profile.ts";
+import { splitNdjsonFrames } from "./core/ndjson.ts";
 
 const SOCKET_PATH =
   process.env["PI_BROWSER_SOCKET"] ??
@@ -229,10 +230,8 @@ interface ListedPage {
   active: boolean;
 }
 
-const listPages = async (): Promise<ListedPage[]> => {
-  const b = await getBrowser();
-  const pages = await b.pages();
-  return Promise.all(
+const describePages = async (pages: Page[]): Promise<ListedPage[]> =>
+  Promise.all(
     pages.map(async (page, index) => ({
       index,
       url: page.url(),
@@ -241,13 +240,18 @@ const listPages = async (): Promise<ListedPage[]> => {
       active: page === current,
     })),
   );
+
+const listPages = async (): Promise<ListedPage[]> => {
+  const pages = await (await getBrowser()).pages();
+  return describePages(pages);
 };
 
 const findOwned = async (match: {
   index?: number;
   url?: string;
 }): Promise<Page> => {
-  const listed = await listPages();
+  const pages = await (await getBrowser()).pages();
+  const listed = await describePages(pages);
   const owned = listed.filter((p) => p.owned);
   const hit =
     match.index !== undefined
@@ -262,7 +266,6 @@ const findOwned = async (match: {
       `no owned tab matches ${JSON.stringify(match)} — owned tabs:\n${choices}`,
     );
   }
-  const pages = await (await getBrowser()).pages();
   const page = pages[hit.index];
   if (!page) throw new Error(`tab index ${hit.index} no longer exists`);
   if (!ownedPages.has(page))
@@ -554,6 +557,12 @@ const handle = async (
       throw new Error(`unknown method: ${method}`);
   }
 };
+interface SocketIdentity {
+  dev: number;
+  ino: number;
+}
+
+let socketIdentity: SocketIdentity | null = null;
 
 // ---------------------------------------------------------------- server
 
@@ -568,10 +577,19 @@ const closeOwnedAndExit = async (reason: string): Promise<void> => {
   }
   ownedPages.clear();
   if (browser?.connected) browser.disconnect();
-  try {
-    unlinkSync(SOCKET_PATH);
-  } catch {
-    // already gone
+  if (socketIdentity) {
+    try {
+      const stat = lstatSync(SOCKET_PATH);
+      if (
+        stat.isSocket() &&
+        stat.dev === socketIdentity.dev &&
+        stat.ino === socketIdentity.ino
+      ) {
+        unlinkSync(SOCKET_PATH);
+      }
+    } catch {
+      // already gone or replaced
+    }
   }
   process.exit(0);
 };
@@ -590,22 +608,22 @@ const shutdown = (reason: string): void => {
 
 const main = async (): Promise<void> => {
   loadSessions();
-  if (existsSync(SOCKET_PATH)) {
-    // Stale socket from a dead daemon.
-    try {
-      unlinkSync(SOCKET_PATH);
-    } catch {
-      // in use; another daemon owns it
-    }
-  }
   const server = net.createServer((sock) => {
     let buffer = "";
     sock.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
-      let nl: number;
-      while ((nl = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
+      let frames: string[];
+      try {
+        const split = splitNdjsonFrames(buffer);
+        frames = split.frames;
+        buffer = split.remainder;
+      } catch {
+        buffer = "";
+        sock.destroy();
+        return;
+      }
+
+      for (const line of frames) {
         if (!line.trim()) continue;
         resetIdle();
         void (async () => {
@@ -634,10 +652,33 @@ const main = async (): Promise<void> => {
     });
   });
   await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(SOCKET_PATH, () => resolve());
+    const previousUmask = process.umask(0o077);
+    let restored = false;
+    const restoreUmask = (): void => {
+      if (restored) return;
+      restored = true;
+      process.umask(previousUmask);
+    };
+    const onError = (error: Error): void => {
+      restoreUmask();
+      reject(error);
+    };
+    server.once("error", onError);
+    try {
+      server.listen(SOCKET_PATH, () => {
+        server.off("error", onError);
+        restoreUmask();
+        resolve();
+      });
+    } catch (error) {
+      server.off("error", onError);
+      restoreUmask();
+      reject(error);
+    }
   });
   chmodSync(SOCKET_PATH, 0o600);
+  const stat = lstatSync(SOCKET_PATH);
+  socketIdentity = { dev: stat.dev, ino: stat.ino };
   resetIdle();
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
