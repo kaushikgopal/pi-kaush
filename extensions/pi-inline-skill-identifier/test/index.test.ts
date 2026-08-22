@@ -137,6 +137,10 @@ describe("inline skill discovery", () => {
     expect(referencedSkills("Skip $review-my.", new Set(["review"]))).toEqual(
       [],
     );
+    expect(referencedSkills("Skip $reviewX.", new Set(["review"]))).toEqual([]);
+    expect(referencedSkills("Skip $review_name.", new Set(["review"]))).toEqual(
+      [],
+    );
     expect(
       referencedSkills(`Use $${longestName}.`, new Set([longestName])),
     ).toEqual([longestName]);
@@ -177,6 +181,8 @@ describe("inline skill input", () => {
     const harness = createHarness([{ name: "skill:review", source: "skill" }]);
 
     expect(harness.input("Use $review-my.")).toEqual({ action: "continue" });
+    expect(harness.input("Use $reviewX.")).toEqual({ action: "continue" });
+    expect(harness.input("Use $review_name.")).toEqual({ action: "continue" });
   });
 
   test("keeps input routing active outside TUI mode", () => {
@@ -295,8 +301,25 @@ describe("inline skill highlighting", () => {
   });
 
   test("does not color a known skill that only prefixes a longer token", () => {
-    const original = "Use $review-my and $reviewing.";
+    const original = "Use $review-my, $reviewing, $reviewX, and $review_name.";
     expect(colorizeSkillAliases(original, ["review"])).toBe(original);
+  });
+
+  test("restores the active foreground after a highlighted alias", () => {
+    const original = "\x1b[36mUse $review after\x1b[39m";
+    const colored = colorizeSkillAliases(original, ["review"]);
+
+    expect(tuiMock.visibleWidth(colored)).toBe(tuiMock.visibleWidth(original));
+    expect(colored).toContain("\x1b[38;2;251;148;255m$review\x1b[36m after");
+    expect(colored.endsWith("\x1b[39m")).toBe(true);
+  });
+
+  test("ignores compound background colors when restoring the foreground", () => {
+    const original = "\x1b[36mUse \x1b[48;2;30;40;50m$review end";
+    const colored = colorizeSkillAliases(original, ["review"]);
+
+    expect(tuiMock.visibleWidth(colored)).toBe(tuiMock.visibleWidth(original));
+    expect(colored).toContain("\x1b[38;2;251;148;255m$review\x1b[36m end");
   });
 
   test("patches the editor once across session reloads", () => {

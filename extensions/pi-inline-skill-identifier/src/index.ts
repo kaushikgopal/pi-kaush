@@ -15,7 +15,7 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 
-const SKILL_TOKEN_END = "(?![a-z0-9-])";
+const SKILL_TOKEN_END = "(?![A-Za-z0-9_-])";
 const SKILL_ALIAS_RE = new RegExp(
   `\\$([a-z0-9][a-z0-9-]{0,63})${SKILL_TOKEN_END}`,
   "g",
@@ -39,6 +39,50 @@ const FG_RESET = "\x1b[39m";
 
 function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function activeForegroundAnsi(text: string): string {
+  const sgrPattern = /\x1b\[([0-9;]*)m/g;
+  let foreground = FG_RESET;
+
+  for (const match of text.matchAll(sgrPattern)) {
+    const parameters = match[1] === "" ? [0] : match[1]!.split(";").map(Number);
+
+    for (let index = 0; index < parameters.length; index += 1) {
+      const parameter = parameters[index];
+      if (parameter === 0 || parameter === 39) {
+        foreground = FG_RESET;
+      } else if (
+        (parameter !== undefined && parameter >= 30 && parameter <= 37) ||
+        (parameter !== undefined && parameter >= 90 && parameter <= 97)
+      ) {
+        foreground = `\x1b[${parameter}m`;
+      } else if (
+        (parameter === 38 || parameter === 48) &&
+        parameters[index + 1] === 5
+      ) {
+        const color = parameters[index + 2];
+        if (color !== undefined) {
+          if (parameter === 38) foreground = `\x1b[38;5;${color}m`;
+          index += 2;
+        }
+      } else if (
+        (parameter === 38 || parameter === 48) &&
+        parameters[index + 1] === 2
+      ) {
+        const red = parameters[index + 2];
+        const green = parameters[index + 3];
+        const blue = parameters[index + 4];
+        if (red !== undefined && green !== undefined && blue !== undefined) {
+          if (parameter === 38)
+            foreground = `\x1b[38;2;${red};${green};${blue}m`;
+          index += 4;
+        }
+      }
+    }
+  }
+
+  return foreground;
 }
 
 type PiCommand = ReturnType<ExtensionAPI["getCommands"]>[number];
@@ -161,17 +205,15 @@ export function colorizeSkillAliases(
 ): string {
   if (skillNames.length === 0 || !line.includes("$")) return line;
 
-  // Longest-first so a shorter skill that prefixes a longer one (for example,
-  // `review` vs `review-my`) cannot leave the suffix uncolored.
-  const alternatives = [...skillNames]
-    .sort((a, b) => b.length - a.length)
-    .map(escapeRegex)
-    .join("|");
+  const alternatives = skillNames.map(escapeRegex).join("|");
+  // Matches against the ANSI-encoded render line: an escape sequence starting
+  // mid-token (for example, selection styling) can break the visible-token
+  // boundary. Accepted limitation; plain-text tokens match completely.
   const pattern = new RegExp(`\\$(${alternatives})${SKILL_TOKEN_END}`, "g");
-  const colored = line.replace(
-    pattern,
-    (match) => `${PURPLE}${match}${FG_RESET}`,
-  );
+  const colored = line.replace(pattern, (match, _name, offset) => {
+    const foreground = activeForegroundAnsi(line.slice(0, offset));
+    return `${PURPLE}${match}${foreground}`;
+  });
   return visibleWidth(colored) === visibleWidth(line) ? colored : line;
 }
 
