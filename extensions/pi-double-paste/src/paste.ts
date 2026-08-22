@@ -35,8 +35,8 @@ export function normalizePaste(text: string): string {
 
 export function isLongPaste(text: string): boolean {
   return (
-    text.split("\n").length > LONG_PASTE_MAX_LINES ||
-    text.length > LONG_PASTE_MAX_CHARS
+    text.length > LONG_PASTE_MAX_CHARS ||
+    text.split("\n").length > LONG_PASTE_MAX_LINES
   );
 }
 

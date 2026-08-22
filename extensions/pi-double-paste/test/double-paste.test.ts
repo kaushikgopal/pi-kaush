@@ -145,6 +145,19 @@ describe("double paste expansion", () => {
     expect(editor.setCalls).toEqual([]);
   });
 
+  test("measures expiration from first-paste observation", () => {
+    const { handler, flush, advance, editor } = setup(100);
+    const content = longPaste();
+
+    expect(handler(envelope(content))).toBeUndefined();
+    editor.stockPaste(content);
+    advance(101);
+    flush();
+
+    expect(handler(envelope(content))).toBeUndefined();
+    expect(editor.setCalls).toEqual([]);
+  });
+
   test("fails open and warns once when expansion cannot write", () => {
     const { deliver, editor, warn } = setup();
     const content = longPaste();

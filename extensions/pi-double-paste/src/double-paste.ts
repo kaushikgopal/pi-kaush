@@ -12,7 +12,7 @@ type TerminalInputResult = { consume?: boolean; data?: string } | undefined;
 type Candidate = {
   pasteFingerprint: string;
   editorFingerprint: string;
-  armedAt: number;
+  observedAt: number;
 };
 
 export interface EditorTextApi {
@@ -61,7 +61,7 @@ export function createDoublePasteHandler(
     const pasteFingerprint = fingerprint(normalizedPaste);
     const observedAt = now();
 
-    if (candidate && observedAt - candidate.armedAt > windowMs) {
+    if (candidate && observedAt - candidate.observedAt > windowMs) {
       candidate = undefined;
     }
 
@@ -109,7 +109,7 @@ export function createDoublePasteHandler(
         candidate = {
           pasteFingerprint,
           editorFingerprint: fingerprint(editorTextAfterPaste),
-          armedAt: now(),
+          observedAt,
         };
       } catch {
         candidate = undefined;
