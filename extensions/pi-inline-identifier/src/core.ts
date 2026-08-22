@@ -52,7 +52,6 @@ export type InlineIdentifierFeature = {
 
 type Coordinator = {
   features: Map<InlineIdentifierKind, InlineIdentifierFeature>;
-  installed: boolean;
   decorationOwner: object;
 };
 
@@ -118,6 +117,7 @@ function debouncePattern(characters: string[]): RegExp {
 function patchEditorPrototype(
   prototype: EditorPrototype,
   state: DecorationState,
+  suppressNestedDecoration = false,
 ): void {
   const patched = state.patchedPrototypes ?? new WeakSet<object>();
   state.patchedPrototypes = patched;
@@ -127,8 +127,20 @@ function patchEditorPrototype(
   prototype.render = function renderWithInlineIdentifiers(
     width: number,
   ): string[] {
-    const lines = originalRender.call(this, width);
-    return decorationState().decorateLines?.(lines) ?? lines;
+    const currentState = decorationState();
+    const decorateLines = currentState.decorateLines;
+    if (!decorateLines) return originalRender.call(this, width);
+
+    if (!suppressNestedDecoration) {
+      return decorateLines(originalRender.call(this, width));
+    }
+
+    delete currentState.decorateLines;
+    try {
+      return decorateLines(originalRender.call(this, width));
+    } finally {
+      currentState.decorateLines = decorateLines;
+    }
   };
 
   // Pi reserves `/` for command completion and normally drops it from custom
@@ -165,10 +177,22 @@ function installEditorRenderPatch(): void {
 
   // CustomEditor can inherit from a host-owned pi-tui copy while extensions
   // resolve their peer pi-tui from a different path. Patch that distinct
-  // prototype too; when both resolve to one class, the base patch is enough.
+  // prototype too. An inherited own override also needs an outer wrapper so
+  // identifiers added after super.render are included in the final decoration.
   const customPrototype = CustomEditor.prototype as unknown as EditorPrototype;
-  if (!Editor.prototype.isPrototypeOf(CustomEditor.prototype)) {
-    patchEditorPrototype(customPrototype, state);
+  const customInheritsEditor = Editor.prototype.isPrototypeOf(
+    CustomEditor.prototype,
+  );
+  const customHasOwnRender = Object.prototype.hasOwnProperty.call(
+    CustomEditor.prototype,
+    "render",
+  );
+  if (!customInheritsEditor || customHasOwnRender) {
+    patchEditorPrototype(
+      customPrototype,
+      state,
+      customInheritsEditor && customHasOwnRender,
+    );
   }
 }
 
@@ -297,8 +321,6 @@ function referencedDefinitions(
 }
 
 function installCoordinator(pi: ExtensionAPI, coordinator: Coordinator): void {
-  coordinator.installed = true;
-
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
 
@@ -371,7 +393,6 @@ export function registerInlineIdentifierFeature(
 
   const coordinator: Coordinator = {
     features: new Map([[feature.kind, feature]]),
-    installed: false,
     decorationOwner: {},
   };
   pi.events.on(REGISTRATION_CHANNEL, (candidate: unknown) => {
