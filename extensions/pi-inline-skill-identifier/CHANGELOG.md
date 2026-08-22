@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Source `$skill` highlighting from the theme's mdLink token instead of a
+  hardcoded pastel hex; uncolored without a TUI theme.
 - Suggest loaded skills through Pi's native autocomplete while typing `$skill-name` aliases.
 - Require complete skill-token matches instead of matching known skill prefixes.
 - Scope editor decoration state to active TUI sessions and refresh discovered skills during rendering.

@@ -149,6 +149,7 @@ function createHarness(options: HarnessOptions) {
       addAutocompleteProvider(factory: (current: any) => any) {
         autocompleteProvider = factory(currentAutocomplete);
       },
+      theme: { getFgAnsi: () => "\x1b[35m" },
     },
   };
 
@@ -439,14 +440,15 @@ describe("inline agent autocomplete", () => {
 describe("inline agent highlighting", () => {
   test("colors known aliases without changing visible width", () => {
     const original = "Use &reviewer-fast, &reviewer, and &unknown.";
-    const colored = colorizeAgentAliases(original, [
-      "reviewer",
-      "reviewer-fast",
-    ]);
+    const colored = colorizeAgentAliases(
+      original,
+      ["reviewer", "reviewer-fast"],
+      "\x1b[35m",
+    );
 
     expect(tuiMock.visibleWidth(colored)).toBe(tuiMock.visibleWidth(original));
-    expect(colored).toContain("\x1b[38;2;125;211;252m&reviewer-fast\x1b[39m");
-    expect(colored).toContain("\x1b[38;2;125;211;252m&reviewer\x1b[39m");
+    expect(colored).toContain("\x1b[35m&reviewer-fast\x1b[39m");
+    expect(colored).toContain("\x1b[35m&reviewer\x1b[39m");
     expect(colored).toContain("&unknown");
   });
 
@@ -455,7 +457,7 @@ describe("inline agent highlighting", () => {
     const first = createHarness({ cwd: tempRoots[0]! });
     first.start();
     const firstLine = new tuiMock.FakeEditor(["Use &reviewer."]).render(80)[0]!;
-    expect(firstLine.match(/\x1b\[38;2;125;211;252m/g)).toHaveLength(1);
+    expect(firstLine.match(/\x1b\[35m/g)).toHaveLength(1);
     first.shutdown();
 
     const second = createHarness({ cwd: tempRoots[0]! });
@@ -463,7 +465,7 @@ describe("inline agent highlighting", () => {
     const secondLine = new tuiMock.FakeEditor(["Use &reviewer."]).render(
       80,
     )[0]!;
-    expect(secondLine.match(/\x1b\[38;2;125;211;252m/g)).toHaveLength(1);
+    expect(secondLine.match(/\x1b\[35m/g)).toHaveLength(1);
     second.shutdown();
 
     expect(new tuiMock.FakeEditor(["Use &reviewer."]).render(80)[0]).toBe(
@@ -486,7 +488,7 @@ describe("inline agent highlighting", () => {
     try {
       harness.start();
       const line = new tuiMock.FakeEditor(["Use &reviewer."]).render(80)[0]!;
-      expect(line).toContain("\x1b[38;2;125;211;252m&reviewer\x1b[39m");
+      expect(line).toContain("\x1b[35m&reviewer\x1b[39m");
     } finally {
       harness.shutdown();
       prototype.render = previousRender;

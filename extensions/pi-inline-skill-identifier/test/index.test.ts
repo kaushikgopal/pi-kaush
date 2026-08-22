@@ -86,6 +86,7 @@ function createHarness(
             addAutocompleteProvider(factory: (current: any) => any) {
               autocompleteProvider = factory(currentAutocomplete);
             },
+            theme: { getFgAnsi: () => "\x1b[35m" },
           },
         },
       );
@@ -292,34 +293,40 @@ describe("inline skill autocomplete", () => {
 describe("inline skill highlighting", () => {
   test("colors known aliases without changing visible width", () => {
     const original = "Use $review-my, $review, and $unknown.";
-    const colored = colorizeSkillAliases(original, ["review", "review-my"]);
+    const colored = colorizeSkillAliases(
+      original,
+      ["review", "review-my"],
+      "\x1b[35m",
+    );
 
     expect(tuiMock.visibleWidth(colored)).toBe(tuiMock.visibleWidth(original));
-    expect(colored).toContain("\x1b[38;2;251;148;255m$review-my\x1b[39m");
-    expect(colored).toContain("\x1b[38;2;251;148;255m$review\x1b[39m");
+    expect(colored).toContain("\x1b[35m$review-my\x1b[39m");
+    expect(colored).toContain("\x1b[35m$review\x1b[39m");
     expect(colored).toContain("$unknown");
   });
 
   test("does not color a known skill that only prefixes a longer token", () => {
     const original = "Use $review-my, $reviewing, $reviewX, and $review_name.";
-    expect(colorizeSkillAliases(original, ["review"])).toBe(original);
+    expect(colorizeSkillAliases(original, ["review"], "\x1b[35m")).toBe(
+      original,
+    );
   });
 
   test("restores the active foreground after a highlighted alias", () => {
     const original = "\x1b[36mUse $review after\x1b[39m";
-    const colored = colorizeSkillAliases(original, ["review"]);
+    const colored = colorizeSkillAliases(original, ["review"], "\x1b[35m");
 
     expect(tuiMock.visibleWidth(colored)).toBe(tuiMock.visibleWidth(original));
-    expect(colored).toContain("\x1b[38;2;251;148;255m$review\x1b[36m after");
+    expect(colored).toContain("\x1b[35m$review\x1b[36m after");
     expect(colored.endsWith("\x1b[39m")).toBe(true);
   });
 
   test("ignores compound background colors when restoring the foreground", () => {
     const original = "\x1b[36mUse \x1b[48;2;30;40;50m$review end";
-    const colored = colorizeSkillAliases(original, ["review"]);
+    const colored = colorizeSkillAliases(original, ["review"], "\x1b[35m");
 
     expect(tuiMock.visibleWidth(colored)).toBe(tuiMock.visibleWidth(original));
-    expect(colored).toContain("\x1b[38;2;251;148;255m$review\x1b[36m end");
+    expect(colored).toContain("\x1b[35m$review\x1b[36m end");
   });
 
   test("patches the editor once across session reloads", () => {
@@ -329,7 +336,7 @@ describe("inline skill highlighting", () => {
     const firstLine = new tuiMock.FakeEditor(["Use $review-my."]).render(
       80,
     )[0]!;
-    expect(firstLine.match(/\x1b\[38;2;251;148;255m/g)).toHaveLength(1);
+    expect(firstLine.match(/\x1b\[35m/g)).toHaveLength(1);
     first.shutdown();
 
     const second = createHarness(commands);
@@ -337,7 +344,7 @@ describe("inline skill highlighting", () => {
     const secondLine = new tuiMock.FakeEditor(["Use $review-my."]).render(
       80,
     )[0]!;
-    expect(secondLine.match(/\x1b\[38;2;251;148;255m/g)).toHaveLength(1);
+    expect(secondLine.match(/\x1b\[35m/g)).toHaveLength(1);
     second.shutdown();
   });
 
@@ -349,14 +356,14 @@ describe("inline skill highlighting", () => {
     const beforeDiscovery = new tuiMock.FakeEditor([
       "Use $review and $deploy.",
     ]).render(80)[0]!;
-    expect(beforeDiscovery).toContain("\x1b[38;2;251;148;255m$review\x1b[39m");
-    expect(beforeDiscovery).not.toContain("\x1b[38;2;251;148;255m$deploy");
+    expect(beforeDiscovery).toContain("\x1b[35m$review\x1b[39m");
+    expect(beforeDiscovery).not.toContain("\x1b[35m$deploy");
 
     discoveredCommands.push({ name: "skill:deploy", source: "skill" });
     const afterDiscovery = new tuiMock.FakeEditor(["Use $deploy."]).render(
       80,
     )[0]!;
-    expect(afterDiscovery).toContain("\x1b[38;2;251;148;255m$deploy\x1b[39m");
+    expect(afterDiscovery).toContain("\x1b[35m$deploy\x1b[39m");
     tui.shutdown();
 
     const headless = createHarness([{ name: "skill:deploy", source: "skill" }]);

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Source `$skill`/`/prompt`/`&agent` identifier colors from theme tokens
+  (mdLink, accent, borderAccent) resolved per session, replacing the
+  hardcoded pastel hexes. Identifiers render uncolored without a TUI
+  theme; every pi theme provides these tokens.
 - Reuse prompt templates already present in active model context through a compact reference, while reinserting the full body after compaction, branch changes, or template revisions.
 - Preserve identifier coloring when Pi's host `CustomEditor` and the extension-resolved `Editor` come from separate `pi-tui` module instances, including either load order with render-only custom editor factories.
 

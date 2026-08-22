@@ -205,6 +205,15 @@ function createHarness(
       addAutocompleteProvider(factory: (current: any) => any) {
         autocompleteProvider = factory(currentAutocomplete);
       },
+      // Identifier colors resolve from theme tokens at session start.
+      theme: {
+        getFgAnsi: (color: string) =>
+          ({
+            mdLink: "\x1b[36m",
+            accent: "\x1b[35m",
+            borderAccent: "\x1b[33m",
+          })[color] ?? "\x1b[39m",
+      },
     },
   };
 
@@ -700,7 +709,9 @@ describe("shared TUI behavior", () => {
     expect(harness.currentAutocomplete.applyCompletion).not.toHaveBeenCalled();
 
     const rendered = editor.render(80)[0]!;
-    expect(rendered.match(/\x1b\[38;2;/g)).toHaveLength(3);
+    expect(rendered).toContain("\x1b[36m$review");
+    expect(rendered).toContain("\x1b[33m&reviewer");
+    expect(rendered).toContain("\x1b[35m/pi-prompt-review");
     expect(tuiMock.visibleWidth(rendered)).toBe(
       "Use $review, &reviewer, and /pi-prompt-review.".length,
     );

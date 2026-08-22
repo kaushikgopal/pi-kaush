@@ -34,7 +34,8 @@ const LEGACY_ACTIVE_SKILLS_KEY = Symbol.for(
 const DECORATION_STATE_KEY = Symbol.for(
   "kg.pi.inlineSkillAliases.decorationState",
 );
-const PURPLE = "\x1b[38;2;251;148;255m";
+// Resolved from the session theme on session_start (mdLink token).
+let skillColor: string | undefined;
 const FG_RESET = "\x1b[39m";
 
 function escapeRegex(text: string): string {
@@ -202,6 +203,7 @@ export function referencedSkills(
 export function colorizeSkillAliases(
   line: string,
   skillNames: string[],
+  color = skillColor,
 ): string {
   if (skillNames.length === 0 || !line.includes("$")) return line;
 
@@ -212,7 +214,7 @@ export function colorizeSkillAliases(
   const pattern = new RegExp(`\\$(${alternatives})${SKILL_TOKEN_END}`, "g");
   const colored = line.replace(pattern, (match, _name, offset) => {
     const foreground = activeForegroundAnsi(line.slice(0, offset));
-    return `${PURPLE}${match}${foreground}`;
+    return color ? `${color}${match}${foreground}` : match;
   });
   return visibleWidth(colored) === visibleWidth(line) ? colored : line;
 }
@@ -268,6 +270,14 @@ export default function inlineSkillIdentifier(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
 
+    // Colors come from the session theme (mdLink token); every pi theme
+    // provides it. Uncolored without a TUI theme.
+    try {
+      skillColor = ctx.ui.theme.getFgAnsi("mdLink");
+    } catch {
+      skillColor = undefined;
+    }
+
     const state = decorationState();
     state.getSkillNames = () => getSkillNames(pi);
     state.owner = decorationOwner;
@@ -281,6 +291,7 @@ export default function inlineSkillIdentifier(pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => {
     const state = decorationState();
     if (state.owner !== decorationOwner) return;
+    skillColor = undefined;
 
     delete state.getSkillNames;
     delete state.owner;

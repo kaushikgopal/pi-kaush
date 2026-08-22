@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   escapeRegex,
+  identifierColor,
   type InlineIdentifierDefinition,
   type InlineIdentifierFeature,
   registerInlineIdentifierFeature,
@@ -14,7 +15,7 @@ const SKILL_ALIAS_RE = new RegExp(
 );
 const SKILL_AUTOCOMPLETE_RE = /(?:^|[ \t])(\$[a-z0-9-]*)$/;
 const SKILL_AUTOCOMPLETE_STOP_RE = /(?:^|[ \t])\$[a-z0-9-]*[ \t]$/;
-const PURPLE = "\x1b[38;2;251;148;255m";
+// Colors come from the session theme (mdLink token); see core.ts.
 const FG_RESET = "\x1b[39m";
 
 type PiCommand = ReturnType<ExtensionAPI["getCommands"]>[number];
@@ -73,7 +74,10 @@ export function colorizeSkillAliases(
     `${SKILL_TOKEN_START}\\$(${alternatives})${SKILL_TOKEN_END}`,
     "g",
   );
-  return line.replace(pattern, (match) => `${PURPLE}${match}${FG_RESET}`);
+  return line.replace(pattern, (match) => {
+    const color = identifierColor("skill");
+    return color ? `${color}${match}${FG_RESET}` : match;
+  });
 }
 
 export default function inlineSkillIdentifier(pi: ExtensionAPI): void {

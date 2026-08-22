@@ -3,6 +3,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   type InputEventResult,
+  type ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import {
   type AutocompleteItem,
@@ -10,6 +11,28 @@ import {
   Editor,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+
+// Identifier colors ride theme tokens — skill→mdLink, prompt→accent,
+// agent→borderAccent — resolved once per session from the session theme, so
+// recoloring is a theme-file edit and every pi theme provides sane values.
+// Before session start (or off TUI) identifiers stay uncolored rather than
+// falling back to a hardcoded hex.
+const IDENTIFIER_COLOR_TOKENS: Record<InlineIdentifierKind, ThemeColor> = {
+  skill: "mdLink",
+  prompt: "accent",
+  agent: "borderAccent",
+};
+const IDENTIFIER_COLORS_KEY = Symbol.for("kg.pi.inlineIdentifier.colors.v1");
+
+export function identifierColor(
+  kind: InlineIdentifierKind,
+): string | undefined {
+  const globals = globalThis as Record<symbol, unknown>;
+  const colors = globals[IDENTIFIER_COLORS_KEY] as
+    | Partial<Record<InlineIdentifierKind, string>>
+    | undefined;
+  return colors?.[kind];
+}
 
 const MAX_AUTOCOMPLETE_ITEMS = 20;
 const REGISTRATION_CHANNEL = "pi-inline-identifier:register:v1";
@@ -324,6 +347,17 @@ function installCoordinator(pi: ExtensionAPI, coordinator: Coordinator): void {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
 
+    const colors: Partial<Record<InlineIdentifierKind, string>> = {};
+    for (const kind of Object.keys(
+      IDENTIFIER_COLOR_TOKENS,
+    ) as InlineIdentifierKind[]) {
+      try {
+        colors[kind] = ctx.ui.theme.getFgAnsi(IDENTIFIER_COLOR_TOKENS[kind]);
+      } catch {
+        // A theme missing a token leaves that identifier kind uncolored.
+      }
+    }
+    (globalThis as Record<symbol, unknown>)[IDENTIFIER_COLORS_KEY] = colors;
     const decoration = decorationState();
     decoration.owner = coordinator.decorationOwner;
     decoration.decorateLines = (lines) => {
@@ -361,6 +395,7 @@ function installCoordinator(pi: ExtensionAPI, coordinator: Coordinator): void {
     if (decoration.owner === coordinator.decorationOwner) {
       delete decoration.decorateLines;
       delete decoration.owner;
+      delete (globalThis as Record<symbol, unknown>)[IDENTIFIER_COLORS_KEY];
     }
 
     coordinator.features.clear();

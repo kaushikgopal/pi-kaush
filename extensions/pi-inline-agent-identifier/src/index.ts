@@ -36,7 +36,8 @@ const EDITOR_PATCH_FLAG = Symbol.for(
 const DECORATION_STATE_KEY = Symbol.for(
   "kg.pi.inlineAgentIdentifiers.decorationState",
 );
-const BLUE = "\x1b[38;2;125;211;252m";
+// Resolved from the session theme on session_start (borderAccent token).
+let agentColor: string | undefined;
 const FG_RESET = "\x1b[39m";
 
 type AgentFrontmatter = {
@@ -293,14 +294,14 @@ export function referencedAgents(
 export function colorizeAgentAliases(
   line: string,
   agentNames: string[],
+  color = agentColor,
 ): string {
   if (agentNames.length === 0 || !line.includes("&")) return line;
   const pattern = agentAliasPattern(agentNames);
   if (!pattern) return line;
 
-  const colored = line.replace(
-    pattern,
-    (match) => `${BLUE}${match}${FG_RESET}`,
+  const colored = line.replace(pattern, (match) =>
+    color ? `${color}${match}${FG_RESET}` : match,
   );
   return visibleWidth(colored) === visibleWidth(line) ? colored : line;
 }
@@ -360,6 +361,14 @@ export default function inlineAgentIdentifier(pi: ExtensionAPI): void {
 
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
+
+    // Colors come from the session theme (borderAccent token); every pi
+    // theme provides it. Uncolored without a TUI theme.
+    try {
+      agentColor = ctx.ui.theme.getFgAnsi("borderAccent");
+    } catch {
+      agentColor = undefined;
+    }
     const support = getNamedSubagentSupport(pi);
     if (!support.available) return;
 
@@ -382,6 +391,7 @@ export default function inlineAgentIdentifier(pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => {
     const state = decorationState();
     if (state.owner !== decorationOwner) return;
+    agentColor = undefined;
     delete state.colorizeLine;
     delete state.getAgentNames;
     delete state.owner;

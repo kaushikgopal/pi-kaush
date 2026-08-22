@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   escapeRegex,
+  identifierColor,
   type InlineIdentifierDefinition,
   type InlineIdentifierFeature,
   registerInlineIdentifierFeature,
@@ -19,7 +20,7 @@ const AGENT_TOKEN_START = "(?<![a-z0-9._%+&-])";
 const AGENT_TOKEN_END = "(?![a-z0-9_-]|\\.[a-z0-9])";
 const AGENT_AUTOCOMPLETE_RE = /(?:^|[ \t])(&[a-z0-9_-]*)$/i;
 const AGENT_AUTOCOMPLETE_STOP_RE = /(?:^|[ \t])&[a-z0-9_-]*[ \t]$/i;
-const BLUE = "\x1b[38;2;125;211;252m";
+// Colors come from the session theme (borderAccent token); see core.ts.
 const FG_RESET = "\x1b[39m";
 
 type AgentFrontmatter = {
@@ -224,7 +225,10 @@ export function colorizeAgentAliases(
     definitions.map((definition) => definition.name),
   );
   if (!pattern) return line;
-  return line.replace(pattern, (match) => `${BLUE}${match}${FG_RESET}`);
+  return line.replace(pattern, (match) => {
+    const color = identifierColor("agent");
+    return color ? `${color}${match}${FG_RESET}` : match;
+  });
 }
 
 export default function inlineAgentIdentifier(pi: ExtensionAPI): void {

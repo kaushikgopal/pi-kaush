@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   escapeRegex,
+  identifierColor,
   type InlineIdentifierDefinition,
   type InlineIdentifierFeature,
   registerInlineIdentifierFeature,
@@ -16,7 +17,7 @@ const PROMPT_TOKEN_START = "(?<![a-z0-9._%+/-])";
 const PROMPT_TOKEN_END = "(?![a-z0-9_/-]|\\.[a-z0-9])";
 const PROMPT_AUTOCOMPLETE_RE = /(?:^|[ \t])(\/[a-z0-9-]*)$/i;
 const PROMPT_AUTOCOMPLETE_STOP_RE = /(?:^|[ \t])\/[a-z0-9-]+[ \t]$/i;
-const GREEN = "\x1b[38;2;166;227;161m";
+// Colors come from the session theme (accent token); see core.ts.
 const FG_RESET = "\x1b[39m";
 const ARGUMENT_PATTERN =
   /\$\{(\d+|ARGUMENTS|@):-([^}]*)\}|\$\{@:(\d+)(?::(\d+))?\}|\$(ARGUMENTS|@|\d+)/g;
@@ -97,7 +98,10 @@ export function colorizePromptAliases(
     definitions.map((definition) => definition.name),
   );
   if (!pattern) return line;
-  return line.replace(pattern, (match) => `${GREEN}${match}${FG_RESET}`);
+  return line.replace(pattern, (match) => {
+    const color = identifierColor("prompt");
+    return color ? `${color}${match}${FG_RESET}` : match;
+  });
 }
 
 /**
