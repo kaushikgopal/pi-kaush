@@ -1137,6 +1137,86 @@ describe("tool-call-markers grouping", () => {
     expect(output).not.toContain("partial child output");
   });
 
+  test("shows live subagent progress from partial result details", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "streaming");
+    row.args = { agent: "reviewer", task: "Inspect the live result." };
+    row.updateResult(
+      {
+        isError: false,
+        output: "partial child output",
+        details: {
+          results: [
+            {
+              agent: "reviewer",
+              usage: { turns: 1 },
+              model: "instacart-openai/gpt-5.6-luna",
+            },
+          ],
+        },
+      },
+      true,
+    );
+    chat.addChild(row);
+
+    const output = renderPlain(chat);
+    expect(output).toContain(
+      "& subagent reviewer Inspect the live result. → 1 turn · instacart-openai/gpt-5.6-luna",
+    );
+    expect(output).not.toContain("→ done");
+  });
+
+  test("shows settled subagent turns and model instead of a bare done", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = { agent: "reviewer", task: "Inspect the renderer." };
+    row.updateResult({
+      isError: false,
+      output: "child result",
+      details: {
+        results: [
+          {
+            agent: "reviewer",
+            usage: { turns: 3 },
+            requestedModel: "instacart-openai/gpt-5.6-luna",
+          },
+        ],
+      },
+    });
+    chat.addChild(row);
+
+    const output = renderPlain(chat);
+    expect(output).toContain("→ 3 turns · instacart-openai/gpt-5.6-luna");
+    expect(output).not.toContain("→ done");
+  });
+
+  test("aggregates turns across parallel tasks and omits differing models", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = {
+      tasks: [
+        { agent: "alpha", task: "First task." },
+        { agent: "beta", task: "Second task." },
+      ],
+    };
+    row.updateResult({
+      isError: false,
+      output: "child result",
+      details: {
+        results: [
+          { agent: "alpha", usage: { turns: 2 }, model: "openai/gpt-a" },
+          { agent: "beta", usage: { turns: 3 }, model: "openai/gpt-b" },
+        ],
+      },
+    });
+    chat.addChild(row);
+
+    const output = renderPlain(chat);
+    expect(output).toContain("→ 5 turns");
+    expect(output).not.toContain("gpt-a");
+    expect(output).not.toContain("gpt-b");
+  });
+
   test("keeps adjacent subagents out of ordinary grouping", () => {
     const chat = new MockContainer();
     for (const agent of ["reviewer", "tester"]) {

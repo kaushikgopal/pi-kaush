@@ -10,6 +10,9 @@ const BASH_BLOCK_PATCHED = Symbol.for("kg.pi.bashBlock.v1");
 
 // The prompt surface uses a fixed near-black green tint instead of the
 // theme's selectedBg token so every user-input surface stays identical.
+// Canonicalized as the `promptSurface` var in the cobalt2 theme; a later
+// color-standardization pass will retire this hardcode with the one in
+// pi-content-layout's render.ts.
 const PROMPT_SURFACE_BG = "\x1b[48;2;7;19;18m"; // #071312
 const PROMPT_RAIL = "▎";
 

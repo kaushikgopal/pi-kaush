@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Show subagent progress in the collapsed plan headline: while running, the tail reads `→ N turns · provider/model` in the warning tone from streamed result details; settled calls keep the same `→ N turns · provider/model` in muted instead of a bare `→ done` (turns aggregate across tasks, model only when all tasks agree).
+- Source the settled "+ Thought" label color from the theme's mdHeading
+  token (orange in cobalt2, amber in Pi's stock themes) instead of a
+  hardcoded RGB. The PI_TOOL_CALL_MARKERS_THOUGHT_COLOR experiment values
+  are now `mdheading` (default), `gray`, and `inherit`.
 - Fix: preserve the visible text of hyperlink-wrapped paths in collapsed rows. Pi renders `read` call paths as OSC 8 hyperlinks (`ESC]8;;url ESC\ <path> ESC]8;; ESC\`); the previous greedy OSC strip consumed the path text along with the sequences, collapsing `% read: README.md:1-400` to `% read: :1-400`. OSC payloads now end at their first BEL/ST terminator, so `read`/`write`/`ls` rows show their filenames again.
 - Show settled `edit` changes inline: the call line gains a `+added/-removed` outcome stat, and the display diff from `result.details.diff` renders as a bounded block underneath (`+` lines in the added tone, `-` in the removed tone, context muted, `...` for folded regions; capped at 12 lines with a `+N more` tail). `Ctrl+O` still returns Pi's full native diff.
 - Render subagent plans with a `&` marker instead of `%`, so delegated calls read differently from ordinary tool rows (both the parsed plan shape and the generic fallback).

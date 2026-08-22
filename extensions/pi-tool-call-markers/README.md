@@ -36,6 +36,8 @@ A recognized `subagent` call renders as an unboxed plan in the shared tool aesth
 
 Single calls stay on one `& subagent <agent> [profile] <task preview>` row; chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers). Agent display names (emoji + name) are scraped from the native plan component with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
 
+While a subagent runs, the plan headline's tail shows live progress from the streamed result details — `→ 1 turn · provider/model` in the warning tone — and a settled call keeps the same `→ N turns · provider/model` summary in muted (turns aggregate across tasks; the model shows only when every task used the same one).
+
 Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `& subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
 
 ## Edit diffs

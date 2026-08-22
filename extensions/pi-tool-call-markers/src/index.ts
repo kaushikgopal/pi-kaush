@@ -1052,6 +1052,33 @@ function subagentStepPreview(task: string): string {
   return clean.length > 40 ? `${clean.slice(0, 40)}...` : clean;
 }
 
+// Partial and final subagent results both carry per-task usage in details
+// (the subagent extension streams makeDetails snapshots through onUpdate), so
+// this works live and settled. Surface the smallest useful progress — total
+// turns, and the model when every task resolved to the same one.
+function subagentProgressText(row: ToolExecutionRow): string | undefined {
+  const results = row.result?.details?.results;
+  if (!Array.isArray(results) || results.length === 0) return undefined;
+  let turns = 0;
+  const models = new Set<string>();
+  for (const result of results) {
+    if (!isRecord(result)) continue;
+    const usage = result.usage;
+    const turnCount = isRecord(usage) ? usage.turns : undefined;
+    if (typeof turnCount === "number" && Number.isFinite(turnCount)) {
+      turns += turnCount;
+    }
+    const model = result.model ?? result.requestedModel;
+    if (typeof model === "string" && model.trim().length > 0) {
+      models.add(model.trim());
+    }
+  }
+  const parts: string[] = [];
+  if (turns > 0) parts.push(`${turns} turn${turns === 1 ? "" : "s"}`);
+  if (models.size === 1) parts.push(sanitizeInline([...models][0]!));
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 // Subagents render as an ordinary unboxed tool block: a `%` heading with the
 // plan kind/count/scope, then the numbered chain steps or parallel tasks with
 // agent names in accent. Everything else stays muted (or error on failure),
@@ -1081,12 +1108,13 @@ function renderSubagentPlan(
 
   const marker = `${theme.fg(color, theme.bold(SUBAGENT_MARKER))} `;
   const budget = Math.max(1, width - visibleWidth(marker));
+  const progress = subagentProgressText(row);
   const outcome = failed
     ? collapsedOutcome(row, budget, theme)
     : isLiveRow(row)
-      ? collapsedOutcome(row, budget, theme)
+      ? theme.fg("warning", progress ? `→ ${progress}` : "…")
       : row.result
-        ? renderedGenericOutcome(theme)
+        ? theme.fg("muted", progress ? `→ ${progress}` : "→ done")
         : theme.fg("warning", "…");
   const headline = (label: string) =>
     marker +
