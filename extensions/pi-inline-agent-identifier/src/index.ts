@@ -177,14 +177,14 @@ export function discoverAgentDefinitions(
     join(getAgentDir(), "agents"),
     "user",
   )) {
-    agents.set(agent.name, agent);
+    agents.set(agent.name.toLowerCase(), agent);
   }
 
   if (includeProject) {
     const projectDir = nearestProjectAgentsDir(cwd);
     if (projectDir) {
       for (const agent of loadAgentsFromDir(projectDir, "project")) {
-        agents.set(agent.name, agent);
+        agents.set(agent.name.toLowerCase(), agent);
       }
     }
   }

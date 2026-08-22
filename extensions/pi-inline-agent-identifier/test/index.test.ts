@@ -212,6 +212,24 @@ describe("agent discovery", () => {
     );
   });
 
+  test("lets project agents override case-insensitive user name collisions", () => {
+    const userDir = join(runtimeMock.agentDir, "agents");
+    writeAgent(userDir, "Reviewer", "User reviewer");
+
+    const project = join(tempRoots[0]!, "project");
+    const projectDir = join(project, ".pi", "agents");
+    writeAgent(projectDir, "reviewer", "Project reviewer");
+
+    const definitions = discoverAgentDefinitions(project, true);
+    expect(
+      definitions.filter(
+        (definition) => definition.name.toLowerCase() === "reviewer",
+      ),
+    ).toMatchObject([
+      { name: "reviewer", description: "Project reviewer", source: "project" },
+    ]);
+  });
+
   test("ignores malformed and unsupported agent definitions", () => {
     const userDir = join(runtimeMock.agentDir, "agents");
     writeFileSync(join(userDir, "broken.md"), "---\nname: [\n---\n");
