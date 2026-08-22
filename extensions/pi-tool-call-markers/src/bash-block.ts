@@ -4,16 +4,24 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 type ThemeLike = {
   bold(text: string): string;
   fg(color: string, text: string): string;
+  getBgAnsi?(color: string): string;
 };
 
 const BASH_BLOCK_PATCHED = Symbol.for("kg.pi.bashBlock.v1");
 
-// The prompt surface uses a fixed near-black green tint instead of the
-// theme's selectedBg token so every user-input surface stays identical.
-// Canonicalized as the `promptSurface` var in the cobalt2 theme; a later
-// color-standardization pass will retire this hardcode with the one in
-// pi-content-layout's render.ts.
-const PROMPT_SURFACE_BG = "\x1b[48;2;7;19;18m"; // #071312
+// The prompt surface paints with the theme's customMessageBg token, matching
+// pi-content-layout's surfaces (cobalt2 maps it to `actionBlock`, #071312).
+// customMessageBg is a required pi theme token; the legacy hex remains only
+// as a fallback for theme lookalikes without getBgAnsi.
+const PROMPT_SURFACE_BG_FALLBACK = "\x1b[48;2;7;19;18m"; // #071312
+
+function promptSurfaceBg(theme: ThemeLike): string {
+  try {
+    return theme.getBgAnsi?.("customMessageBg") ?? PROMPT_SURFACE_BG_FALLBACK;
+  } catch {
+    return PROMPT_SURFACE_BG_FALLBACK;
+  }
+}
 const PROMPT_RAIL = "▎";
 
 // User-run bash blocks align with the message inset pi-content-layout
@@ -112,16 +120,17 @@ function renderRailedBlockLines(
   }
   const bodyWidth = blockWidth - visibleWidth(PROMPT_RAIL);
   const margin = " ".repeat(inset);
+  const surfaceBg = promptSurfaceBg(theme);
   return lines.map((line) => {
     const { controls, content } = splitLeadingSemanticControls(line);
-    const recolored = replaceBackground(content, PROMPT_SURFACE_BG);
+    const recolored = replaceBackground(content, surfaceBg);
     const rail = theme.fg(railColor, PROMPT_RAIL);
     // One extra leading space inside the body, so submitted text sits two
     // columns right of the rail instead of one.
     const body = paintBackground(
       ` ${fitLine(recolored, Math.max(1, bodyWidth - 1))}`,
       bodyWidth,
-      PROMPT_SURFACE_BG,
+      surfaceBg,
     );
     return `${controls}${margin}${rail}${body}${margin}`;
   });
@@ -290,10 +299,5 @@ function uninstallBashBlockPatch(state: BashBlockPatchState | undefined): void {
   delete proto[BASH_BLOCK_PATCHED];
 }
 
-export {
-  PROMPT_RAIL,
-  PROMPT_SURFACE_BG,
-  installBashBlockPatch,
-  uninstallBashBlockPatch,
-};
+export { PROMPT_RAIL, installBashBlockPatch, uninstallBashBlockPatch };
 export type { BashBlockPatchState };

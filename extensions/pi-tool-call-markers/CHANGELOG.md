@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Paint user-run `!` bash block surfaces with the theme's
+  `customMessageBg` token instead of a hardcoded hex, matching
+  pi-content-layout's prompt surfaces under any theme.
 - Show subagent progress in the collapsed plan headline: while running, the tail reads `→ N turns · provider/model` in the warning tone from streamed result details; settled calls keep the same `→ N turns · provider/model` in muted instead of a bare `→ done` (turns aggregate across tasks, model only when all tasks agree).
 - Source the settled "+ Thought" label color from the theme's mdHeading
   token (orange in cobalt2, amber in Pi's stock themes) instead of a

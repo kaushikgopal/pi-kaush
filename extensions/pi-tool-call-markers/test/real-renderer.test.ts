@@ -13,7 +13,7 @@ import {
   type TUI,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import { PROMPT_RAIL, PROMPT_SURFACE_BG } from "../src/bash-block.ts";
+import { PROMPT_RAIL } from "../src/bash-block.ts";
 
 // Captured at module load, before any beforeEach install patches it.
 const NATIVE_BASH_RENDER = BashExecutionComponent.prototype.render;
@@ -32,10 +32,14 @@ const shutdownHandlers: Array<() => void> = [];
 
 initTheme("dark");
 
+const SURFACE_BG = "\x1b[48;5;22m";
+
 const extensionTheme = {
   bold: (text: string) => text,
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
+  getBgAnsi: (color: string) =>
+    color === "customMessageBg" ? SURFACE_BG : "\x1b[40m",
   // The Thought-label color now comes from the mdHeading token; cobalt2's
   // value (#ffb86c) keeps the existing assertions stable.
   getFgAnsi: (color: string) =>
@@ -1256,6 +1260,8 @@ describe("user bash blocks", () => {
     fg: (color: string, text: string) =>
       `\x1b[${codes[color] ?? 37}m${text}\x1b[0m`,
     bg: (_color: string, text: string) => text,
+    getBgAnsi: (color: string) =>
+      color === "customMessageBg" ? SURFACE_BG : "\x1b[40m",
   };
   const stripControls = (text: string) =>
     text.replace(ANSI_RE, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
@@ -1286,7 +1292,7 @@ describe("user bash blocks", () => {
       const lines = bash.render(40);
       expect(stripControls(lines.join("\n"))).not.toContain("─");
       expect(stripControls(lines[0] ?? "")).toMatch(/^\s*$/);
-      expect(lines[0]).not.toContain(PROMPT_SURFACE_BG);
+      expect(lines[0]).not.toContain(SURFACE_BG);
       expect(lines.every((line) => visibleWidth(line) === 40)).toBe(true);
 
       const commandLine = lines.find((line) =>
@@ -1295,7 +1301,7 @@ describe("user bash blocks", () => {
       expect(commandLine).toBeDefined();
       // A failed exit recolors the rail red, like the (exit 1) status text.
       expect(commandLine).toContain(
-        `\x1b[31m${PROMPT_RAIL}\x1b[0m${PROMPT_SURFACE_BG}`,
+        `\x1b[31m${PROMPT_RAIL}\x1b[0m${SURFACE_BG}`,
       );
       expect(stripControls(commandLine ?? "")).toContain(
         `${PROMPT_RAIL}  $ ls ~/matrxi`,
@@ -1303,7 +1309,7 @@ describe("user bash blocks", () => {
       const outputLine = lines.find((line) =>
         stripControls(line).includes("No such"),
       );
-      expect(outputLine).toContain(PROMPT_SURFACE_BG);
+      expect(outputLine).toContain(SURFACE_BG);
 
       bash.setComplete(0, false);
       const successLines = bash.render(40);
@@ -1311,7 +1317,7 @@ describe("user bash blocks", () => {
         stripControls(line).includes("$ ls ~/matrxi"),
       );
       expect(successCommand).toContain(
-        `\x1b[32m${PROMPT_RAIL}\x1b[0m${PROMPT_SURFACE_BG}`,
+        `\x1b[32m${PROMPT_RAIL}\x1b[0m${SURFACE_BG}`,
       );
     });
   });
