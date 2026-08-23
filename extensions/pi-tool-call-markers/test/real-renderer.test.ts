@@ -39,21 +39,25 @@ const extensionTheme = {
   fg: (_color: string, text: string) => text,
   bg: (_color: string, text: string) => text,
   getBgAnsi: (color: string) =>
-    color === "customMessageBg" ? SURFACE_BG : "\x1b[40m",
+    color === "userMessageBg" ? SURFACE_BG : "\x1b[40m",
   // The Thought-label color now comes from the mdHeading token; cobalt2's
   // value (#ffb86c) keeps the existing assertions stable.
   getFgAnsi: (color: string) =>
-    color === "mdHeading" ? "\x1b[38;2;255;184;108m" : "\x1b[39m",
+    color === "mdHeading" || color === "thinkingMedium"
+      ? "\x1b[38;2;255;184;108m"
+      : "\x1b[39m",
 };
 
 function install(): void {
   const api = {
+    registerCommand() {},
     on(event: string, handler: (event: unknown, ctx: unknown) => void) {
       if (event === "session_start") sessionHandlers.push(handler);
       if (event === "session_shutdown")
         shutdownHandlers.push(handler as () => void);
     },
-  } as ExtensionAPI;
+    getThinkingLevel: () => "medium",
+  } as unknown as ExtensionAPI;
   toolCallMarkers(api);
   registerThinkingMarkers(api);
   for (const handler of sessionHandlers) {
@@ -1261,7 +1265,7 @@ describe("user bash blocks", () => {
       `\x1b[${codes[color] ?? 37}m${text}\x1b[0m`,
     bg: (_color: string, text: string) => text,
     getBgAnsi: (color: string) =>
-      color === "customMessageBg" ? SURFACE_BG : "\x1b[40m",
+      color === "userMessageBg" ? SURFACE_BG : "\x1b[40m",
   };
   const stripControls = (text: string) =>
     text.replace(ANSI_RE, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
@@ -1336,12 +1340,13 @@ describe("user bash blocks", () => {
     const localStarts: Array<(event: unknown, ctx: unknown) => void> = [];
     const localShutdowns: Array<() => void> = [];
     toolCallMarkers({
+      registerCommand() {},
       on(event: string, handler: (event: unknown, ctx: unknown) => void) {
         if (event === "session_start") localStarts.push(handler);
         if (event === "session_shutdown")
           localShutdowns.push(handler as () => void);
       },
-    } as ExtensionAPI);
+    } as unknown as ExtensionAPI);
     for (const handler of localStarts) {
       handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
     }
@@ -1381,6 +1386,7 @@ describe("composition with pi-content-layout", () => {
     const starts: PiHandler[] = [];
     const shutdowns: PiHandler[] = [];
     const pi = {
+      registerCommand() {},
       on(event: string, handler: PiHandler) {
         if (event === "session_start") starts.push(handler);
         if (event === "session_shutdown") shutdowns.push(handler);

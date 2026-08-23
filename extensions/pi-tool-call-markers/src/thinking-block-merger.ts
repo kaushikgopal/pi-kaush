@@ -1,48 +1,39 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
+import { infoVisibilityHidden } from "./info-visibility-state.ts";
 
-const THINKING_GROUPING_PATCHED = Symbol.for("kg.pi.thinkingGrouping.v1");
+const THINKING_GROUPING_PATCHED = Symbol.for("kg.pi.thinkingGrouping.v2");
 const PI_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS = 80;
 
 // Visual experiment for the settled "+ Thought" label. "inherit" keeps Pi's
-// native styling (italic + thinkingText); "gray" sits halfway between the
-// muted and text theme colors; the default rides the theme's mdHeading token
-// (orange in cobalt2, amber in Pi's stock themes), so the label follows the
-// active theme. The env var overrides the default so the variants can be
-// compared without editing code or republishing.
+// native styling (italic + thinkingText); "mdheading" rides the theme's
+// mdHeading token; the default tints the label with the session's active
+// thinking-level color (thinkingOff…thinkingMax), so the collapsed label
+// quietly advertises the level Pi is reasoning at. Only the collapsed label
+// is restyled — the expanded thinking block keeps Pi's thinkingText. The env
+// var overrides the default so variants can be compared without republishing.
 const THOUGHT_LABEL_COLOR_ENV = "PI_TOOL_CALL_MARKERS_THOUGHT_COLOR";
-type ThoughtLabelColor = "inherit" | "mdheading" | "gray";
-const DEFAULT_THOUGHT_LABEL_COLOR: ThoughtLabelColor = "mdheading";
+type ThoughtLabelColor = "inherit" | "level" | "mdheading";
+const DEFAULT_THOUGHT_LABEL_COLOR: ThoughtLabelColor = "level";
 
 function thoughtLabelColorChoice(): ThoughtLabelColor {
   const raw = process.env[THOUGHT_LABEL_COLOR_ENV];
-  return raw === "inherit" || raw === "mdheading" || raw === "gray"
+  return raw === "inherit" || raw === "level" || raw === "mdheading"
     ? raw
     : DEFAULT_THOUGHT_LABEL_COLOR;
 }
 
-const CUBE_VALUES = [0, 95, 135, 175, 215, 255];
-const BASIC_ANSI_RGB: Array<[number, string] | undefined> = [
-  [0, "#000000"],
-  [1, "#800000"],
-  [2, "#008000"],
-  [3, "#808000"],
-  [4, "#000080"],
-  [5, "#800080"],
-  [6, "#008080"],
-  [7, "#c0c0c0"],
-  [8, "#808080"],
-  [9, "#ff0000"],
-  [10, "#00ff00"],
-  [11, "#ffff00"],
-  [12, "#0000ff"],
-  [13, "#ff00ff"],
-  [14, "#00ffff"],
-  [15, "#ffffff"],
-];
-
-type Rgb = { r: number; g: number; b: number };
+// thinkingLevel values map onto theme tokens: "xhigh" → thinkingXhigh etc.
+const LEVEL_TOKEN: Record<string, string> = {
+  off: "thinkingOff",
+  minimal: "thinkingMinimal",
+  low: "thinkingLow",
+  medium: "thinkingMedium",
+  high: "thinkingHigh",
+  xhigh: "thinkingXhigh",
+  max: "thinkingMax",
+};
 
 type ThemeDetail = {
   fg(color: string, text: string): string;
@@ -51,96 +42,7 @@ type ThemeDetail = {
 };
 
 let activeTheme: ThemeDetail | undefined;
-
-function hexToRgb(hex: string): Rgb | undefined {
-  const match = /^#([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!match) return undefined;
-  const value = parseInt(match[1]!, 16);
-  return { r: value >> 16, g: (value >> 8) & 255, b: value & 255 };
-}
-
-// Mirrors Pi's own mapping so a named color can round-trip through a
-// 256-color terminal (e.g. when COLORFGBG forces 256color mode).
-function ansi256ToRgb(index: number): Rgb | undefined {
-  if (index < 16) {
-    const hex = BASIC_ANSI_RGB[index]?.[1];
-    return hex ? hexToRgb(hex) : undefined;
-  }
-  if (index < 232) {
-    const cube = index - 16;
-    const channel = (n: number) => (n === 0 ? 0 : 55 + n * 40);
-    return {
-      r: channel(Math.floor(cube / 36)),
-      g: channel(Math.floor((cube % 36) / 6)),
-      b: channel(cube % 6),
-    };
-  }
-  const gray = 8 + (index - 232) * 10;
-  return { r: gray, g: gray, b: gray };
-}
-
-function rgbToAnsi256({ r, g, b }: Rgb): number {
-  const nearest = (value: number) =>
-    CUBE_VALUES.reduce(
-      (best, candidate) =>
-        Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best,
-      0,
-    );
-  const cubeR = nearest(r);
-  const cubeG = nearest(g);
-  const cubeB = nearest(b);
-  const cubeDistance =
-    (r - cubeR) ** 2 * 0.299 +
-    (g - cubeG) ** 2 * 0.587 +
-    (b - cubeB) ** 2 * 0.114;
-  const luminance = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-  const grayStep = Math.max(0, Math.min(23, Math.round((luminance - 8) / 10)));
-  const grayValue = 8 + grayStep * 10;
-  const grayDistance = (luminance - grayValue) ** 2;
-  const spread = Math.max(r, g, b) - Math.min(r, g, b);
-  if (spread < 10 && grayDistance < cubeDistance) return 232 + grayStep;
-  return (
-    16 +
-    36 * CUBE_VALUES.indexOf(cubeR) +
-    6 * CUBE_VALUES.indexOf(cubeG) +
-    CUBE_VALUES.indexOf(cubeB)
-  );
-}
-
-function parseAnsiFgRgb(ansi: string): Rgb | undefined {
-  if (/^\x1b\[39m$/.test(ansi)) return undefined;
-  const truecolor = /^\x1b\[38;2;(\d+);(\d+);(\d+)m$/.exec(ansi);
-  if (truecolor) {
-    return {
-      r: Number(truecolor[1]),
-      g: Number(truecolor[2]),
-      b: Number(truecolor[3]),
-    };
-  }
-  const indexed = /^\x1b\[38;5;(\d+)m$/.exec(ansi);
-  if (indexed) return ansi256ToRgb(Number(indexed[1]));
-  const basic = /^\x1b\[(9[0-7]|3[0-7])m$/.exec(ansi);
-  if (basic) {
-    const code = Number(basic[1]);
-    return ansi256ToRgb(code >= 90 ? code - 90 + 8 : code - 30);
-  }
-  return undefined;
-}
-
-function fgRgbAnsi({ r, g, b }: Rgb): string {
-  if (activeTheme?.getColorMode?.() === "256color") {
-    return `\x1b[38;5;${rgbToAnsi256({ r, g, b })}m`;
-  }
-  return `\x1b[38;2;${r};${g};${b}m`;
-}
-
-function midpointRgb(a: Rgb, b: Rgb): Rgb {
-  return {
-    r: Math.round((a.r + b.r) / 2),
-    g: Math.round((a.g + b.g) / 2),
-    b: Math.round((a.b + b.b) / 2),
-  };
-}
+let activeLevel: (() => string) | undefined;
 
 let thoughtLabelPrefix = "";
 let thoughtLabelSuffix = "";
@@ -152,15 +54,11 @@ function updateThoughtLabelStyle(): void {
   if (choice === "inherit" || !activeTheme) return;
 
   let ansi: string | undefined;
-  if (choice === "mdheading") {
-    // The theme already resolves mdHeading for the active color mode, so no
-    // local RGB-to-cube plumbing is needed for the default.
-    ansi = activeTheme.getFgAnsi?.("mdHeading");
-  } else if (activeTheme.getFgAnsi) {
-    const muted = parseAnsiFgRgb(activeTheme.getFgAnsi("muted"));
-    const text = parseAnsiFgRgb(activeTheme.getFgAnsi("text"));
-    if (muted && text) ansi = fgRgbAnsi(midpointRgb(muted, text));
-  }
+  const token =
+    choice === "mdheading"
+      ? "mdHeading"
+      : (LEVEL_TOKEN[activeLevel?.() ?? "off"] ?? "thinkingOff");
+  ansi = activeTheme.getFgAnsi?.(token);
   if (!ansi) return;
 
   // The styled label replaces Pi's italicized Text node wholesale (see
@@ -240,6 +138,12 @@ type ThinkingGroupingPatchState = {
     ...args: unknown[]
   ) => void;
   timings: WeakMap<AssistantMessageRow, ThinkingTiming>;
+  // Last update per row, so /toggle-info can replay rows without waiting for
+  // new content. Cleared on session start; rows are session-lived anyway.
+  rows: Map<
+    AssistantMessageRow,
+    { message: AssistantMessageLike; args: unknown[] }
+  >;
 };
 
 type ThinkingContentLike = {
@@ -333,6 +237,40 @@ function lifecycleLabel(
   return "+ Thought";
 }
 
+function stripThinkingBlocks(
+  message: AssistantMessageLike,
+): AssistantMessageLike {
+  const content = message.content;
+  if (!Array.isArray(content) || !content.some(isThinkingContent)) {
+    return message;
+  }
+  return { ...message, content: content.filter((c) => !isThinkingContent(c)) };
+}
+
+// Replays the last update on every tracked assistant row so a /toggle-info
+// flip applies immediately instead of waiting for the next content pass.
+export function refreshThinkingVisibility(): void {
+  try {
+    const proto = AssistantMessageComponent?.prototype as unknown as {
+      [THINKING_GROUPING_PATCHED]?: ThinkingGroupingPatchState;
+    };
+    const state = proto?.[THINKING_GROUPING_PATCHED];
+    if (!state?.patchedUpdateContent) return;
+    for (const [row, tracked] of state.rows) {
+      try {
+        Reflect.apply(state.patchedUpdateContent, row, [
+          tracked.message,
+          ...tracked.args,
+        ]);
+      } catch {
+        // A row that changed shape mid-flight keeps its last render.
+      }
+    }
+  } catch {
+    // Cosmetic replay; never break the toggle.
+  }
+}
+
 function applyHiddenThinkingLabel(
   row: AssistantMessageRow,
   message: AssistantMessageLike,
@@ -372,6 +310,7 @@ function installThinkingGroupingPatch():
     const existing = proto[THINKING_GROUPING_PATCHED];
     if (existing) {
       existing.owners++;
+      existing.rows ??= new Map();
       return existing;
     }
 
@@ -379,6 +318,7 @@ function installThinkingGroupingPatch():
       owners: 1,
       originalUpdateContent: proto.updateContent,
       timings: new WeakMap(),
+      rows: new Map(),
     };
     const patchedUpdateContent = function updateContentWithCombinedThinking(
       this: AssistantMessageRow,
@@ -387,9 +327,14 @@ function installThinkingGroupingPatch():
     ): void {
       // Grouping and labels are cosmetic. Each fails open independently, and
       // the original renderer is still called exactly once with every arg.
+      state.rows.set(this, { message, args });
       let combined = message;
       try {
-        combined = combineAdjacentThinking(message);
+        // Pi builds the hidden label and the visible block only when thinking
+        // blocks exist, so stripping them hides both at once.
+        combined = infoVisibilityHidden()
+          ? stripThinkingBlocks(message)
+          : combineAdjacentThinking(message);
       } catch {
         // Preserve the original message intact.
       }
@@ -449,14 +394,31 @@ export default function (pi: ExtensionAPI) {
   let released = false;
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
+    try {
+      const proto = AssistantMessageComponent?.prototype as unknown as {
+        [THINKING_GROUPING_PATCHED]?: ThinkingGroupingPatchState;
+      };
+      proto?.[THINKING_GROUPING_PATCHED]?.rows.clear();
+    } catch {
+      // Best effort; stale rows would only linger until the process exits.
+    }
     activeTheme = ctx.ui.theme as unknown as ThemeDetail;
+    activeLevel = () => {
+      try {
+        return pi.getThinkingLevel();
+      } catch {
+        return "off";
+      }
+    };
     updateThoughtLabelStyle();
   });
+  pi.on("thinking_level_select", () => updateThoughtLabelStyle());
   pi.on("session_shutdown", () => {
     if (released) return;
     released = true;
     if (patch && !uninstallThinkingGroupingPatch(patch)) return;
     activeTheme = undefined;
+    activeLevel = undefined;
     thoughtLabelPrefix = "";
     thoughtLabelSuffix = "";
   });

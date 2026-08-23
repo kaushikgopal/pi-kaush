@@ -222,6 +222,7 @@ function succeeded(
 
 function install(): void {
   toolCallMarkers({
+    registerCommand() {},
     on(event: string, handler: (event: unknown, ctx: unknown) => void) {
       if (event === "session_start") sessionHandlers.push(handler);
       if (event === "session_shutdown")
@@ -431,10 +432,17 @@ describe("tool-call-markers grouping", () => {
     }
   });
 
-  test("renders settled rows in one muted tone", () => {
+  test("renders settled rows in quiet chrome and content tones", () => {
+    // Single-letter tags stay near-zero-width; the transcript width budget
+    // counts literal tag text, so full color names would truncate the rows.
+    const tags: Record<string, string> = {
+      muted: "m",
+      toolOutput: "o",
+      toolTitle: "T",
+    };
     const taggingTheme = {
       bold: (text: string) => text,
-      fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+      fg: (color: string, text: string) => `[${tags[color] ?? "?"}]${text}[/]`,
       bg: (_color: string, text: string) => text,
     };
     try {
@@ -447,15 +455,16 @@ describe("tool-call-markers grouping", () => {
       chat.addChild(succeeded("bash", "npm test"));
 
       const output = chat.render(100).join("\n");
-      const stripped = output.replace(/<\/?\w+>/g, "");
+      const stripped = output.replace(/\[\/?\w?\]/g, "");
       expect(stripped).toContain("% read");
       expect(stripped).toContain("• read: one.md");
       expect(stripped).toContain("• read: two.md");
       expect(stripped).toContain("→ done");
       const colors = new Set(
-        [...output.matchAll(/<(\w+)>/g)].map((match) => match[1]),
+        [...output.matchAll(/\[(\w)\]/g)].map((match) => match[1]),
       );
-      expect(colors).toEqual(new Set(["muted"]));
+      // muted chrome (markers, bullets) + toolTitle names + toolOutput content
+      expect(colors).toEqual(new Set(["m", "T", "o"]));
     } finally {
       for (const handler of sessionHandlers) {
         handler({}, { ui: { theme, setToolsExpanded() {} } });
@@ -968,6 +977,7 @@ describe("tool-call-markers grouping", () => {
       dim: 2,
       error: 31,
       muted: 90,
+      toolOutput: 37,
       toolTitle: 36,
       warning: 33,
     };
@@ -987,7 +997,7 @@ describe("tool-call-markers grouping", () => {
 
     const successChat = new MockContainer();
     successChat.addChild(succeeded("read", "done.md"));
-    expect(successChat.render(100).join("\n")).toContain("\x1b[90m→ 1 line");
+    expect(successChat.render(100).join("\n")).toContain("\x1b[37m→ 1 line");
 
     const errorChat = new MockContainer();
     const failed = new MockToolExecutionComponent("read", "broken.md");

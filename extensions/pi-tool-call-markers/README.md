@@ -52,6 +52,14 @@ This package owns every **execution row** in the transcript: collapsed tool call
 
 One shared visual contract crosses the line: `!` blocks align with message text, so their inset mirrors `pi-content-layout`'s message `contentInset` (see `src/bash-block.ts`). Change indentation in both packages together.
 
+## Hiding info entirely: /toggle-info
+
+The default transcript keeps tool calls and thinking collapsed, and Ctrl+O /
+Ctrl+T expand them as usual. When you want prose only, `/toggle-info` hides
+tool calls (including user-run `!` blocks) and thinking completely; running it
+again restores the collapsed view. The toggle is per-session: every session
+starts visible.
+
 ## Bundled thinking-block extension
 
 The second package entrypoint, `src/thinking-block-merger.ts`, combines only directly adjacent `thinking` blocks in a display copy. Tool calls, text, provider blocks, signatures, and stored session messages are unchanged.

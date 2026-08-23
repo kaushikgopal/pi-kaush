@@ -15,6 +15,7 @@ import {
   uninstallBashBlockPatch,
 } from "./bash-block.ts";
 import { runChatContainerHooks } from "./container-hooks.ts";
+import { installInfoVisibility } from "./info-visibility.ts";
 
 const OUTER_INSET = 2;
 const GROUP_MARKER = "%";
@@ -251,7 +252,7 @@ function capFailureTail(tail: string, cap: number, theme: ThemeLike): string {
 }
 
 function renderedGenericOutcome(theme: ThemeLike): string {
-  return theme.fg("muted", "→ done");
+  return theme.fg("toolOutput", "→ done");
 }
 
 // The MCP adapter stashes its call's first line in renderer state before
@@ -705,7 +706,7 @@ function renderedOutcome(
 ): string | undefined {
   const summary = outcomeSummary(row);
   if (!summary) return undefined;
-  return theme.fg("muted", `→ ${summary}`);
+  return theme.fg("toolOutput", `→ ${summary}`);
 }
 
 function renderedGroupedOutcome(
@@ -845,7 +846,7 @@ function renderedCallSummary(
 
   const fallback = compactArgs(row.args);
   return fallback
-    ? theme.fg("muted", fallback)
+    ? theme.fg("toolOutput", fallback)
     : theme.fg("muted", "(no arguments)");
 }
 
@@ -858,9 +859,13 @@ function styledCallLabel(
   const match = /^(\S+)(.*)$/s.exec(plain);
   if (!match) return theme.fg(color, plain);
   const rest = match[2] ?? "";
+  // Failed rows stay uniformly error-colored; settled rows use Pi's native
+  // split — toolTitle for the name, toolOutput for the call content.
+  const nameColor = color === "muted" ? "toolTitle" : color;
+  const restColor = color === "muted" ? "toolOutput" : color;
   return (
-    theme.fg(color, theme.bold(match[1] ?? "")) +
-    (rest ? theme.fg(color, `:${rest}`) : "")
+    theme.fg(nameColor, theme.bold(match[1] ?? "")) +
+    (rest ? theme.fg(restColor, `:${rest}`) : "")
   );
 }
 
@@ -899,7 +904,7 @@ function collapsedOutcome(
   }
   if (row.getRenderShell?.() === "self") {
     const editStat = renderedEditDiffStat(row);
-    if (editStat) return theme.fg("muted", `→ ${editStat}`);
+    if (editStat) return theme.fg("toolOutput", `→ ${editStat}`);
     return renderedGenericOutcome(theme);
   }
   return renderedOutcome(row, theme);
@@ -1100,9 +1105,10 @@ function renderSubagentPlan(
   // other collapsed-row text so control bytes cannot reach the terminal.
   const displayOf = (agent: string) =>
     theme.fg(nameColor, displayNames.get(agent) ?? sanitizeInline(agent));
+  const detailColor = failed ? "error" : "toolOutput";
   const detailOf = (step: SubagentStep) =>
     theme.fg(
-      color,
+      detailColor,
       `${step.profile ? ` [${sanitizeInline(step.profile)}]` : ""} ${subagentStepPreview(step.task)}`,
     );
 
@@ -1114,7 +1120,7 @@ function renderSubagentPlan(
     : isLiveRow(row)
       ? theme.fg("warning", progress ? `→ ${progress}` : "…")
       : row.result
-        ? theme.fg("muted", progress ? `→ ${progress}` : "→ done")
+        ? theme.fg("toolOutput", progress ? `→ ${progress}` : "→ done")
         : theme.fg("warning", "…");
   const headline = (label: string) =>
     marker +
@@ -1126,7 +1132,7 @@ function renderSubagentPlan(
     const step = plan.steps[0]!;
     return [
       headline(
-        theme.fg(color, theme.bold("subagent")) +
+        theme.fg(failed ? "error" : "toolTitle", theme.bold("subagent")) +
           " " +
           displayOf(step.agent) +
           detailOf(step),
@@ -1140,10 +1146,10 @@ function renderSubagentPlan(
       : `parallel (${plan.steps.length} tasks)`;
   const lines = [
     headline(
-      theme.fg(color, theme.bold("subagent")) +
+      theme.fg(failed ? "error" : "toolTitle", theme.bold("subagent")) +
         " " +
-        theme.fg(color, kindLabel) +
-        theme.fg(color, ` [${plan.scope}]`),
+        theme.fg(failed ? "error" : "toolOutput", kindLabel) +
+        theme.fg(failed ? "error" : "toolOutput", ` [${plan.scope}]`),
     ),
   ];
   const shown = plan.steps.slice(0, 3);
@@ -1246,7 +1252,7 @@ function renderGroupedCallLines(
     const toolName = row.toolName ?? "tool";
     if (toolName !== previousToolName) {
       lines.push(
-        `${theme.fg("muted", GROUP_MARKER)} ${theme.fg("muted", theme.bold(toolName))}`,
+        `${theme.fg("muted", GROUP_MARKER)} ${theme.fg("toolTitle", theme.bold(toolName))}`,
       );
       previousToolName = toolName;
     }
@@ -1658,6 +1664,7 @@ export default function (pi: ExtensionAPI) {
   const patch = installPresentationPatch();
   const grouping = patch ? installGroupingPatch(patch) : undefined;
   const bashPatch = installBashBlockPatch();
+  installInfoVisibility(pi);
   let released = false;
 
   pi.on("session_start", (_event, ctx) => {

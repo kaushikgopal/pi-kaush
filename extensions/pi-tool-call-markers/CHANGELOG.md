@@ -2,8 +2,25 @@
 
 ## Unreleased
 
+- Add `/toggle-info`: hide tool calls and thinking entirely, or restore them
+  collapsed. Execution rows (including user-run `!` blocks) are lifted out of
+  the render pass via the shared chat-container hook; thinking blocks are
+  stripped before Pi builds the label/expanded block and replayed on restore.
+  Every session starts visible, and Ctrl+O/Ctrl+T behavior is unchanged when
+  visible. The toggle state lives on globalThis because Pi loads each package
+  entrypoint through jiti with module caching disabled — module-level state
+  would otherwise be duplicated between entrypoints.
+- Adopt Pi's native content-color split in collapsed rows: tool names ride
+  `toolTitle` and call content/outcomes ride `toolOutput` (structural
+  chrome stays muted; failed rows stay uniformly error).
+- Tint the collapsed "+ Thought" label with the session's active
+  thinking-level token (thinkingOff…thinkingMax), re-tinting on
+  thinking_level_select; the expanded thinking block is untouched. The
+  PI_TOOL_CALL_MARKERS_THOUGHT_COLOR values are now `level` (default),
+  `mdheading`, and `inherit`; the midpoint `gray` variant and its RGB
+  color math are gone.
 - Paint user-run `!` bash block surfaces with the theme's
-  `customMessageBg` token instead of a hardcoded hex, matching
+  `userMessageBg` token instead of a hardcoded hex, matching
   pi-content-layout's prompt surfaces under any theme.
 - Show subagent progress in the collapsed plan headline: while running, the tail reads `→ N turns · provider/model` in the warning tone from streamed result details; settled calls keep the same `→ N turns · provider/model` in muted instead of a bare `→ done` (turns aggregate across tasks, model only when all tasks agree).
 - Source the settled "+ Thought" label color from the theme's mdHeading

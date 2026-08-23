@@ -9,15 +9,15 @@ type ThemeLike = {
 
 const BASH_BLOCK_PATCHED = Symbol.for("kg.pi.bashBlock.v1");
 
-// The prompt surface paints with the theme's customMessageBg token, matching
-// pi-content-layout's surfaces (cobalt2 maps it to `actionBlock`, #071312).
-// customMessageBg is a required pi theme token; the legacy hex remains only
-// as a fallback for theme lookalikes without getBgAnsi.
+// The prompt surface paints with the theme's userMessageBg token, matching
+// pi-content-layout's surfaces. userMessageBg is a required pi theme token;
+// the legacy hex remains only as a fallback for theme lookalikes without
+// getBgAnsi.
 const PROMPT_SURFACE_BG_FALLBACK = "\x1b[48;2;7;19;18m"; // #071312
 
 function promptSurfaceBg(theme: ThemeLike): string {
   try {
-    return theme.getBgAnsi?.("customMessageBg") ?? PROMPT_SURFACE_BG_FALLBACK;
+    return theme.getBgAnsi?.("userMessageBg") ?? PROMPT_SURFACE_BG_FALLBACK;
   } catch {
     return PROMPT_SURFACE_BG_FALLBACK;
   }

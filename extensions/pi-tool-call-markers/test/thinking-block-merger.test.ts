@@ -58,6 +58,7 @@ function install(): void {
       if (event === "session_shutdown") shutdownHandlers.push(handler);
       if (event === "session_start") sessionStartHandlers.push(handler);
     },
+    getThinkingLevel: () => "medium",
   } as never);
 }
 
@@ -73,7 +74,9 @@ function mockTheme(colorMode = "truecolor"): unknown {
   return {
     getColorMode: () => colorMode,
     getFgAnsi: (color: string) =>
-      color === "mdHeading" ? "\x1b[38;2;255;184;108m" : "\x1b[39m",
+      color === "mdHeading" || color === "thinkingMedium"
+        ? "\x1b[38;2;255;184;108m"
+        : "\x1b[39m",
   };
 }
 
@@ -274,7 +277,7 @@ describe("thinking block merger", () => {
     }
   });
 
-  test("replaces label nodes with non-italic mdHeading-colored text", () => {
+  test("replaces label nodes with non-italic thinking-level-colored text", () => {
     vi.useFakeTimers();
     startSession(mockTheme());
     const assistant = new MockAssistantMessageComponent();
@@ -305,6 +308,7 @@ describe("thinking block merger", () => {
   });
 
   test("passes through the theme-resolved sequence on indexed terminals", () => {
+    vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "mdheading");
     startSession({
       getColorMode: () => "256color",
       getFgAnsi: (color: string) =>
@@ -315,28 +319,24 @@ describe("thinking block merger", () => {
     );
   });
 
-  test("computes the gray variant as the muted/text midpoint", () => {
-    vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "gray");
-    startSession({
-      getFgAnsi(color: string) {
-        return color === "muted"
-          ? "\x1b[38;2;98;114;164m"
-          : "\x1b[38;2;248;248;242m";
-      },
-    });
-    expect(visibleThoughtLabel("+ Thought · 2.5s")).toBe(
-      "\x1b[23m\x1b[38;2;173;181;203m+ Thought · 2.5s\x1b[39m",
-    );
-  });
-
   test("keeps native styling for the inherit variant and missing themes", () => {
     vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "inherit");
     startSession({ getColorMode: () => "truecolor" });
     expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
 
-    vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "gray");
     startSession(undefined);
     expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+  });
+
+  test("tints the label with the level's theme token", () => {
+    startSession({
+      getColorMode: () => "truecolor",
+      getFgAnsi: (color: string) =>
+        color === "thinkingMedium" ? "\x1b[38;5;67m" : "\x1b[39m",
+    });
+    expect(visibleThoughtLabel("+ Thought")).toBe(
+      "\x1b[23m\x1b[38;5;67m+ Thought\x1b[39m",
+    );
   });
 
   test("keeps thinking merging and styling until the final owner shuts down", () => {
