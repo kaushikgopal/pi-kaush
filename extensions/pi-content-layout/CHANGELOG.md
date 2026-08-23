@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Reference semantic tokens for the remaining extension-colored elements:
+  the intercom sender name rides `customMessageLabel`, the submitted-prompt
+  rail rides `borderAccent`, and prompt surfaces paint with `userMessageBg`.
 - Paint the prompt surfaces (active editor, submitted prompt) with the
   theme's `customMessageBg` token instead of a hardcoded hex, retiring the
   last fixed color in this package. Falls back to the legacy #071312 only

@@ -73,8 +73,8 @@ class IntercomMessageComponent implements Component {
     };
     const bottomBorder = `${margin}${border(`╰${"─".repeat(boxWidth - 2)}╯`)}${margin}`;
 
-    // The sender name alone rides the mdHeading token — an amber/orange in
-    // both cobalt2 and Pi's stock themes, matching the Thought label.
+    // The sender name alone rides customMessageLabel — Pi's token for the
+    // label of an extension message (orange in cobalt2).
     const titlePrefix = "From: ";
     const title = `${titlePrefix}${senderName}${from.cwd ? ` (${from.cwd})` : ""}`;
     const titleText = truncateToWidth(title, Math.max(1, innerWidth - 1), "");
@@ -84,7 +84,10 @@ class IntercomMessageComponent implements Component {
     );
     const styledTitle =
       bodyColor(titleText.slice(0, titlePrefix.length)) +
-      this.theme.fg("mdHeading", titleText.slice(titlePrefix.length, nameEnd)) +
+      this.theme.fg(
+        "customMessageLabel",
+        titleText.slice(titlePrefix.length, nameEnd),
+      ) +
       bodyColor(titleText.slice(nameEnd));
     const dashes = "─".repeat(
       Math.max(1, innerWidth - visibleWidth(titleText)),

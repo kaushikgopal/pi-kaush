@@ -7,16 +7,15 @@ export const PROMPT_RAIL = "▎";
 export const ACTIVE_SIDE_PADDING = 1;
 
 // The prompt surface (active editor block and submitted message body) paints
-// with the theme's customMessageBg token, so both user-input surfaces stay
-// identical while following the active theme (cobalt2 maps it to its
-// `actionBlock` var, #071312). customMessageBg is a required pi theme token;
-// the legacy hex remains only as a fallback for theme lookalikes that cannot
-// resolve it (test fakes, older hosts).
+// with the theme's userMessageBg token, so both user-input surfaces stay
+// identical while following the active theme. userMessageBg is a required pi
+// theme token; the legacy hex remains only as a fallback for theme lookalikes
+// that cannot resolve it (test fakes, older hosts).
 const PROMPT_SURFACE_BG_FALLBACK = "\x1b[48;2;7;19;18m"; // #071312
 
 export function promptSurfaceBg(theme: Theme): string {
   try {
-    return theme.getBgAnsi("customMessageBg");
+    return theme.getBgAnsi("userMessageBg");
   } catch {
     return PROMPT_SURFACE_BG_FALLBACK;
   }
@@ -245,7 +244,7 @@ export function renderSubmittedUserLines(
   width: number,
   theme: Theme,
   inset = contentInset(width),
-  railColor: ThemeColor = "accent",
+  railColor: ThemeColor = "borderAccent",
 ): string[] {
   const blockWidth = width - inset * 2;
   if (inset === 0 || blockWidth <= visibleWidth(PROMPT_RAIL)) {

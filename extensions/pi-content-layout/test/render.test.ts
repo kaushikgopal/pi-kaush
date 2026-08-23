@@ -17,6 +17,7 @@ const stripControls = (text: string) =>
 
 const FG_CODES: Record<string, number> = {
   accent: 35,
+  borderAccent: 35,
   bashMode: 32,
   error: 31,
   warning: 33,
@@ -34,7 +35,7 @@ const theme = {
     return `\x1b[${FG_CODES[color] ?? 37}m`;
   },
   getBgAnsi(color: string) {
-    return color === "customMessageBg" ? SURFACE_BG : "\x1b[40m";
+    return color === "userMessageBg" ? SURFACE_BG : "\x1b[40m";
   },
 } as Theme;
 
@@ -191,7 +192,10 @@ describe("submitted user block", () => {
   });
 
   test("falls back to the legacy surface hex when the theme lacks getBgAnsi", () => {
-    const themeWithoutBg = { ...theme, getBgAnsi: undefined } as Theme;
+    const themeWithoutBg = {
+      ...theme,
+      getBgAnsi: undefined,
+    } as unknown as Theme;
     const lines = renderSubmittedUserLines([" hello"], 30, themeWithoutBg);
     expect(lines[0]).toContain("\x1b[48;2;7;19;18m");
   });

@@ -48,7 +48,7 @@ type Footer = {
 const SURFACE_BG = "\x1b[48;5;22m";
 
 function bgAnsiFor(color: string): string {
-  if (color === "customMessageBg") return SURFACE_BG;
+  if (color === "userMessageBg") return SURFACE_BG;
   return color === "userMessageBg" ? "\x1b[44m" : "\x1b[40m";
 }
 
@@ -60,7 +60,7 @@ const theme = {
   },
   getFgAnsi(color: ThemeColor) {
     const code =
-      color === "accent"
+      color === "accent" || color === "borderAccent"
         ? 35
         : color === "error"
           ? 31

@@ -29,12 +29,13 @@ const stripControls = (text: string) =>
 const SURFACE_BG = "\x1b[48;5;22m";
 
 function bgAnsiFor(color: string): string {
-  if (color === "customMessageBg") return SURFACE_BG;
+  if (color === "userMessageBg") return SURFACE_BG;
   return color === "userMessageBg" ? "\x1b[44m" : "\x1b[40m";
 }
 
 const FG_CODES: Record<string, number> = {
   accent: 35,
+  borderAccent: 35,
   bashMode: 32,
   error: 31,
   warning: 33,

@@ -17,7 +17,7 @@ const FG_CODES: Record<string, number> = {
   muted: 94,
   text: 97,
   bashMode: 32,
-  mdHeading: 33,
+  customMessageLabel: 33,
 };
 
 const theme = {
@@ -92,7 +92,7 @@ describe("intercom message frame", () => {
       expect(line).toContain("\x1b[32m│");
     }
 
-    // Title: "From: " muted, sender name in the mdHeading orange, cwd
+    // Title: "From: " muted, sender name in the customMessageLabel tone, cwd
     // suffix muted again.
     expect(lines[0]).toContain("\x1b[94mFrom: \x1b[39m");
     expect(lines[0]).toContain("\x1b[33msubagent-chat\x1b[39m");
