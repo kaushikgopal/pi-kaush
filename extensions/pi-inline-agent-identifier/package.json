@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-inline-agent-identifier",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Highlight &agent aliases and route one inline reference through Pi's named subagent tool.",
   "license": "MIT",
   "author": "Kaushik Gopal",
