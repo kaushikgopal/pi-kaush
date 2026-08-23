@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-double-paste",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Paste the same large block twice to expand Pi's paste markers into editable text.",
   "license": "MIT",
   "author": "Kaushik Gopal",
