@@ -18,6 +18,8 @@ const expected = [
   "src/bash-block.ts",
   "src/container-hooks.ts",
   "src/index.ts",
+  "src/info-visibility-state.ts",
+  "src/info-visibility.ts",
   "src/thinking-block-merger.ts",
 ].sort();
 
