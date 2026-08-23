@@ -33,6 +33,7 @@ Install an extension globally through Pi's package manager:
 
 ```sh
 pi install npm:@pi-kaush/pi-double-paste
+pi install npm:@pi-kaush/pi-better-read-edit
 pi install npm:@pi-kaush/pi-agent-mode
 pi install npm:@pi-kaush/pi-inline-identifier
 pi install npm:@pi-kaush/pi-openai-compaction
@@ -93,6 +94,7 @@ Create a GitHub release whose tag identifies the workspace and exactly matches i
 
 ```text
 pi-double-paste-v0.1.0
+pi-better-read-edit-v0.1.0
 pi-agent-mode-v0.1.0
 pi-inline-identifier-v0.1.0
 pi-openai-compaction-v0.1.0

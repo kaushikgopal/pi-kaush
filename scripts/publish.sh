@@ -20,7 +20,7 @@ VERSION="${2:-}"
 
 if [ -z "$PACKAGE" ]; then
   echo "Usage: make publish PACKAGE=<extension-name> [VERSION=<x.y.z>]" >&2
-  echo "Known packages: pi-agent-mode, pi-btw, pi-double-paste, pi-inline-identifier, pi-inline-skill-identifier, pi-openai-compaction, pi-response-style, pi-tool-call-markers, pi-welcome-screen" >&2
+  echo "Known packages: pi-agent-mode, pi-better-read-edit, pi-btw, pi-double-paste, pi-inline-identifier, pi-inline-skill-identifier, pi-openai-compaction, pi-response-style, pi-tool-call-markers, pi-welcome-screen" >&2
   exit 1
 fi
 

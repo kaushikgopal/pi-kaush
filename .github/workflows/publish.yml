@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-content-layout-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-footer-minimal-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v') || startsWith(github.event.release.tag_name, 'pi-inline-agent-identifier-v')
+    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-better-read-edit-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-content-layout-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-footer-minimal-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v') || startsWith(github.event.release.tag_name, 'pi-inline-agent-identifier-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -35,6 +35,11 @@ jobs:
               workspace="@pi-kaush/pi-agent-mode"
               directory="extensions/pi-agent-mode"
               prefix="pi-agent-mode-v"
+              ;;
+            pi-better-read-edit-v*)
+              workspace="@pi-kaush/pi-better-read-edit"
+              directory="extensions/pi-better-read-edit"
+              prefix="pi-better-read-edit-v"
               ;;
             pi-content-layout-v*)
               workspace="@pi-kaush/pi-content-layout"
