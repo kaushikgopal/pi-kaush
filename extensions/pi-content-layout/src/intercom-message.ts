@@ -58,10 +58,10 @@ class IntercomMessageComponent implements Component {
       return [margin + this.theme.fg("muted", text) + margin];
     }
 
-    // The frame borrows the bash-mode border green — the same token Pi uses
-    // for the rules around user-run `!` shell blocks. Everything textual
-    // inside the frame is muted, matching tool-row summaries.
-    const border = (text: string) => this.theme.fg("bashMode", text);
+    // The frame borrows customMessageLabel — Pi's token for extension-message
+    // labels (orange in cobalt2) — so the border matches the sender name.
+    // Everything textual inside the frame is muted, matching tool-row summaries.
+    const border = (text: string) => this.theme.fg("customMessageLabel", text);
     const bodyColor = (text: string) => this.theme.fg("muted", text);
     // Columns inside the frame: │ + space + content(innerWidth) + space + │.
     const innerWidth = boxWidth - 4;

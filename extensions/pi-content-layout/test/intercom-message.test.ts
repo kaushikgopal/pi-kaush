@@ -81,15 +81,15 @@ describe("intercom message frame", () => {
     expect(lines[2]?.indexOf("To reply:")).toBe(textColumn);
   });
 
-  test("paints the frame bash green, the body muted, and the name orange", () => {
+  test("paints the frame in the message-label tone and the body muted", () => {
     const component = renderIntercomMessage(details, false, theme);
     const lines = component?.render(100) ?? [];
 
-    // The frame uses the bashMode token, like the rules around `!` blocks.
-    expect(lines[0]).toContain("\x1b[32m╭");
-    expect(lines.at(-1)).toContain("\x1b[32m╰");
+    // The frame uses customMessageLabel, matching the sender name.
+    expect(lines[0]).toContain("\x1b[33m╭");
+    expect(lines.at(-1)).toContain("\x1b[33m╰");
     for (const line of lines.slice(1, -1)) {
-      expect(line).toContain("\x1b[32m│");
+      expect(line).toContain("\x1b[33m│");
     }
 
     // Title: "From: " muted, sender name in the customMessageLabel tone, cwd
