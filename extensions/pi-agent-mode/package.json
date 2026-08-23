@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-agent-mode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Activate a configured Pi agent as a persistent mode in the current session.",
   "license": "MIT",
   "author": "Kaushik Gopal",
