@@ -4,18 +4,19 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 
 ## Packages
 
-| Package                                                               | Description                                                                                |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)               | Activate a configured Pi agent as a persistent mode in the current session.                |
-| [`@pi-kaush/pi-better-read-edit`](./extensions/pi-better-read-edit)   | Pair tagged local reads with strict, context-efficient hashline edits.                     |
-| [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)           | Paste the same large block twice to expand Pi's paste markers into editable text.          |
-| [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) | Highlight and route inline Pi skill, agent, and prompt-template references.                |
-| [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction) | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns.        |
-| [`@pi-kaush/pi-btw`](./extensions/pi-btw)                             | Ask a question in a Herdr side fork or switch to a local session fork.                     |
-| [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers) | Show unboxed tool groups, subagent plans, and live/final thinking markers.                 |
-| [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)       | Show a responsive startup header with Pi's loaded resources.                               |
-| [`@pi-kaush/pi-content-layout`](./extensions/pi-content-layout)       | Inset the conversation; use a full-width dark editor and a compact submitted-prompt shell. |
-| [`@pi-kaush/pi-footer-minimal`](./extensions/pi-footer-minimal)       | Show cost/context in an inset footer.                                                      |
+| Package                                                               | Description                                                                                    |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)               | Activate a configured Pi agent as a persistent mode in the current session.                    |
+| [`@pi-kaush/pi-better-read-edit`](./extensions/pi-better-read-edit)   | Pair tagged local reads with strict, context-efficient hashline edits. Local only; not on npm. |
+| [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)           | Paste the same large block twice to expand Pi's paste markers into editable text.              |
+| [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) | Highlight and route inline Pi skill, agent, and prompt-template references.                    |
+| [`@pi-kaush/pi-openai-compaction`](./extensions/pi-openai-compaction) | Preserve OpenAI native Responses compaction checkpoints across compatible Pi turns.            |
+| [`@pi-kaush/pi-btw`](./extensions/pi-btw)                             | Ask a question in a Herdr side fork or switch to a local session fork.                         |
+| [`@pi-kaush/pi-tool-call-markers`](./extensions/pi-tool-call-markers) | Show unboxed tool groups, subagent plans, and live/final thinking markers.                     |
+| [`@pi-kaush/pi-welcome-screen`](./extensions/pi-welcome-screen)       | Show a responsive startup header with Pi's loaded resources.                                   |
+| [`@pi-kaush/pi-content-layout`](./extensions/pi-content-layout)       | Inset the conversation; use a full-width dark editor and a compact submitted-prompt shell.     |
+| [`@pi-kaush/pi-footer-minimal`](./extensions/pi-footer-minimal)       | Show cost/context in an inset footer.                                                          |
+| [`@pi-kaush/pi-browser`](./extensions/pi-browser)                     | Drive the already-running browser over CDP as native Pi tools. Local only; not on npm.         |
 
 Every package is independently versioned and publishable to npm. Runtime source is readable TypeScript, and packages avoid runtime dependencies where practical.
 
@@ -23,7 +24,9 @@ Every package is independently versioned and publishable to npm. Runtime source 
 
 [`@pi-kaush/pi-openai-text-verbosity`](./extensions/pi-openai-text-verbosity) is retired. Pi 0.84.1 and newer can set OpenAI Responses `text.verbosity` directly through model `samplingParams`.
 
-[`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) and [`@pi-kaush/pi-inline-agent-identifier`](./extensions/pi-inline-agent-identifier) are deprecated. Use the consolidated [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) package instead.
+`@pi-kaush/pi-split-session` is retired and its source is no longer in this repository. It forked a Pi conversation into a Herdr/Ghostty side pane with a handoff import; `/btw` covers the lightweight side-question case.
+
+[`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) and [`@pi-kaush/pi-inline-agent-identifier`](./extensions/pi-inline-agent-identifier) are deprecated. Use the consolidated [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) package instead. Both deprecated packages remain on npm for existing users but receive no feature work.
 
 ## Use an extension
 
@@ -33,13 +36,15 @@ Install an extension globally through Pi's package manager:
 
 ```sh
 pi install npm:@pi-kaush/pi-double-paste
-pi install npm:@pi-kaush/pi-better-read-edit
 pi install npm:@pi-kaush/pi-agent-mode
 pi install npm:@pi-kaush/pi-inline-identifier
 pi install npm:@pi-kaush/pi-openai-compaction
 pi install npm:@pi-kaush/pi-btw
 pi install npm:@pi-kaush/pi-tool-call-markers
 pi install npm:@pi-kaush/pi-welcome-screen
+pi install npm:@pi-kaush/pi-content-layout
+pi install npm:@pi-kaush/pi-footer-minimal
+pi install npm:@pi-kaush/pi-response-style
 ```
 
 Restart Pi or run `/reload`. To pin a specific release, append its version, such as `@0.1.0`.
@@ -73,6 +78,7 @@ pi \
   -e ~/path/to/pi-kaush/extensions/pi-tool-call-markers/src/index.ts \
   -e ~/path/to/pi-kaush/extensions/pi-tool-call-markers/src/thinking-block-merger.ts
 pi -e ~/path/to/pi-kaush/extensions/pi-welcome-screen/src/index.ts
+pi -e ~/path/to/pi-kaush/extensions/pi-browser/src/index.ts
 ```
 
 Run one command for the extension you want. This loads the live TypeScript source without installing or copying it. It also keeps your normally configured Pi extensions enabled. Use `--no-extensions` before `-e` if you want to test it in isolation.
@@ -102,5 +108,7 @@ pi-btw-v0.1.0
 pi-tool-call-markers-v0.1.0
 pi-welcome-screen-v0.1.2
 ```
+
+The workflow only publishes tag prefixes wired into `publish.yml` (the job filter and resolver); wiring a new package means adding its prefix there first, and the release is skipped otherwise.
 
 The workflow verifies the tag against `package.json`, runs the full repository check, and publishes only that workspace. A package's first release must be bootstrapped interactively on npm before its Trusted Publisher can be configured; subsequent releases use GitHub OIDC without local login or write-action 2FA prompts.
