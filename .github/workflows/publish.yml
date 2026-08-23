@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-content-layout-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-footer-minimal-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v')
+    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-content-layout-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-footer-minimal-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v') || startsWith(github.event.release.tag_name, 'pi-inline-agent-identifier-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -50,6 +50,11 @@ jobs:
               workspace="@pi-kaush/pi-footer-minimal"
               directory="extensions/pi-footer-minimal"
               prefix="pi-footer-minimal-v"
+              ;;
+            pi-inline-agent-identifier-v*)
+              workspace="@pi-kaush/pi-inline-agent-identifier"
+              directory="extensions/pi-inline-agent-identifier"
+              prefix="pi-inline-agent-identifier-v"
               ;;
             pi-inline-identifier-v*)
               workspace="@pi-kaush/pi-inline-identifier"
