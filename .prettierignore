@@ -4,3 +4,6 @@ coverage/
 package-lock.json
 # Generated bench output (not shipped, not committed)
 extensions/pi-response-style/bench/results/
+
+# Pi local session state
+.pi/

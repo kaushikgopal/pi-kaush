@@ -3,3 +3,6 @@ coverage/
 *.tgz
 .DS_Store
 *.log
+
+# Pi local session state (context snapshots, etc.)
+.pi/
