@@ -1,0 +1,301 @@
+import type {
+  ExtensionAPI,
+  SessionCompactEvent,
+  Theme,
+  ThemeColor,
+} from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { estimateLineTokens } from "./transcript.ts";
+import type { VerbatimCompactionDetails } from "./types.ts";
+
+export const COMPACTION_LOG_TYPE = "verbatim-compaction-log";
+
+export interface CompactionLogData {
+  version: 1;
+  kind: "verbatim" | "native" | "extension";
+  /** Absent means the strategy succeeded. */
+  status?: "failed" | "cancelled";
+  reason?: "manual" | "threshold" | "overflow";
+  willRetry?: boolean;
+  tokensBefore?: number;
+  outputTokens?: number;
+  deletedLines?: number;
+  rangesApplied?: number;
+  rangesProposed?: number;
+  protectedLines?: number;
+  targetRetainedTokens?: number;
+  plannerModel?: string;
+  plannerLatencyMs?: number;
+  planSource?: "foreground" | "speculative";
+  summaryDigest?: string;
+  summaryTokens?: number;
+  strategyName?: string;
+  errorMessage?: string;
+}
+
+export function verbatimLogData(
+  details: VerbatimCompactionDetails,
+): CompactionLogData {
+  return {
+    version: 1,
+    kind: "verbatim",
+    reason: details.reason,
+    tokensBefore: details.sourceTokens,
+    outputTokens: details.outputTokens,
+    deletedLines: details.deletedLines,
+    rangesApplied: details.rangesApplied,
+    rangesProposed: details.rangesProposed,
+    protectedLines: details.protectedLines,
+    targetRetainedTokens: details.targetRetainedTokens,
+    plannerModel: details.plannerModel,
+    plannerLatencyMs: details.plannerLatencyMs,
+    planSource: details.planSource,
+    summaryDigest: details.summaryDigest,
+  };
+}
+
+export function verbatimFailedLogData(
+  message: string,
+  reason: CompactionLogData["reason"],
+): CompactionLogData {
+  return {
+    version: 1,
+    kind: "verbatim",
+    status: "failed",
+    ...(reason ? { reason } : {}),
+    errorMessage: message.slice(0, 200),
+  };
+}
+
+export function nativeLogData(event: SessionCompactEvent): CompactionLogData {
+  const details = event.compactionEntry.details;
+  const strategyName =
+    event.fromExtension &&
+    details !== null &&
+    typeof details === "object" &&
+    !Array.isArray(details) &&
+    typeof (details as { strategy?: unknown }).strategy === "string"
+      ? (details as { strategy: string }).strategy.slice(0, 80)
+      : undefined;
+  return {
+    version: 1,
+    kind: event.fromExtension ? "extension" : "native",
+    reason: event.reason,
+    willRetry: event.willRetry,
+    tokensBefore: event.compactionEntry.tokensBefore,
+    summaryTokens: estimateLineTokens(event.compactionEntry.summary),
+    ...(strategyName ? { strategyName } : {}),
+  };
+}
+
+// Pi 0.84.3 fires this event but does not re-export its type from the package
+// root, so keep the structural contract local.
+export interface CompactionFailedEventLike {
+  reason: "manual" | "threshold" | "overflow";
+  willRetry: boolean;
+  aborted: boolean;
+  fromExtension: boolean;
+  errorMessage?: string;
+}
+
+export function failedLogData(
+  event: CompactionFailedEventLike,
+): CompactionLogData {
+  return {
+    version: 1,
+    kind: event.fromExtension ? "verbatim" : "native",
+    status: event.aborted ? "cancelled" : "failed",
+    reason: event.reason,
+    willRetry: event.willRetry,
+    ...(event.errorMessage
+      ? { errorMessage: event.errorMessage.slice(0, 200) }
+      : {}),
+  };
+}
+
+export function registerCompactionChatLog(pi: ExtensionAPI): void {
+  pi.registerEntryRenderer(COMPACTION_LOG_TYPE, renderCompactionLogEntry);
+}
+
+export function appendCompactionLog(
+  pi: ExtensionAPI,
+  data: CompactionLogData,
+): void {
+  pi.appendEntry(COMPACTION_LOG_TYPE, data);
+}
+
+export function renderCompactionLogEntry(
+  entry: { data?: unknown },
+  options: { expanded: boolean },
+  theme: Theme,
+): Component | undefined {
+  const data = parseCompactionLogData(entry.data);
+  if (data === undefined) return undefined;
+  return new CompactionLogComponent(data, options.expanded, theme);
+}
+
+function parseCompactionLogData(value: unknown): CompactionLogData | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const data = value as Partial<CompactionLogData>;
+  if (
+    data.version !== 1 ||
+    (data.kind !== "verbatim" &&
+      data.kind !== "native" &&
+      data.kind !== "extension") ||
+    (data.status !== undefined &&
+      data.status !== "failed" &&
+      data.status !== "cancelled")
+  ) {
+    return undefined;
+  }
+  return data as CompactionLogData;
+}
+
+// Geometry contract with tool-call rows (pi-tool-call-markers): the marker
+// sits on the two-column transcript inset and body text starts two columns
+// after it, sharing the text column used by grouped tool children.
+// ≡ (identical-to) reads as a compressed stack of lines — the compaction
+// metaphor — and stays visually distinct from the ─ header rule.
+const OUTER_INSET = 2;
+const RULE_WIDTH = 72;
+const LOG_MARKER = "≡";
+
+class CompactionLogComponent implements Component {
+  constructor(
+    private readonly data: CompactionLogData,
+    private readonly expanded: boolean,
+    private readonly theme: Theme,
+  ) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const inset = width > OUTER_INSET * 2 ? OUTER_INSET : 0;
+    const margin = " ".repeat(inset);
+    const contentWidth = Math.max(1, width - inset);
+    return [...this.headerLine(contentWidth), ...this.bodyLines()].map(
+      (line) => margin + truncateToWidth(line, contentWidth, "", false),
+    );
+  }
+
+  private headerLine(contentWidth: number): string[] {
+    const accent = headerColor(this.data);
+    const title = titleFor(this.data);
+    const styled =
+      `${this.theme.fg(accent, LOG_MARKER)} ` +
+      this.theme.fg(accent, this.theme.bold(title));
+    const used = 2 + visibleWidth(title);
+    const ruleBudget = Math.min(contentWidth, RULE_WIDTH) - used - 1;
+    if (ruleBudget < 3) return [styled];
+    return [`${styled} ${this.theme.fg("dim", "─".repeat(ruleBudget))}`];
+  }
+
+  private bodyLines(): string[] {
+    const muted = (text: string) => this.theme.fg("muted", text);
+    return bodyLinesFor(this.data, this.expanded).map((line) =>
+      muted(`  ${line}`),
+    );
+  }
+}
+
+function headerColor(data: CompactionLogData): ThemeColor {
+  if (data.status === "failed") return "error";
+  if (data.status === "cancelled") return "warning";
+  return "toolTitle";
+}
+
+function titleFor(data: CompactionLogData): string {
+  switch (data.kind) {
+    case "verbatim":
+      return "verbatim compaction";
+    case "native":
+      return "native compaction";
+    case "extension":
+      return data.strategyName !== undefined && data.strategyName.length > 0
+        ? `${data.strategyName} compaction`
+        : "extension compaction";
+  }
+}
+
+function bodyLinesFor(data: CompactionLogData, expanded: boolean): string[] {
+  // A failed or cancelled card reports only its own outcome — the strategy
+  // never ran to completion, so there are no metrics to show.
+  if (data.status !== undefined) return statusBodyLines(data);
+  switch (data.kind) {
+    case "verbatim":
+      return verbatimBodyLines(data, expanded);
+    case "native":
+    case "extension":
+      return nativeBodyLines(data, expanded);
+  }
+}
+
+function verbatimBodyLines(
+  data: CompactionLogData,
+  expanded: boolean,
+): string[] {
+  const lines = [
+    `${formatCount(data.tokensBefore)} → ${formatCount(data.outputTokens)} tokens (${retainedPercent(data)}% kept) · ${formatCount(data.deletedLines)} lines removed`,
+    `${formatCount(data.protectedLines)} pinned ${plural(data.protectedLines, "line")} · ${data.plannerModel ?? "unknown planner"} · ${formatLatency(data.plannerLatencyMs)} · ${data.planSource ?? "foreground"}`,
+  ];
+  if (expanded) {
+    lines.push(
+      `target ≤ ${formatCount(data.targetRetainedTokens)} tokens · ${formatCount(data.rangesProposed)} ranges proposed · digest ${(data.summaryDigest ?? "").slice(0, 12)}`,
+    );
+  }
+  return lines;
+}
+
+function nativeBodyLines(data: CompactionLogData, expanded: boolean): string[] {
+  const lines = [
+    `${formatCount(data.tokensBefore)} → ~${formatCount(data.summaryTokens)} tokens · ${reasonLabel(data.reason)}${data.willRetry === true ? " · retrying turn" : ""}`,
+  ];
+  if (expanded && data.strategyName !== undefined) {
+    lines.push(`strategy: ${data.strategyName}`);
+  }
+  return lines;
+}
+
+function statusBodyLines(data: CompactionLogData): string[] {
+  const parts: string[] = [reasonLabel(data.reason)];
+  if (data.status === "cancelled") parts.push("cancelled");
+  if (data.errorMessage !== undefined && data.errorMessage.length > 0) {
+    parts.push(data.errorMessage);
+  }
+  if (data.willRetry === true) parts.push("turn retry expected");
+  return [parts.join(" · ")];
+}
+
+function retainedPercent(data: CompactionLogData): string {
+  if (
+    typeof data.tokensBefore !== "number" ||
+    typeof data.outputTokens !== "number" ||
+    data.tokensBefore <= 0
+  ) {
+    return "?";
+  }
+  return ((data.outputTokens / data.tokensBefore) * 100)
+    .toFixed(1)
+    .replace(/\.0$/, "");
+}
+
+function reasonLabel(reason: CompactionLogData["reason"] | undefined): string {
+  if (reason === "threshold") return "auto (context full)";
+  if (reason === "overflow") return "auto (overflow)";
+  return "manual";
+}
+
+function formatCount(value: number | undefined): string {
+  return typeof value === "number" ? value.toLocaleString("en-US") : "?";
+}
+
+function formatLatency(ms: number | undefined): string {
+  if (typeof ms !== "number") return "?";
+  return ms >= 1_000 ? `${(ms / 1_000).toFixed(1)}s` : `${ms}ms`;
+}
+
+function plural(count: number | undefined, noun: string): string {
+  return count === 1 ? noun : `${noun}s`;
+}

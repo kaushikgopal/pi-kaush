@@ -14,6 +14,7 @@ const expected = [
   "index.ts",
   "package.json",
   "settings.json",
+  "src/chat-log.ts",
   "src/compactor.ts",
   "src/extension.ts",
   "src/planner.ts",

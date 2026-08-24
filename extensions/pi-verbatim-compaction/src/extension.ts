@@ -5,6 +5,14 @@ import type {
   SessionBeforeCompactEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
+  appendCompactionLog,
+  failedLogData,
+  nativeLogData,
+  registerCompactionChatLog,
+  verbatimFailedLogData,
+  verbatimLogData,
+} from "./chat-log.ts";
+import {
   findCurrentObjective,
   prepareCompaction,
   runForegroundCompaction,
@@ -44,6 +52,7 @@ export default function verbatimCompaction(pi: ExtensionAPI): void {
   const speculation = new SpeculationController(state, observePlannerResponse);
 
   registerRecallTool(pi, () => settings);
+  registerCompactionChatLog(pi);
 
   pi.on("session_start", (_event, ctx) => {
     speculation.invalidate(false);
@@ -74,7 +83,7 @@ export default function verbatimCompaction(pi: ExtensionAPI): void {
 
   pi.on("session_before_compact", async (event, ctx) => {
     if (!settings.enabled) return;
-    return handleCompaction(event, ctx, settings, state, speculation);
+    return handleCompaction(pi, event, ctx, settings, state, speculation);
   });
 
   pi.on("session_compact", (event) => {
@@ -82,8 +91,15 @@ export default function verbatimCompaction(pi: ExtensionAPI): void {
     if (isVerbatimDetails(details)) {
       state.lastCompaction = details;
       state.counters.compactions += 1;
+      appendCompactionLog(pi, verbatimLogData(details));
+    } else {
+      appendCompactionLog(pi, nativeLogData(event));
     }
     speculation.invalidate(false);
+  });
+
+  pi.on("session_compact_failed", (event) => {
+    appendCompactionLog(pi, failedLogData(event));
   });
 
   pi.on("session_tree", () => speculation.invalidate());
@@ -114,6 +130,7 @@ export default function verbatimCompaction(pi: ExtensionAPI): void {
 }
 
 async function handleCompaction(
+  pi: ExtensionAPI,
   event: SessionBeforeCompactEvent,
   ctx: ExtensionContext,
   settings: ExtensionSettings,
@@ -124,6 +141,10 @@ async function handleCompaction(
   const prepared = prepareCompaction(compactionEvent, settings);
   if (prepared === undefined) {
     state.counters.fallbacks += 1;
+    appendCompactionLog(
+      pi,
+      verbatimFailedLogData("transcript preparation failed", event.reason),
+    );
     return undefined;
   }
 
@@ -146,11 +167,9 @@ async function handleCompaction(
     );
     if (foreground === undefined) {
       state.counters.fallbacks += 1;
-      notifyFallback(
-        ctx,
-        settings,
-        "Planner ranges did not meet the retention target.",
-      );
+      const message = "planner ranges did not meet the retention target";
+      notifyFallback(ctx, settings, message);
+      appendCompactionLog(pi, verbatimFailedLogData(message, event.reason));
       return undefined;
     }
     return foreground.result;
@@ -159,7 +178,9 @@ async function handleCompaction(
       return { cancel: true };
     }
     state.counters.fallbacks += 1;
-    notifyFallback(ctx, settings, plannerErrorMessage(error));
+    const message = plannerErrorMessage(error);
+    notifyFallback(ctx, settings, message);
+    appendCompactionLog(pi, verbatimFailedLogData(message, event.reason));
     return undefined;
   } finally {
     if (ctx.hasUI) ctx.ui.setStatus("verbatim-compaction", undefined);

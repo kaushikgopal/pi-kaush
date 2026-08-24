@@ -97,6 +97,29 @@ The `verbatim_recall_history` tool performs bounded lexical substring search ove
 
 It is optimized for exact paths, symbols, commands, errors, versions, and phrases. Query size, scanned entries, scanned characters, result count, and final output are bounded. Assistant thinking, images, and `excludeFromContext` bash history are excluded; the abort signal is checked while scanning.
 
+## Chat log
+
+Every compaction appends a compact card to the transcript, aligned with tool-call rows. Cards are Pi custom entries: they render in the chat but never enter LLM context, so they cannot pollute the history they describe.
+
+```text
+  ≡ verbatim compaction ───────────────────────────────
+    41,203 → 20,611 tokens (50% kept) · 258 lines removed
+    3 pinned lines · gpt-5.4 · 2.1s · foreground
+
+  ≡ native compaction ─────────────────────────────────
+    61,200 → ~3,400 tokens · auto (context full)
+```
+
+The header line uses the theme's tool-title color; everything else is muted. Tokens are estimates: the verbatim card shows the compactable region before → after deletion, and the native card shows the session size → summary size. `pinned lines` are the lines the planner can never delete (`<keepContext>` blocks plus structural boundaries); `foreground` means the plan was computed on the spot, `speculative` that it was reused from background planning.
+
+Each card reports only its own strategy's outcome, via header color:
+
+- **tool-title color** — that strategy succeeded.
+- **error color** — that strategy failed. A verbatim fail-open (planner timeout, unusable ranges, …) renders a red `verbatim compaction` card with the reason, followed by a separate normal `native compaction` card when Pi's fallback succeeds.
+- **warning color** — the compaction was cancelled.
+
+Ctrl+O expands a successful card for retention-target and digest detail. Chat-log cards require Pi ≥ 0.84.3 (`registerEntryRenderer` and the `session_compact_failed` event).
+
 ## Commands
 
 - `/verbatim-compact [focus]` — wait for idle, then trigger Pi compaction through the hook.

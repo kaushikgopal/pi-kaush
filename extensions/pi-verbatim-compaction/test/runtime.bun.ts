@@ -4,7 +4,14 @@ import type {
   ExtensionContext,
   SessionBeforeCompactEvent,
   SessionEntry,
+  Theme,
 } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import {
+  COMPACTION_LOG_TYPE,
+  renderCompactionLogEntry,
+  type CompactionLogData,
+} from "../src/chat-log.ts";
 import verbatimCompaction from "../src/extension.ts";
 import { findSummaryProvenance } from "../src/compactor.ts";
 import { runPlanner, PlannerFailure } from "../src/planner.ts";
@@ -514,6 +521,201 @@ describe("historical recall", () => {
   });
 });
 
+describe("compaction chat log", () => {
+  test("renders a verbatim card with unmuted header and muted body", async () => {
+    configureSmallFixture();
+    const harness = createHarness("4,4\n10,10");
+    const event = compactionEvent();
+    harness.start(event.branchEntries);
+    const result = await harness.beforeCompact(event);
+    harness.compacted({
+      summary: result?.compaction?.summary ?? "",
+      tokensBefore: event.preparation.tokensBefore,
+      details: result?.compaction?.details,
+      fromExtension: true,
+    });
+
+    const entry = harness.appended.find(
+      (item) => item.type === COMPACTION_LOG_TYPE,
+    );
+    expect(entry).toBeDefined();
+    const data = entry?.data as CompactionLogData;
+    expect(data.kind).toBe("verbatim");
+    expect(data.tokensBefore).toBeGreaterThan(0);
+
+    const component = renderCompactionLogEntry(
+      { data },
+      { expanded: false },
+      fakeTheme,
+    );
+    const lines = component?.render(80) ?? [];
+    expect(lines.length).toBe(3);
+    expect(lines[0]).toStartWith("  ");
+    expect(lines[0]).toContain("≡");
+    expect(lines[0]).toContain("verbatim compaction");
+    expect(lines[0]).toContain("\x1b[35m"); // toolTitle
+    expect(lines[0]).toContain("─");
+    expect(lines[1]).toContain("\x1b[90m"); // muted
+    expect(lines[1]).toContain("lines removed");
+    expect(lines[1]).toContain("% kept)");
+    expect(lines[2]).toContain("pinned lines");
+    expect(lines[1]).not.toContain("\x1b[35m");
+    for (const line of lines)
+      expect(visibleWidth(line)).toBeLessThanOrEqual(80);
+  });
+
+  test("renders expanded detail and survives narrow widths", () => {
+    const data: CompactionLogData = {
+      version: 1,
+      kind: "verbatim",
+      tokensBefore: 41_203,
+      outputTokens: 20_611,
+      deletedLines: 258,
+      rangesApplied: 1,
+      rangesProposed: 12,
+      protectedLines: 3,
+      targetRetainedTokens: 20_480,
+      plannerModel: "gpt-5.4",
+      plannerLatencyMs: 2_100,
+      planSource: "speculative",
+      summaryDigest: "ab12cd34ef56",
+    };
+    const expanded = renderCompactionLogEntry(
+      { data },
+      { expanded: true },
+      fakeTheme,
+    )?.render(80);
+    expect(expanded?.some((line) => line.includes("digest ab12cd34ef56"))).toBe(
+      true,
+    );
+    const narrow =
+      renderCompactionLogEntry(
+        { data },
+        { expanded: false },
+        fakeTheme,
+      )?.render(24) ?? [];
+    for (const line of narrow)
+      expect(visibleWidth(line)).toBeLessThanOrEqual(24);
+  });
+
+  test("rejects malformed entry data", () => {
+    expect(
+      renderCompactionLogEntry(
+        { data: { version: 2 } },
+        { expanded: false },
+        fakeTheme,
+      ),
+    ).toBeUndefined();
+    expect(
+      renderCompactionLogEntry(
+        { data: "nope" },
+        { expanded: false },
+        fakeTheme,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("a verbatim fail-open renders its own failed card, then a normal native card", async () => {
+    configureSmallFixture();
+    const harness = createHarness("garbage");
+    const event = compactionEvent();
+    harness.start(event.branchEntries);
+    expect(await harness.beforeCompact(event)).toBeUndefined();
+
+    const failedData = harness.appended.find(
+      (item) => item.type === COMPACTION_LOG_TYPE,
+    )?.data as CompactionLogData;
+    expect(failedData.kind).toBe("verbatim");
+    expect(failedData.status).toBe("failed");
+    const failedLines =
+      renderCompactionLogEntry(
+        { data: failedData },
+        { expanded: false },
+        fakeTheme,
+      )?.render(80) ?? [];
+    expect(failedLines[0]).toContain("verbatim compaction");
+    expect(failedLines[0]).toContain("\x1b[31m"); // error header
+    expect(failedLines[1]).toContain("malformed");
+
+    // Native then succeeds on its own terms; its card carries no verbatim
+    // status and stays the normal tool-title color.
+    harness.compacted({
+      summary: "native summary",
+      tokensBefore: 61_200,
+      details: undefined,
+      fromExtension: false,
+    });
+    const nativeData = harness.appended.at(-1)?.data as CompactionLogData;
+    expect(nativeData.kind).toBe("native");
+    expect(nativeData.status).toBeUndefined();
+    const nativeLines =
+      renderCompactionLogEntry(
+        { data: nativeData },
+        { expanded: false },
+        fakeTheme,
+      )?.render(80) ?? [];
+    expect(nativeLines[0]).toContain("native compaction");
+    expect(nativeLines[0]).toContain("\x1b[35m"); // toolTitle header
+    expect(nativeLines[1]).toContain("61,200 → ~");
+    expect(nativeLines.some((line) => line.includes("malformed"))).toBe(false);
+  });
+
+  test("failed and cancelled compactions color the card of the strategy that ran", () => {
+    configureSmallFixture();
+    const harness = createHarness("4,4");
+    harness.start([]);
+    harness.compactFailed({
+      aborted: false,
+      fromExtension: true,
+      errorMessage: "provider boom",
+    });
+    harness.compactFailed({ aborted: true, fromExtension: false });
+
+    const [failed, cancelled] = harness.appended.map(
+      (item) => item.data as CompactionLogData,
+    );
+    expect(failed?.kind).toBe("verbatim");
+    expect(failed?.status).toBe("failed");
+    expect(cancelled?.kind).toBe("native");
+    expect(cancelled?.status).toBe("cancelled");
+
+    const failedLines =
+      renderCompactionLogEntry(
+        { data: failed },
+        { expanded: false },
+        fakeTheme,
+      )?.render(80) ?? [];
+    expect(failedLines[0]).toContain("verbatim compaction");
+    expect(failedLines[0]).toContain("\x1b[31m"); // error
+    expect(failedLines[1]).toContain("provider boom");
+    const cancelledLines =
+      renderCompactionLogEntry(
+        { data: cancelled },
+        { expanded: false },
+        fakeTheme,
+      )?.render(80) ?? [];
+    expect(cancelledLines[0]).toContain("native compaction");
+    expect(cancelledLines[0]).toContain("\x1b[33m"); // warning
+    expect(cancelledLines[1]).toContain("cancelled");
+  });
+});
+
+const ANSI_BY_TOKEN: Record<string, [string, string]> = {
+  toolTitle: ["\x1b[35m", "\x1b[39m"],
+  muted: ["\x1b[90m", "\x1b[39m"],
+  dim: ["\x1b[2m", "\x1b[22m"],
+  error: ["\x1b[31m", "\x1b[39m"],
+  warning: ["\x1b[33m", "\x1b[39m"],
+};
+
+const fakeTheme = {
+  fg: (color: string, text: string) => {
+    const [open, close] = ANSI_BY_TOKEN[color] ?? ["", ""];
+    return `${open}${text}${close}`;
+  },
+  bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+} as unknown as Theme;
+
 function configureSmallFixture(): void {
   process.env.PI_VERBATIM_COMPACTION_ENABLED = "true";
   process.env.PI_VERBATIM_COMPACTION_RETENTION_RATIO = "0.5";
@@ -556,12 +758,17 @@ function createHarness(
       setStatus() {},
     },
   } as unknown as ExtensionContext;
+  const appended: { type: string; data: unknown }[] = [];
   const pi = {
     on(name: string, handler: (...args: any[]) => any) {
       handlers.set(name, handler);
     },
     registerTool() {},
     registerCommand() {},
+    registerEntryRenderer() {},
+    appendEntry(customType: string, data: unknown) {
+      appended.push({ type: customType, data });
+    },
   } as unknown as ExtensionAPI;
   verbatimCompaction(pi);
 
@@ -585,6 +792,48 @@ function createHarness(
     beforeCompact(event: SessionBeforeCompactEvent) {
       return handlers.get("session_before_compact")?.(event, ctx);
     },
+    compacted(entry: {
+      summary: string;
+      tokensBefore: number;
+      details?: unknown;
+      fromExtension: boolean;
+    }) {
+      handlers.get("session_compact")?.(
+        {
+          type: "session_compact",
+          compactionEntry: {
+            type: "compaction",
+            id: `compact-${appended.length}`,
+            parentId: null,
+            timestamp: new Date().toISOString(),
+            summary: entry.summary,
+            firstKeptEntryId: "kept-entry",
+            tokensBefore: entry.tokensBefore,
+            details: entry.details,
+          },
+          fromExtension: entry.fromExtension,
+          reason: "manual",
+          willRetry: false,
+        },
+        ctx,
+      );
+    },
+    compactFailed(event: {
+      aborted: boolean;
+      fromExtension: boolean;
+      errorMessage?: string;
+    }) {
+      handlers.get("session_compact_failed")?.(
+        {
+          type: "session_compact_failed",
+          reason: "manual",
+          willRetry: false,
+          ...event,
+        },
+        ctx,
+      );
+    },
+    appended,
     completeCalls: () => calls,
   };
 }
