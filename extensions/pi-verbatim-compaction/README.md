@@ -14,6 +14,45 @@ Pi chooses its normal safe cut point
 
 The core invariant is: **the model selects; deterministic code mutates**.
 
+## Why use it
+
+Ordinary summary compaction asks a model to author a shorter version of the conversation. That can paraphrase an exact error, omit a constraint, merge two attempts, or invent connective details. Verbatim compaction gives the model a narrower job:
+
+```text
+summary compaction                    verbatim compaction
+model rewrites history                model ranks deletions
+        ↓                                      ↓
+new prose becomes durable context     host code copies surviving source lines
+```
+
+The result is still lossy—deleted lines are gone from active context—but every ordinary line that survives is the line Pi originally stored. This is especially useful in coding sessions where exact paths, commands, diagnostics, identifiers, decisions, and tool evidence matter more than a fluent narrative.
+
+Key advantages:
+
+- **Lower synthesis risk.** The planner cannot rewrite, reorder, or add durable conversation text; it can only propose deletions.
+- **Exact surviving ordinary evidence.** Ordinary textual lines preserve whitespace, Unicode, long content, paths, command output, and other stored text byte-for-byte unless selected for deletion; reserved delimiters and non-text content follow the explicit [fidelity contract](#fidelity-contract).
+- **Mechanical safety boundaries.** Host code—not planner obedience—enforces protected spans, transcript structure, token floors, range grammar, and output integrity.
+- **Token-aware retention.** Selection targets estimated tokens rather than assuming every line costs the same, avoiding large minified lines or tool payloads overwhelming the budget.
+- **Provider-neutral operation.** Planning uses Pi's configured model API; deterministic reconstruction happens locally and requires no separate compaction service.
+- **Safe failure.** A timeout, malformed plan, stale speculative result, insufficient reduction, or failed integrity check returns control to Pi's native compactor instead of persisting a questionable boundary.
+- **Inspectable and recoverable behavior.** Compaction cards and `/verbatim-context` expose what happened, while `verbatim_recall_history` can search bounded original branch history for evidence no longer in active context.
+
+## Install
+
+```fish
+pi install npm:@pi-kaush/pi-verbatim-compaction
+```
+
+Requires Pi `>=0.84.3 <0.85` and Node.js `>=22.19.0`.
+
+Restart Pi or run `/reload`, then verify the active configuration with:
+
+```text
+/verbatim-context
+```
+
+When enabled—and when no later custom compactor replaces its hook result—Pi's built-in `/compact`, automatic threshold compaction, overflow recovery, and `/verbatim-compact` all pass through this extension. Enable only one extension that returns a custom compaction result; see [Compaction-extension interoperability](#compaction-extension-interoperability).
+
 ## Behavior
 
 The extension:
@@ -96,6 +135,14 @@ Pending, stale, or incompatible work is aborted/discarded without delaying foreg
 The `verbatim_recall_history` tool performs bounded lexical substring search over the current branch's original session entries, including content no longer present in active model context.
 
 It is optimized for exact paths, symbols, commands, errors, versions, and phrases. Query size, scanned entries, scanned characters, result count, and final output are bounded. Assistant thinking, images, and `excludeFromContext` bash history are excluded; the abort signal is checked while scanning.
+
+## Scope and trade-offs
+
+Verbatim means **surviving lines are verbatim**, not that the complete conversation is retained. Deletion is intentionally lossy, and history already rewritten by an earlier summarizer cannot be reconstructed. The recall tool can search original entries still present in the session branch, but it is not a substitute for active context or an external archive.
+
+The planner receives the complete compactable transcript and current objective. By default that is sent to the active model's provider; configuring another planner may send it to that provider instead. This package does not automatically borrow fallback models from other providers.
+
+The extension also does not implement a destructive "fresh context" rung when planning fails. It fails open to Pi, which retains ownership of cut points, recent-message boundaries, retries, persistence, and native fallback behavior. Speculative planning is an optional latency optimization, not a different retention policy, and remains disabled by default.
 
 ## Chat log
 
