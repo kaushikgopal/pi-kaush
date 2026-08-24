@@ -1,3 +1,7 @@
+// This file is intentionally self-contained: it imports only public Pi
+// packages, never other modules in this extension, so it can be lifted into
+// another extension (e.g. pi-tool-call-markers) as a single drop-in file.
+// Keep it that way — put integration glue in extension.ts, not here.
 import type {
   ExtensionAPI,
   SessionCompactEvent,
@@ -6,8 +10,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { estimateLineTokens } from "./transcript.ts";
-import type { VerbatimCompactionDetails } from "./types.ts";
 
 export const COMPACTION_LOG_TYPE = "verbatim-compaction-log";
 
@@ -34,8 +36,27 @@ export interface CompactionLogData {
   errorMessage?: string;
 }
 
+// Structural mirror of VerbatimCompactionDetails, so this file stays free of
+// project-local imports. extension.ts passes the real details object.
+export type VerbatimLogDetailsLike = Pick<
+  CompactionLogData,
+  | "reason"
+  | "deletedLines"
+  | "rangesApplied"
+  | "rangesProposed"
+  | "protectedLines"
+  | "targetRetainedTokens"
+  | "plannerModel"
+  | "plannerLatencyMs"
+  | "planSource"
+  | "summaryDigest"
+> & {
+  sourceTokens: number;
+  outputTokens: number;
+};
+
 export function verbatimLogData(
-  details: VerbatimCompactionDetails,
+  details: VerbatimLogDetailsLike,
 ): CompactionLogData {
   return {
     version: 1,
@@ -84,9 +105,15 @@ export function nativeLogData(event: SessionCompactEvent): CompactionLogData {
     reason: event.reason,
     willRetry: event.willRetry,
     tokensBefore: event.compactionEntry.tokensBefore,
-    summaryTokens: estimateLineTokens(event.compactionEntry.summary),
+    summaryTokens: estimateSummaryTokens(event.compactionEntry.summary),
     ...(strategyName ? { strategyName } : {}),
   };
+}
+
+// Mirrors transcript.ts's estimateLineTokens, duplicated deliberately so this
+// file has no project-local imports and stays drop-in portable.
+function estimateSummaryTokens(text: string): number {
+  return Math.max(1, Math.ceil(Buffer.byteLength(text, "utf8") / 4));
 }
 
 // Pi 0.84.3 fires this event but does not re-export its type from the package

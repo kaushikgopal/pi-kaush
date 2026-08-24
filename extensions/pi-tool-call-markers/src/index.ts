@@ -1660,6 +1660,14 @@ function uninstallPresentationPatch(
   delete proto[PRESENTATION_PATCHED];
 }
 
+// TODO(compaction cards): native/failed compaction cards in the transcript
+// are currently rendered by the pi-verbatim-compaction extension. Its
+// src/chat-log.ts is deliberately self-contained (public Pi imports only), so
+// porting here is: drop in that file, registerEntryRenderer(COMPACTION_LOG_TYPE),
+// and wire pi.on("session_compact") / pi.on("session_compact_failed") filtered
+// to fromExtension === false. Do this only if pi-verbatim-compaction is
+// removed or native cards should exist without it; while both are installed,
+// rendering here too would double-render every native compaction.
 export default function (pi: ExtensionAPI) {
   const patch = installPresentationPatch();
   const grouping = patch ? installGroupingPatch(patch) : undefined;
