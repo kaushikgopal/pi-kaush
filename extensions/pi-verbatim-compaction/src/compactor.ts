@@ -155,6 +155,8 @@ export function createCompactionFromPlan(
     rangesProposed: planner.proposedCount,
     rangesApplied: applied.ranges.length,
     plannerLatencyMs: planner.latencyMs,
+    plannerParseMode: planner.parseMode,
+    plannerResponseDiagnostics: planner.responseDiagnostics,
     planSource,
     reason: event.reason,
     summaryDigest: applied.provenance.digest,

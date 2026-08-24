@@ -1,12 +1,18 @@
 import { readFile } from "node:fs/promises";
-import { applyCompaction, selectRangesForRetention } from "../src/ranges.ts";
+import {
+  applyCompaction,
+  parsePlannerRanges,
+  recoverPlannerRanges,
+  selectRangesForRetention,
+} from "../src/ranges.ts";
 import { buildTranscript } from "../src/transcript.ts";
 import type { CompactionSource, InclusiveRange } from "../src/types.ts";
 
 interface ReplayCase {
   name: string;
   source: CompactionSource;
-  ranges: InclusiveRange[];
+  ranges?: InclusiveRange[];
+  plannerOutput?: string;
   retentionRatio?: number;
   minimumTokens?: number;
   probes?: string[];
@@ -20,13 +26,21 @@ const results = cases.map(runCase);
 console.log(JSON.stringify(results, null, 2));
 
 function runCase(testCase: ReplayCase) {
+  const plan = resolvePlan(testCase);
+  if (plan.ranges === undefined) {
+    return {
+      name: testCase.name,
+      plannerMode: plan.mode,
+      plannerFailure: plan.failure,
+    };
+  }
   const transcript = buildTranscript(testCase.source, {
     protectedContext: true,
   });
   const target = Math.floor(
     transcript.estimatedTokens * (testCase.retentionRatio ?? 0.5),
   );
-  const selected = selectRangesForRetention(transcript, testCase.ranges, {
+  const selected = selectRangesForRetention(transcript, plan.ranges, {
     targetRetainedTokens: target,
     minimumRetainedTokens: testCase.minimumTokens ?? 0,
   });
@@ -38,6 +52,7 @@ function runCase(testCase: ReplayCase) {
   }));
   return {
     name: testCase.name,
+    plannerMode: plan.mode,
     sourceLines: transcript.lines.length,
     sourceTokens: transcript.estimatedTokens,
     outputTokens: applied.retainedTokens,
@@ -48,6 +63,31 @@ function runCase(testCase: ReplayCase) {
     deletedLines: applied.deletedLines,
     rangesApplied: applied.ranges.length,
     probes,
+  };
+}
+
+function resolvePlan(testCase: ReplayCase): {
+  ranges?: InclusiveRange[];
+  mode: "provided" | "text-strict" | "text-recovered" | "failed";
+  failure?: string;
+} {
+  if (testCase.ranges !== undefined) {
+    return { ranges: testCase.ranges, mode: "provided" };
+  }
+  if (testCase.plannerOutput === undefined) {
+    return { mode: "failed", failure: "missing plan" };
+  }
+  const strict = parsePlannerRanges(testCase.plannerOutput);
+  if (strict !== undefined && strict.ranges.length > 0) {
+    return { ranges: strict.ranges, mode: "text-strict" };
+  }
+  const recovered = recoverPlannerRanges(testCase.plannerOutput);
+  if (recovered.parsed !== undefined) {
+    return { ranges: recovered.parsed.ranges, mode: "text-recovered" };
+  }
+  return {
+    mode: "failed",
+    failure: recovered.failureCategory ?? "unusable plan",
   };
 }
 
@@ -82,7 +122,7 @@ function syntheticCase(): ReplayCase {
       ],
       turnPrefixMessages: [],
     },
-    ranges: [{ start: 1, end: 10_000 }],
+    plannerOutput: "Ranked deletion ranges:\n```text\n1,10000\n```",
     probes: [
       "Do not change the public API.",
       "src/parser.ts:147",

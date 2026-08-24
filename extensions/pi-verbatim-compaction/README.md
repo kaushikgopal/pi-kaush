@@ -60,14 +60,14 @@ The extension:
 1. intercepts Pi's public `session_before_compact` event;
 2. preserves Pi's `firstKeptEntryId`, recent-context tail, trigger thresholds, persistence, and retry behavior;
 3. serializes complete textual message content without adding another tool-output truncation layer;
-4. calls a configured Pi model through `ctx.modelRegistry.complete`;
-5. accepts only strict ranked `start,end` records from the planner;
+4. calls a globally configured Pi model through `ctx.modelRegistry.complete`;
+5. prefers one constrained `submit_deletion_plan` tool response, with strict and conservatively recovered `start,end` text as compatibility fallbacks;
 6. mechanically protects transcript structure and trusted `<keepContext>` spans;
 7. applies ranked ranges until the configured estimated-token target is reached;
 8. inserts `[verbatim-compaction: N lines removed]` markers and folds their counts across repeated compactions; and
 9. returns no custom result on any unsafe or unusable outcome, allowing Pi's native compactor to run.
 
-Diagnostic metadata records counts, ratios, planner identity, latency, line provenance, and whether a foreground or speculative plan was used. `/verbatim-context` also reports planner response tokens and provider-reported cost, including discarded completed plans. The extension does not persist the planner prompt, response, transcript, session ID, or credentials.
+Diagnostic metadata records counts, ratios, planner identity, latency, response stop/shape, parse mode, line provenance, and whether a foreground or speculative plan was used. `/verbatim-context` also reports planner response tokens and provider-reported cost, including discarded completed plans. The extension does not persist the planner prompt, planner response content, transcript, session ID, or credentials.
 
 ## Fidelity contract
 
@@ -104,9 +104,9 @@ Identical tags in assistant text, tool results, previous summaries, repository f
 
 ## Planner
 
-The default planner is the current active Pi model. Configure another model as `provider/model` only when sending the full compactable transcript to that model and provider is acceptable.
+The default planner is the current active Pi model. Set `verbatimCompaction.planner.model` to an explicit `provider/model` in trusted global settings to use a dedicated planner without changing the active chat model. If no override exists, `current` is inherited. Configuring another model may send the complete compactable transcript to that model and provider.
 
-The planner sees an explicit current objective, token target, protected line list, and numbered transcript. It is instructed to preserve continuation-critical coding evidence and return only:
+The planner sees an explicit current objective, token target, protected line list, and numbered transcript. OpenAI Responses models with strict tool-schema support also receive one constrained `submit_deletion_plan` tool; a valid call contains ranked positive integer `{ start, end }` objects. Models or compatibility profiles without that capability receive only the text contract:
 
 ```text
 120,180
@@ -114,13 +114,17 @@ The planner sees an explicit current objective, token target, protected line lis
 300,305
 ```
 
-Ordinary malformed output is rejected in full. Coordinates must be positive, ascending, and within the current transcript; invalid records are never swapped or clamped into real deletions. If a provider stops at its output limit, only complete newline-terminated records before the truncated fragment are recoverable. Planner output and accepted range counts are hard-bounded; every accepted range is still split around protected lines and constrained by the retention floor. If a pathological plan cannot meet the target within those bounds, the extension fails open. The complete numbered prompt plus output reserve is preflighted against the planner context window, and calls have a configurable hard deadline even if a provider ignores cancellation.
+Tool arguments are validated as strictly as text records. The text path first accepts the canonical grammar. Recovery allows only complete range-shaped lines inside one optional recognized heading and one optional, properly paired Markdown fence; repeated, misplaced, unclosed, or arbitrary wrappers reject the plan. A duplicate, reversed, unsafe integer, excessive, malformed, or out-of-bounds range also rejects the plan rather than being swapped or clamped.
+
+If a provider stops at its output limit, only complete newline-terminated records before the truncated fragment are eligible. Content-part counts, text/thinking/metadata characters, tool range-array shape, output lines, and accepted range counts are host-bounded; provider token limits are not treated as sufficient enforcement. Every accepted range is split around protected lines and constrained by the retention floor. A byte-based token estimate applies an 80% context quality gate, but it is not a tokenizer or a proof that the request fits; the provider's context check remains authoritative and any overflow fails open to Pi's native compactor.
+
+No bootstrap command is required. Pi's automatic threshold and overflow compaction invoke this planner through the same hook; `/verbatim-compact` remains an optional manual control.
 
 ## Speculative background planning
 
 Speculation is implemented but disabled by default until its cost/hit rate is measured on real sessions.
 
-When enabled, a standalone planner call can start after a tool-heavy turn crosses `speculation.triggerRatio`. It operates on an immutable active-context snapshot while the agent continues. At Pi's actual compaction point, the candidate is accepted only when:
+When enabled, standalone planning can start automatically when a high-context session loads, before an agent turn, and after a completed turn once context usage crosses `speculation.triggerRatio`. An idle candidate may survive the next interactive input long enough for Pi's pre-turn threshold check; `before_agent_start` then refreshes it against the new objective if compaction was unnecessary. Planning operates on an immutable active-context snapshot while the agent continues. At Pi's actual compaction point, the candidate is accepted only when:
 
 - Pi's exact compactable transcript is a complete, digest-identical prefix of the immutable candidate;
 - objective, planner model, retention config, and protected-context config still match;
@@ -128,7 +132,7 @@ When enabled, a standalone planner call can start after a tool-heavy turn crosse
 - the candidate is less than 15 minutes old; and
 - its ranges still meet all foreground retention and safety checks.
 
-Pending, stale, or incompatible work is aborted/discarded without delaying foreground compaction, which remains the fallback. Speculation never mutates live context.
+Pending, stale, or incompatible work is aborted/discarded without delaying foreground compaction, which remains the fallback. Speculation never triggers a separate cut-point algorithm or mutates live context; Pi remains responsible for automatic threshold/overflow timing and safe boundaries.
 
 ## Historical recall
 
@@ -208,6 +212,20 @@ Package defaults are in `settings.json`. Global overrides belong under `verbatim
 }
 ```
 
+To select a dedicated planner, override only the model field:
+
+```json
+{
+  "verbatimCompaction": {
+    "planner": {
+      "model": "provider/model-id"
+    }
+  }
+}
+```
+
+Omit the override or set it to `current` to inherit the active Pi model. Model selection is global-only so an untrusted project cannot redirect the compactable transcript to another provider.
+
 Project-local settings are intentionally ignored. An untrusted repository must not be able to choose a different planner provider or weaken retention/protection rules.
 
 Environment variables override files:
@@ -247,16 +265,16 @@ For normal local development, add the package directory to the global `packages`
 ## Validation
 
 ```fish
-cd /Users/kg/dev/oss/pi-kaush/extensions/pi-verbatim-compaction
+cd extensions/pi-verbatim-compaction
 npm run typecheck
 npm test
 npm run package:check
 npm run bench
 ```
 
-The test suite covers exact and reserved-line serialization, Unicode and huge lines, excluded bash privacy, trusted-tag injection boundaries, strict/truncated/out-of-bounds range parsing, protected-range splitting, token floors, repeated provenance and marker folding, planner context/deadline failures, foreground fallback, cancellation, speculative reuse, bounded recall, and two persisted compaction generations across an in-memory Pi SDK resume.
+The test suite covers exact and reserved-line serialization, Unicode and huge lines, excluded bash privacy, trusted-tag injection boundaries, constrained-tool/strict-text/recovered-text plans, adversarial wrappers, malformed diagnostic privacy, local output bounds, explicit/current planner selection, truncated/out-of-bounds range parsing, protected-range splitting, token floors, repeated provenance and marker folding, planner context/deadline failures, threshold/overflow event handling, foreground fallback, cancellation, automatic startup preparation, speculative reuse, bounded recall, and two persisted compaction generations across an in-memory Pi SDK resume.
 
-`bench/replay.ts` can also read a JSON array of replay cases containing `source`, ranked `ranges`, retention settings, and exact-string `probes`:
+`bench/replay.ts` can also read a JSON array of replay cases containing `source`, either ranked `ranges` or raw `plannerOutput`, retention settings, and exact-string `probes`:
 
 ```fish
 bun run bench/replay.ts ./my-replay-cases.json

@@ -62,23 +62,25 @@ export default function verbatimCompaction(pi: ExtensionAPI): void {
     state.currentObjective = findCurrentObjective(
       ctx.sessionManager.getBranch(),
     );
+    if (settings.enabled) speculation.consider(ctx, settings);
     for (const warning of loaded.warnings) {
       if (ctx.hasUI) ctx.ui.notify(warning, "warning");
     }
   });
 
-  pi.on("input", (event) => {
-    if (event.source !== "extension") speculation.invalidate();
-  });
-
-  pi.on("before_agent_start", (event) => {
+  pi.on("before_agent_start", (event, ctx) => {
     speculation.invalidate();
     state.currentObjective = truncateObjective(event.prompt.trim());
+    if (settings.enabled) speculation.consider(ctx, settings);
   });
 
   pi.on("turn_end", (_event, ctx) => {
-    if (settings.enabled) speculation.consider(ctx, settings);
-    else speculation.invalidate(false);
+    if (settings.enabled) {
+      speculation.invalidate();
+      speculation.consider(ctx, settings);
+    } else {
+      speculation.invalidate(false);
+    }
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
@@ -234,8 +236,21 @@ function notifyFallback(
 }
 
 function plannerErrorMessage(error: unknown): string {
-  if (error instanceof PlannerFailure)
-    return `${error.reason}: ${error.message}`;
+  if (error instanceof PlannerFailure) {
+    const diagnostics = error.diagnostics;
+    const shape = diagnostics
+      ? [
+          diagnostics.failureCategory,
+          `stop=${diagnostics.stopReason}`,
+          `chars=${diagnostics.outputCharacters}`,
+          `lines=${diagnostics.outputLines}`,
+          `range-lines=${diagnostics.rangeLikeLines}`,
+        ]
+          .filter((value) => value !== undefined)
+          .join(", ")
+      : "";
+    return `${error.reason}: ${error.message}${shape ? ` (${shape})` : ""}`;
+  }
   return error instanceof Error ? error.message : String(error);
 }
 

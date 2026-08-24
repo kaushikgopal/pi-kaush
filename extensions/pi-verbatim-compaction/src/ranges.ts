@@ -3,6 +3,7 @@ import {
   type AppliedCompaction,
   type InclusiveRange,
   type ParsedPlannerRanges,
+  type PlannerFailureCategory,
   type Transcript,
   type TranscriptLine,
 } from "./types.ts";
@@ -10,6 +11,11 @@ import { digestText, estimateLineTokens } from "./transcript.ts";
 
 const RANGE_RECORD = /^([1-9][0-9]*),([1-9][0-9]*)$/;
 const MAX_PLANNER_RANGES = 4_096;
+const RECOVERABLE_RANGE_RECORD = /^\s*([1-9][0-9]*)\s*,\s*([1-9][0-9]*)\s*$/;
+const RECOVERABLE_HEADING =
+  /^(?:here are the )?(?:ranked )?(?:deletion )?ranges:$/i;
+const RECOVERABLE_FENCE_OPEN = /^```(?:text)?$/i;
+const RECOVERABLE_FENCE_CLOSE = "```";
 const MAX_SELECTED_RANGES = 4_096;
 
 export interface ParsePlannerRangesOptions {
@@ -22,15 +28,18 @@ export interface RangeSelectionOptions {
   minimumRetainedTokens: number;
 }
 
+export interface PlannerRangeRecovery {
+  parsed?: ParsedPlannerRanges;
+  rangeLikeLines: number;
+  ignoredNonblankLines: number;
+  failureCategory?: PlannerFailureCategory;
+}
+
 export function parsePlannerRanges(
   output: string,
   options: ParsePlannerRangesOptions = {},
 ): ParsedPlannerRanges | undefined {
-  let recordsText = output;
-  if (options.recoverTruncated === true) {
-    const lastNewline = output.lastIndexOf("\n");
-    recordsText = lastNewline < 0 ? "" : output.slice(0, lastNewline + 1);
-  }
+  const recordsText = plannerRecordsText(output, options.recoverTruncated);
 
   const ranges: InclusiveRange[] = [];
   const seen = new Set<string>();
@@ -57,6 +66,113 @@ export function parsePlannerRanges(
   }
 
   return { ranges, proposedCount: ranges.length };
+}
+
+/** Recover complete records inside one optional heading and one paired fence. */
+export function recoverPlannerRanges(
+  output: string,
+  options: ParsePlannerRangesOptions = {},
+): PlannerRangeRecovery {
+  const recordsText = plannerRecordsText(output, options.recoverTruncated);
+  const lines = recordsText
+    .split("\n")
+    .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+    .filter((line) => line.trim().length > 0);
+  const ranges: InclusiveRange[] = [];
+  const seen = new Set<string>();
+  let rangeLikeLines = 0;
+  let ignoredNonblankLines = 0;
+  let startIndex = 0;
+  let endIndex = lines.length;
+
+  if (RECOVERABLE_HEADING.test(lines[startIndex]?.trim() ?? "")) {
+    startIndex += 1;
+    ignoredNonblankLines += 1;
+  }
+  if (RECOVERABLE_FENCE_OPEN.test(lines[startIndex]?.trim() ?? "")) {
+    if (
+      endIndex - startIndex < 3 ||
+      lines[endIndex - 1]?.trim() !== RECOVERABLE_FENCE_CLOSE
+    ) {
+      return recoveryFailure(
+        rangeLikeLines,
+        ignoredNonblankLines,
+        "invalid-wrapper",
+      );
+    }
+    startIndex += 1;
+    endIndex -= 1;
+    ignoredNonblankLines += 2;
+  }
+
+  for (const line of lines.slice(startIndex, endIndex)) {
+    const match = RECOVERABLE_RANGE_RECORD.exec(line);
+    if (match === null) {
+      return recoveryFailure(
+        rangeLikeLines,
+        ignoredNonblankLines,
+        "invalid-wrapper",
+      );
+    }
+    rangeLikeLines += 1;
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start > end
+    ) {
+      return recoveryFailure(
+        rangeLikeLines,
+        ignoredNonblankLines,
+        "invalid-range-record",
+      );
+    }
+    const key = `${start},${end}`;
+    if (seen.has(key)) {
+      return recoveryFailure(
+        rangeLikeLines,
+        ignoredNonblankLines,
+        "duplicate-range",
+      );
+    }
+    if (ranges.length >= MAX_PLANNER_RANGES) {
+      return recoveryFailure(
+        rangeLikeLines,
+        ignoredNonblankLines,
+        "too-many-ranges",
+      );
+    }
+    seen.add(key);
+    ranges.push({ start, end });
+  }
+
+  if (ranges.length === 0) {
+    return recoveryFailure(
+      rangeLikeLines,
+      ignoredNonblankLines,
+      "no-range-records",
+    );
+  }
+  return {
+    parsed: { ranges, proposedCount: ranges.length },
+    rangeLikeLines,
+    ignoredNonblankLines,
+  };
+}
+
+function recoveryFailure(
+  rangeLikeLines: number,
+  ignoredNonblankLines: number,
+  failureCategory: PlannerFailureCategory,
+): PlannerRangeRecovery {
+  return { rangeLikeLines, ignoredNonblankLines, failureCategory };
+}
+
+function plannerRecordsText(output: string, recoverTruncated = false): string {
+  if (!recoverTruncated) return output;
+  const lastNewline = output.lastIndexOf("\n");
+  return lastNewline < 0 ? "" : output.slice(0, lastNewline + 1);
 }
 
 export function normalizeRanges(

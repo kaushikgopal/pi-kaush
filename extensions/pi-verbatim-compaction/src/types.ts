@@ -30,6 +30,28 @@ export interface InclusiveRange {
   end: number;
 }
 
+export type PlannerParseMode = "tool" | "text-strict" | "text-recovered";
+
+export type PlannerFailureCategory =
+  | "no-range-records"
+  | "invalid-wrapper"
+  | "invalid-range-record"
+  | "duplicate-range"
+  | "too-many-ranges"
+  | "invalid-tool-call"
+  | "multiple-tool-calls"
+  | "response-too-large"
+  | "out-of-bounds";
+
+export interface PlannerResponseDiagnostics {
+  stopReason: string;
+  outputCharacters: number;
+  outputLines: number;
+  rangeLikeLines: number;
+  ignoredNonblankLines: number;
+  parseMode?: PlannerParseMode;
+  failureCategory?: PlannerFailureCategory;
+}
 export interface ParsedPlannerRanges {
   ranges: InclusiveRange[];
   proposedCount: number;
@@ -108,6 +130,8 @@ export interface VerbatimCompactionDetails {
   rangesProposed: number;
   rangesApplied: number;
   plannerLatencyMs: number;
+  plannerParseMode?: PlannerParseMode;
+  plannerResponseDiagnostics?: PlannerResponseDiagnostics;
   planSource: "foreground" | "speculative";
   reason: "manual" | "threshold" | "overflow";
   summaryDigest: string;
@@ -130,6 +154,8 @@ export interface PlannerResult {
   latencyMs: number;
   provider: string;
   model: string;
+  parseMode: PlannerParseMode;
+  responseDiagnostics: PlannerResponseDiagnostics;
 }
 
 export interface CompactionSource {

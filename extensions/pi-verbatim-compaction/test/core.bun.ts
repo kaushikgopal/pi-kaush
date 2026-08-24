@@ -4,6 +4,7 @@ import {
   applyCompaction,
   normalizeRanges,
   parsePlannerRanges,
+  recoverPlannerRanges,
   selectRangesForRetention,
   splitRangesAroundProtected,
 } from "../src/ranges.ts";
@@ -469,6 +470,59 @@ describe("planner range parsing", () => {
         { start: 3, end: 4 },
       ],
       proposedCount: 2,
+    });
+  });
+
+  test("recovers complete range lines from harmless wrappers and whitespace", () => {
+    expect(
+      recoverPlannerRanges("Here are the ranges:\n```text\n 1, 2 \n3,4\n```"),
+    ).toEqual({
+      parsed: {
+        ranges: [
+          { start: 1, end: 2 },
+          { start: 3, end: 4 },
+        ],
+        proposedCount: 2,
+      },
+      rangeLikeLines: 2,
+      ignoredNonblankLines: 3,
+    });
+    expect(recoverPlannerRanges("prose only")).toEqual({
+      rangeLikeLines: 0,
+      ignoredNonblankLines: 0,
+      failureCategory: "invalid-wrapper",
+    });
+    expect(recoverPlannerRanges("")).toEqual({
+      rangeLikeLines: 0,
+      ignoredNonblankLines: 0,
+      failureCategory: "no-range-records",
+    });
+    expect(recoverPlannerRanges("Example:\n1,2").failureCategory).toBe(
+      "invalid-wrapper",
+    );
+    expect(
+      recoverPlannerRanges("Ranges:\n1,2 trailing\n3,4").failureCategory,
+    ).toBe("invalid-wrapper");
+    expect(
+      recoverPlannerRanges("Ranges:\n1,2\nRanges:\n3,4").failureCategory,
+    ).toBe("invalid-wrapper");
+    expect(recoverPlannerRanges("```text\n1,2").failureCategory).toBe(
+      "invalid-wrapper",
+    );
+    expect(recoverPlannerRanges("1,2\n1,2").failureCategory).toBe(
+      "duplicate-range",
+    );
+    expect(recoverPlannerRanges("4,2").failureCategory).toBe(
+      "invalid-range-record",
+    );
+    expect(
+      recoverPlannerRanges("Ranges:\n1,2\n3,", {
+        recoverTruncated: true,
+      }),
+    ).toEqual({
+      parsed: { ranges: [{ start: 1, end: 2 }], proposedCount: 1 },
+      rangeLikeLines: 1,
+      ignoredNonblankLines: 1,
     });
   });
 });

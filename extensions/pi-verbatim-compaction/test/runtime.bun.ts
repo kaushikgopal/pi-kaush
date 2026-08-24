@@ -14,7 +14,11 @@ import {
 } from "../src/chat-log.ts";
 import verbatimCompaction from "../src/extension.ts";
 import { findSummaryProvenance } from "../src/compactor.ts";
-import { runPlanner, PlannerFailure } from "../src/planner.ts";
+import {
+  PlannerFailure,
+  resolvePlannerModel,
+  runPlanner,
+} from "../src/planner.ts";
 import { searchSessionHistory } from "../src/recall.ts";
 import { buildTranscript, digestText } from "../src/transcript.ts";
 
@@ -86,6 +90,10 @@ describe("planner integration", () => {
       "BEGIN UNTRUSTED TRANSCRIPT DATA",
     );
     expect(JSON.stringify(requestContext)).toContain("finish the parser");
+    expect((requestContext as { tools?: unknown }).tools).toBeUndefined();
+    expect(JSON.stringify(requestContext)).not.toContain(
+      "submit_deletion_plan",
+    );
   });
 
   test("recovers only complete records from a length stop", async () => {
@@ -105,7 +113,56 @@ describe("planner integration", () => {
     expect(result.ranges).toEqual([{ start: 2, end: 4 }]);
   });
 
-  test("rejects malformed planner prose", async () => {
+  test("recovers exact range lines from harmless planner prose", async () => {
+    const result = await runPlanner(
+      {
+        transcript: buildTranscript({
+          messagesToSummarize: [userMessage("x".repeat(100))],
+          turnPrefixMessages: [],
+        }),
+        objective: "goal",
+        targetRetainedTokens: 1,
+      },
+      { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+      plannerContext("Here are the ranges:\n2,4"),
+      new AbortController().signal,
+    );
+    expect(result.ranges).toEqual([{ start: 2, end: 4 }]);
+    expect(result.parseMode).toBe("text-recovered");
+    expect(result.responseDiagnostics).toEqual(
+      expect.objectContaining({
+        rangeLikeLines: 1,
+        ignoredNonblankLines: 1,
+      }),
+    );
+  });
+
+  test("accepts one constrained deletion-plan tool call", async () => {
+    const result = await runPlanner(
+      {
+        transcript: buildTranscript({
+          messagesToSummarize: [userMessage("x".repeat(100))],
+          turnPrefixMessages: [],
+        }),
+        objective: "goal",
+        targetRetainedTokens: 1,
+      },
+      { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+      plannerToolContext([{ start: 2, end: 4 }]),
+      new AbortController().signal,
+    );
+    expect(result.ranges).toEqual([{ start: 2, end: 4 }]);
+    expect(result.parseMode).toBe("tool");
+    expect(result.responseDiagnostics).toEqual(
+      expect.objectContaining({
+        stopReason: "toolUse",
+        outputCharacters: 0,
+        rangeLikeLines: 1,
+      }),
+    );
+  });
+
+  test("rejects duplicate ranges in constrained tool arguments", async () => {
     await expect(
       runPlanner(
         {
@@ -117,12 +174,134 @@ describe("planner integration", () => {
           targetRetainedTokens: 1,
         },
         { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
-        plannerContext("Here are the ranges:\n2,4"),
+        plannerToolContext([
+          { start: 2, end: 4 },
+          { start: 2, end: 4 },
+        ]),
         new AbortController().signal,
       ),
     ).rejects.toMatchObject({
       reason: "malformed-output",
-    } satisfies Partial<PlannerFailure>);
+      diagnostics: { failureCategory: "duplicate-range" },
+    });
+  });
+
+  test("rejects oversized constrained tool arguments before parsing", async () => {
+    await expect(
+      runPlanner(
+        {
+          transcript: buildTranscript({
+            messagesToSummarize: [userMessage("small")],
+            turnPrefixMessages: [],
+          }),
+          objective: "goal",
+          targetRetainedTokens: 1,
+        },
+        { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+        plannerToolContext(
+          Array.from({ length: 300 }, (_, index) => ({
+            start: index + 1,
+            end: index + 1,
+          })),
+        ),
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      reason: "malformed-output",
+      diagnostics: { failureCategory: "response-too-large" },
+    });
+  });
+
+  test("rejects oversized provider text before parsing", async () => {
+    await expect(
+      runPlanner(
+        {
+          transcript: buildTranscript({
+            messagesToSummarize: [userMessage("small")],
+            turnPrefixMessages: [],
+          }),
+          objective: "goal",
+          targetRetainedTokens: 1,
+        },
+        { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+        plannerContext("x".repeat(5_000)),
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      reason: "malformed-output",
+      diagnostics: { failureCategory: "response-too-large" },
+    });
+  });
+
+  test("rejects excessive provider content parts before parsing", async () => {
+    await expect(
+      runPlanner(
+        {
+          transcript: buildTranscript({
+            messagesToSummarize: [userMessage("small")],
+            turnPrefixMessages: [],
+          }),
+          objective: "goal",
+          targetRetainedTokens: 1,
+        },
+        { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+        plannerContentContext(
+          Array.from({ length: 33 }, () => ({ type: "text", text: "1,2" })),
+        ),
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      reason: "malformed-output",
+      diagnostics: { failureCategory: "response-too-large" },
+    });
+  });
+
+  test("uses text mode when OpenAI Responses strict tools are disabled", async () => {
+    let requestContext: { tools?: unknown } | undefined;
+    const textOnlyModel = {
+      ...(model as unknown as Record<string, unknown>),
+      api: "openai-responses",
+      compat: { supportsStrictMode: false },
+    } as never;
+    const result = await runPlanner(
+      {
+        transcript: buildTranscript({
+          messagesToSummarize: [userMessage("small")],
+          turnPrefixMessages: [],
+        }),
+        objective: "goal",
+        targetRetainedTokens: 1,
+      },
+      { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+      {
+        model: textOnlyModel,
+        modelRegistry: {
+          complete: async (_model: unknown, context: { tools?: unknown }) => {
+            requestContext = context;
+            return assistantResponse("2,4");
+          },
+        },
+      } as never,
+      new AbortController().signal,
+    );
+    expect(result.parseMode).toBe("text-strict");
+    expect(requestContext?.tools).toBeUndefined();
+  });
+
+  test("uses an explicit provider/model override and otherwise inherits current", () => {
+    const explicit = { provider: "dedicated", id: "compact" } as never;
+    const context = {
+      model,
+      modelRegistry: {
+        find: (provider: string, id: string) =>
+          provider === "dedicated" && id === "compact" ? explicit : undefined,
+      },
+    } as never;
+    expect(resolvePlannerModel("current", context)).toBe(model);
+    expect(resolvePlannerModel("dedicated/compact", context)).toBe(explicit);
+    expect(() => resolvePlannerModel("dedicated/missing", context)).toThrow(
+      "Planner model not found",
+    );
   });
 
   test("rejects out-of-bounds ranges before host normalization", async () => {
@@ -312,12 +491,17 @@ describe("extension hook", () => {
     expect(harness.completeCalls()).toBe(0);
   });
 
-  test("fails open to Pi on malformed output", async () => {
+  test("fails open with bounded shape diagnostics and no planner content", async () => {
     configureSmallFixture();
-    const harness = createHarness("not a range");
+    const privatePlannerText = "PRIVATE-PLANNER-CONTENT without ranges";
+    const harness = createHarness(privatePlannerText);
     const event = compactionEvent();
     harness.start(event.branchEntries);
     expect(await harness.beforeCompact(event)).toBeUndefined();
+    const failure = harness.appended[0]?.data as CompactionLogData;
+    expect(failure.errorMessage).toContain("invalid-wrapper");
+    expect(failure.errorMessage).toContain("chars=");
+    expect(JSON.stringify(failure)).not.toContain(privatePlannerText);
   });
 
   test("falls back when the provider aborts the planner", async () => {
@@ -339,17 +523,16 @@ describe("extension hook", () => {
     expect(await harness.beforeCompact(event)).toEqual({ cancel: true });
   });
 
-  test("reuses an exact-prefix speculative plan without a second model call", async () => {
+  test("automatically prepares and reuses an exact-prefix plan on session start", async () => {
     configureSmallFixture();
     process.env.PI_VERBATIM_COMPACTION_SPECULATION_ENABLED = "true";
     process.env.PI_VERBATIM_COMPACTION_SPECULATION_TRIGGER_RATIO = "0.7";
     const harness = createHarness("4,4\n10,10");
     const event = compactionEvent();
     harness.start(event.branchEntries);
-    harness.beforeAgentStart(`goal\n${"x".repeat(4_000)}`);
-    harness.turnEnd();
     await waitFor(() => harness.completeCalls() === 1);
     await new Promise((resolve) => setTimeout(resolve, 0));
+    harness.input();
 
     const result = await harness.beforeCompact(event);
 
@@ -357,6 +540,20 @@ describe("extension hook", () => {
       expect.objectContaining({ planSource: "speculative" }),
     );
     expect(harness.completeCalls()).toBe(1);
+  });
+
+  test("refreshes automatic preparation after a completed turn", async () => {
+    configureSmallFixture();
+    process.env.PI_VERBATIM_COMPACTION_SPECULATION_ENABLED = "true";
+    process.env.PI_VERBATIM_COMPACTION_SPECULATION_TRIGGER_RATIO = "0.7";
+    const harness = createHarness("4,4\n10,10");
+    const event = compactionEvent();
+    harness.start(event.branchEntries);
+    await waitFor(() => harness.completeCalls() === 1);
+    harness.beforeAgentStart("new objective");
+    await waitFor(() => harness.completeCalls() === 2);
+    harness.turnEnd();
+    await waitFor(() => harness.completeCalls() === 3);
   });
 });
 
@@ -780,6 +977,12 @@ function createHarness(
         ctx,
       );
     },
+    input() {
+      handlers.get("input")?.(
+        { type: "input", source: "interactive", text: "continue" },
+        ctx,
+      );
+    },
     beforeAgentStart(prompt: string) {
       handlers.get("before_agent_start")?.(
         { type: "before_agent_start", prompt },
@@ -893,6 +1096,53 @@ function assistantResponse(
     usage,
     stopReason,
     ...(stopReason === "aborted" ? { errorMessage: "aborted" } : {}),
+    timestamp: Date.now(),
+  };
+}
+
+function plannerContentContext(content: unknown[]) {
+  return {
+    model,
+    modelRegistry: {
+      hasConfiguredAuth: () => true,
+      complete: async () => ({
+        ...assistantResponse(""),
+        content,
+      }),
+    },
+  } as never;
+}
+
+function plannerToolContext(ranges: Array<{ start: number; end: number }>) {
+  const toolModel = {
+    ...(model as unknown as Record<string, unknown>),
+    api: "openai-responses",
+  } as never;
+  return {
+    model: toolModel,
+    modelRegistry: {
+      hasConfiguredAuth: () => true,
+      complete: async () => assistantToolResponse(ranges),
+    },
+  } as never;
+}
+
+function assistantToolResponse(ranges: Array<{ start: number; end: number }>) {
+  return {
+    role: "assistant",
+    content: [
+      {
+        type: "toolCall",
+        id: "plan-call",
+        name: "submit_deletion_plan",
+        arguments: { ranges },
+      },
+    ],
+    api: "faux-api",
+    provider: "faux",
+    model: "planner",
+    usage,
+    stopReason: "toolUse",
     timestamp: Date.now(),
   };
 }

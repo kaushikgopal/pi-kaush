@@ -30,6 +30,12 @@ export interface CompactionLogData {
   plannerModel?: string;
   plannerLatencyMs?: number;
   planSource?: "foreground" | "speculative";
+  plannerParseMode?: "tool" | "text-strict" | "text-recovered";
+  plannerStopReason?: string;
+  plannerOutputCharacters?: number;
+  plannerOutputLines?: number;
+  plannerRangeLikeLines?: number;
+  plannerIgnoredLines?: number;
   summaryDigest?: string;
   summaryTokens?: number;
   strategyName?: string;
@@ -48,11 +54,19 @@ export type VerbatimLogDetailsLike = Pick<
   | "targetRetainedTokens"
   | "plannerModel"
   | "plannerLatencyMs"
+  | "plannerParseMode"
   | "planSource"
   | "summaryDigest"
 > & {
   sourceTokens: number;
   outputTokens: number;
+  plannerResponseDiagnostics?: {
+    stopReason: string;
+    outputCharacters: number;
+    outputLines: number;
+    rangeLikeLines: number;
+    ignoredNonblankLines: number;
+  };
 };
 
 export function verbatimLogData(
@@ -72,6 +86,14 @@ export function verbatimLogData(
     plannerModel: details.plannerModel,
     plannerLatencyMs: details.plannerLatencyMs,
     planSource: details.planSource,
+    plannerParseMode: details.plannerParseMode,
+    plannerStopReason: details.plannerResponseDiagnostics?.stopReason,
+    plannerOutputCharacters:
+      details.plannerResponseDiagnostics?.outputCharacters,
+    plannerOutputLines: details.plannerResponseDiagnostics?.outputLines,
+    plannerRangeLikeLines: details.plannerResponseDiagnostics?.rangeLikeLines,
+    plannerIgnoredLines:
+      details.plannerResponseDiagnostics?.ignoredNonblankLines,
     summaryDigest: details.summaryDigest,
   };
 }
@@ -270,6 +292,7 @@ function verbatimBodyLines(
   if (expanded) {
     lines.push(
       `target ≤ ${formatCount(data.targetRetainedTokens)} tokens · ${formatCount(data.rangesProposed)} ranges proposed · digest ${(data.summaryDigest ?? "").slice(0, 12)}`,
+      `planner response: ${data.plannerParseMode ?? "unknown"} · ${data.plannerStopReason ?? "unknown stop"} · ${formatCount(data.plannerOutputCharacters)} chars / ${formatCount(data.plannerOutputLines)} lines${typeof data.plannerIgnoredLines === "number" && data.plannerIgnoredLines > 0 ? ` · ${formatCount(data.plannerIgnoredLines)} wrapper lines ignored` : ""}`,
     );
   }
   return lines;
