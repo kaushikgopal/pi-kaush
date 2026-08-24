@@ -3,6 +3,7 @@
 #
 # Usage:
 #   make publish PACKAGE=pi-openai-compaction # patch bump
+#   make publish PACKAGE=pi-verbatim-compaction # patch bump
 #   make publish PACKAGE=pi-btw               # patch bump
 #   make publish PACKAGE=pi-agent-mode        # patch bump
 #   make publish PACKAGE=pi-inline-identifier # patch bump
@@ -20,7 +21,7 @@ VERSION="${2:-}"
 
 if [ -z "$PACKAGE" ]; then
   echo "Usage: make publish PACKAGE=<extension-name> [VERSION=<x.y.z>]" >&2
-  echo "Known packages: pi-agent-mode, pi-better-read-edit, pi-btw, pi-double-paste, pi-inline-identifier, pi-inline-skill-identifier, pi-openai-compaction, pi-response-style, pi-tool-call-markers, pi-welcome-screen" >&2
+  echo "Known packages: pi-agent-mode, pi-better-read-edit, pi-btw, pi-double-paste, pi-inline-identifier, pi-inline-skill-identifier, pi-openai-compaction, pi-response-style, pi-tool-call-markers, pi-verbatim-compaction, pi-welcome-screen" >&2
   exit 1
 fi
 

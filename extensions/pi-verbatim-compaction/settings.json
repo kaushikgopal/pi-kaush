@@ -1,0 +1,26 @@
+{
+  "enabled": true,
+  "retention": {
+    "ratio": 0.5,
+    "minimumTokens": 8000,
+    "minimumReductionTokens": 2048
+  },
+  "planner": {
+    "model": "current",
+    "maxOutputTokens": 4096,
+    "timeoutMs": 120000
+  },
+  "protectedContext": {
+    "enabled": true
+  },
+  "recall": {
+    "enabled": true,
+    "maxResults": 8,
+    "maxCharacters": 12000
+  },
+  "speculation": {
+    "enabled": false,
+    "triggerRatio": 0.7
+  },
+  "debug": false
+}

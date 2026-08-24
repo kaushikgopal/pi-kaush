@@ -16,5 +16,8 @@
     "types": ["node", "vitest/globals"]
   },
   "include": ["extensions/**/*.ts"],
-  "exclude": ["extensions/pi-openai-compaction/**"]
+  "exclude": [
+    "extensions/pi-openai-compaction/**",
+    "extensions/pi-verbatim-compaction/**"
+  ]
 }

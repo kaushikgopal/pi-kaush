@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-better-read-edit-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-content-layout-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-footer-minimal-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v') || startsWith(github.event.release.tag_name, 'pi-inline-agent-identifier-v')
+    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-better-read-edit-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-content-layout-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-footer-minimal-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-openai-compaction-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-verbatim-compaction-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v') || startsWith(github.event.release.tag_name, 'pi-inline-agent-identifier-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -75,6 +75,11 @@ jobs:
               workspace="@pi-kaush/pi-openai-compaction"
               directory="extensions/pi-openai-compaction"
               prefix="pi-openai-compaction-v"
+              ;;
+            pi-verbatim-compaction-v*)
+              workspace="@pi-kaush/pi-verbatim-compaction"
+              directory="extensions/pi-verbatim-compaction"
+              prefix="pi-verbatim-compaction-v"
               ;;
             pi-btw-v*)
               workspace="@pi-kaush/pi-btw"
