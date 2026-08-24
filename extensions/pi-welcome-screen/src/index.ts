@@ -4,7 +4,7 @@ import {
   type ExtensionAPI,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   type Component,
@@ -51,6 +51,340 @@ export interface WelcomeResources {
   sourceExtensions?: string[];
   /** @deprecated Use packageExtensions. */
   vendoredExtensions?: string[];
+}
+
+/**
+ * Health assessment for npm-installed package extensions, gathered
+ * asynchronously once the welcome header has rendered its first snapshot.
+ * Local and source-path extensions are skipped: they have no registry or
+ * store manifest to compare against.
+ */
+export type ExtensionHealthSeverity = "ok" | "behind" | "blocked" | "odd";
+
+export interface ExtensionHealth {
+  /** Installed version read from the agent npm store manifest. */
+  installed?: string;
+  /** Range the package is pinned to in the agent npm store's package.json. */
+  declaredRange?: string;
+  /** Latest published version from the npm registry, when reachable. */
+  latest?: string;
+  /** Bare import specifiers not covered by the package's declared deps/peers. */
+  undeclaredImports?: string[];
+  /** Direct dependencies whose package directory is absent from the store. */
+  missingDeps?: string[];
+  severity: ExtensionHealthSeverity;
+}
+
+export type ExtensionHealthMap = ReadonlyMap<string, ExtensionHealth>;
+
+// Pi's extension loader makes the SDK scope importable without those packages
+// being materialized in the npm store, so they never count as oddities.
+const LOADER_BACKED_SCOPES = ["@earendil-works"];
+
+const NPM_PACKAGE_NAME = /^(?:@[^/]+\/)?[^/@\s]+$/;
+
+export function compareVersions(left: string, right: string): number {
+  const parse = (version: string) =>
+    (version.split("-", 1)[0] ?? "")
+      .split(".")
+      .map((part) => Number.parseInt(part, 10) || 0);
+  const a = parse(left);
+  const b = parse(right);
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = a[index] ?? 0;
+    const rightPart = b[index] ?? 0;
+    if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * True when the store's declared range cannot reach the latest published
+ * major — the `^1.20.0` pinned against `2.7.1` rpiv-todo shape.
+ */
+export function rangeBlocksMajor(
+  range: string | undefined,
+  latest: string | undefined,
+): boolean {
+  if (!range || !latest) return false;
+  const normalized = range.trim();
+  if (normalized === "*" || normalized === "latest") return false;
+  const pinnedMajor = /^[\^~]?(\d+)(?:\.|$)/.exec(normalized)?.[1];
+  const latestMajor = /^(\d+)/.exec(latest)?.[1];
+  if (!pinnedMajor || !latestMajor) return false;
+  return Number.parseInt(pinnedMajor, 10) < Number.parseInt(latestMajor, 10);
+}
+
+/**
+ * Import specifiers in source, with comments stripped so strings inside them
+ * do not match.
+ */
+export function extractImportSpecifiers(source: string): string[] {
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
+  const specifiers: string[] = [];
+  const staticImport = /\bfrom\s*["']([^"']+)["']/g;
+  let match: RegExpExecArray | null;
+  while ((match = staticImport.exec(withoutComments))) {
+    specifiers.push(match[1] ?? "");
+  }
+  const dynamicImport = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+  while ((match = dynamicImport.exec(withoutComments))) {
+    specifiers.push(match[1] ?? "");
+  }
+  return specifiers;
+}
+
+function isRelativeSpecifier(specifier: string): boolean {
+  return /^(?:\.\.?\/|\/|~\/|[A-Za-z]:\\)/.test(specifier);
+}
+
+/** Bare specifiers neither relative, node builtins, loader-backed, nor declared. */
+export function findUndeclaredImports(
+  source: string,
+  declared: ReadonlySet<string>,
+): string[] {
+  return unique(
+    extractImportSpecifiers(source).filter((specifier) => {
+      if (specifier.startsWith("node:")) return false;
+      if (isRelativeSpecifier(specifier)) return false;
+      if (
+        LOADER_BACKED_SCOPES.some(
+          (scope) => specifier === scope || specifier.startsWith(`${scope}/`),
+        )
+      )
+        return false;
+      const isDeclared = [...declared].some(
+        (dependency) =>
+          specifier === dependency || specifier.startsWith(`${dependency}/`),
+      );
+      return !isDeclared;
+    }),
+  );
+}
+
+/** Injectable runtime for health collection so tests never touch disk or network. */
+export interface ExtensionHealthEnvironment {
+  /** Agent npm store root (holds the store's package.json). */
+  storeRoot: string;
+  /** Installed package manifest directory (store/node_modules). */
+  storeModules: string;
+  readJson: (path: string) => unknown | undefined;
+  readText: (path: string) => string | undefined;
+  exists: (path: string) => boolean;
+  fetchLatestVersion: (
+    name: string,
+    signal: AbortSignal,
+  ) => Promise<string | undefined>;
+}
+
+interface PackageManifest {
+  version?: unknown;
+  main?: unknown;
+  exports?: unknown;
+  dependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+}
+
+export function createHealthEnvironment(
+  baseDir: string,
+): ExtensionHealthEnvironment {
+  const storeRoot = join(baseDir, "npm");
+  return {
+    storeRoot,
+    storeModules: join(storeRoot, "node_modules"),
+    readJson(path) {
+      try {
+        return JSON.parse(readFileSync(path, "utf8")) as unknown;
+      } catch {
+        return undefined;
+      }
+    },
+    readText(path) {
+      try {
+        return readFileSync(path, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+    exists: existsSync,
+    fetchLatestVersion: fetchNpmLatestVersion,
+  };
+}
+
+/**
+ * Latest published version for a package, or undefined when the registry is
+ * unreachable. Honors the caller's abort signal and adds its own timeout so a
+ * stalled network never blocks the welcome render.
+ */
+export async function fetchNpmLatestVersion(
+  name: string,
+  signal: AbortSignal,
+  fetcher: typeof fetch = fetch,
+  timeoutMs = 3000,
+): Promise<string | undefined> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener("abort", abort);
+  const timer = setTimeout(abort, timeoutMs);
+  try {
+    const encoded = name.split("/").map(encodeURIComponent).join("/");
+    const response = await fetcher(
+      `https://registry.npmjs.org/${encoded}/latest`,
+      { signal: controller.signal, headers: { accept: "application/json" } },
+    );
+    if (!response.ok) return undefined;
+    const body = (await response.json()) as { version?: unknown };
+    return typeof body.version === "string" ? body.version : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
+  }
+}
+
+function resolveEntryFile(
+  name: string,
+  manifest: PackageManifest,
+  env: ExtensionHealthEnvironment,
+): string | undefined {
+  const candidates: string[] = [];
+  const exportsField = manifest.exports;
+  if (typeof exportsField === "string") {
+    candidates.push(exportsField);
+  } else if (exportsField && typeof exportsField === "object") {
+    const entryPoint = (exportsField as Record<string, unknown>)["."];
+    if (typeof entryPoint === "string") {
+      candidates.push(entryPoint);
+    } else if (entryPoint && typeof entryPoint === "object") {
+      const importTarget = (entryPoint as Record<string, unknown>)["import"];
+      const defaultTarget = (entryPoint as Record<string, unknown>)["default"];
+      if (typeof importTarget === "string") candidates.push(importTarget);
+      else if (typeof defaultTarget === "string")
+        candidates.push(defaultTarget);
+    }
+  }
+  if (typeof manifest.main === "string") candidates.push(manifest.main);
+  candidates.push("./src/index.ts", "./index.ts");
+
+  for (const candidate of candidates) {
+    if (env.exists(join(env.storeModules, name, candidate))) return candidate;
+  }
+  return undefined;
+}
+
+export function assessHealthSeverity(health: {
+  installed?: string | undefined;
+  declaredRange?: string | undefined;
+  latest?: string | undefined;
+  undeclaredImports?: string[] | undefined;
+  missingDeps?: string[] | undefined;
+}): ExtensionHealthSeverity {
+  const blockedPin = rangeBlocksMajor(health.declaredRange, health.latest);
+  if (blockedPin || (health.missingDeps?.length ?? 0) > 0) return "blocked";
+  if (
+    health.installed !== undefined &&
+    health.latest !== undefined &&
+    compareVersions(health.installed, health.latest) < 0
+  )
+    return "behind";
+  if ((health.undeclaredImports?.length ?? 0) > 0) return "odd";
+  return "ok";
+}
+
+async function assessPackageHealth(
+  name: string,
+  env: ExtensionHealthEnvironment,
+  signal: AbortSignal,
+): Promise<ExtensionHealth | undefined> {
+  const manifest = env.readJson(
+    join(env.storeModules, name, "package.json"),
+  ) as PackageManifest | undefined;
+  if (!manifest || typeof manifest.version !== "string") return undefined;
+
+  const storeManifest = env.readJson(join(env.storeRoot, "package.json")) as
+    | { dependencies?: Record<string, string> }
+    | undefined;
+  const declaredRange = storeManifest?.dependencies?.[name];
+
+  const declared = new Set([
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.peerDependencies ?? {}),
+  ]);
+  const missingDeps = Object.keys(manifest.dependencies ?? {}).filter(
+    (dependency) => !env.exists(join(env.storeModules, dependency)),
+  );
+  const entry = resolveEntryFile(name, manifest, env);
+  const source = entry
+    ? (env.readText(join(env.storeModules, name, entry)) ?? "")
+    : "";
+  const undeclaredImports =
+    source.length > 0 ? findUndeclaredImports(source, declared) : undefined;
+
+  const latest = await env.fetchLatestVersion(name, signal);
+  const installed = manifest.version;
+  const severity = assessHealthSeverity({
+    installed,
+    declaredRange,
+    latest,
+    undeclaredImports,
+    missingDeps,
+  });
+  return {
+    severity,
+    ...(installed !== undefined ? { installed } : {}),
+    ...(declaredRange !== undefined ? { declaredRange } : {}),
+    ...(latest !== undefined ? { latest } : {}),
+    ...(undeclaredImports !== undefined && undeclaredImports.length > 0
+      ? { undeclaredImports }
+      : {}),
+    ...(missingDeps.length > 0 ? { missingDeps } : {}),
+  };
+}
+
+export async function collectExtensionHealth(
+  names: readonly string[],
+  env: ExtensionHealthEnvironment,
+  signal: AbortSignal,
+): Promise<ExtensionHealthMap> {
+  const results = await Promise.allSettled(
+    names.map((name) => assessPackageHealth(name, env, signal)),
+  );
+  const health = new Map<string, ExtensionHealth>();
+  results.forEach((result, index) => {
+    const name = names[index];
+    if (name && result.status === "fulfilled" && result.value) {
+      health.set(name, result.value);
+    }
+  });
+  return health;
+}
+
+export function describeHealthIssue(
+  name: string,
+  health: ExtensionHealth,
+): string {
+  if (health.severity === "blocked") {
+    if (health.declaredRange && health.latest) {
+      return `${name} pinned ${health.declaredRange} — ${health.latest} available`;
+    }
+    if ((health.missingDeps?.length ?? 0) > 0) {
+      return `${name}: missing ${health.missingDeps?.join(", ")}`;
+    }
+  }
+  if (health.severity === "behind" && health.installed && health.latest) {
+    return `${name} ${health.installed} → ${health.latest}`;
+  }
+  if ((health.undeclaredImports?.length ?? 0) > 0) {
+    const count = health.undeclaredImports?.length ?? 0;
+    return `${name}: ${count} undeclared import${count === 1 ? "" : "s"}`;
+  }
+  return `${name}: ${health.severity}`;
 }
 
 interface CollapsedTextComponent extends Component {
@@ -550,6 +884,53 @@ function appendSingleColumnRows(
   }
 }
 
+function healthRowText(
+  item: string,
+  theme: Theme,
+  health?: ExtensionHealthMap,
+): string {
+  const entry = health?.get(item);
+  if (!entry || entry.severity === "ok") return theme.fg("dim", item);
+  const suffix = healthRowSuffix(entry);
+  const text = suffix ? `${item} ${suffix}` : item;
+  if (entry.severity === "blocked") return theme.fg("error", text);
+  return theme.fg("warning", text);
+}
+
+function healthRowSuffix(health: ExtensionHealth): string | undefined {
+  if (health.installed && health.latest) {
+    if (health.severity === "behind" || health.severity === "blocked") {
+      return `↻ ${health.installed}→${health.latest}`;
+    }
+  }
+  if (health.severity === "blocked" && health.declaredRange) {
+    return `! pinned ${health.declaredRange}`;
+  }
+  const importCount = health.undeclaredImports?.length ?? 0;
+  if (importCount > 0) {
+    return `! ${importCount} undeclared import${importCount === 1 ? "" : "s"}`;
+  }
+  return undefined;
+}
+
+function appendHealthRows(
+  lines: string[],
+  items: string[],
+  theme: Theme,
+  columnWidth: number,
+  health?: ExtensionHealthMap,
+): void {
+  for (const item of items) {
+    lines.push(
+      ...wrapPrefixed(
+        theme.fg("dim", "  • "),
+        healthRowText(item, theme, health),
+        columnWidth,
+      ),
+    );
+  }
+}
+
 function getColumnWidths(listWidth: number, columnCount: number): number[] {
   const totalCellWidth = listWidth - LIST_COLUMN_GAP * (columnCount - 1);
   const baseCellWidth = Math.floor(totalCellWidth / columnCount);
@@ -672,6 +1053,7 @@ function appendExtensionsSection(
   theme: Theme,
   columnWidth: number,
   sharedColumnCount: 2 | 3,
+  health?: ExtensionHealthMap,
 ): void {
   if (lines.length > 0) lines.push("");
   lines.push(theme.fg("mdHeading", "[Extensions]"));
@@ -720,6 +1102,8 @@ function appendExtensionsSection(
         columnWidth,
         sharedColumnCount,
       );
+    } else if (group.title === "Packages") {
+      appendHealthRows(lines, group.items, theme, columnWidth, health);
     } else {
       appendSingleColumnRows(lines, group.items, theme, columnWidth);
     }
@@ -756,6 +1140,7 @@ function appendResourceSection(
   theme: Theme,
   columnWidth: number,
   sharedColumnCount: 2 | 3,
+  health?: ExtensionHealthMap,
 ): void {
   if (title === "Extensions") {
     appendExtensionsSection(
@@ -766,6 +1151,7 @@ function appendResourceSection(
       theme,
       columnWidth,
       sharedColumnCount,
+      health,
     );
     return;
   }
@@ -791,6 +1177,7 @@ function renderResourceColumn(
   resources: WelcomeResources,
   theme: Theme,
   columnWidth: number,
+  health?: ExtensionHealthMap,
 ): string[] {
   const lines: string[] = [];
   const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
@@ -802,6 +1189,7 @@ function renderResourceColumn(
       theme,
       columnWidth,
       sharedColumnCount,
+      health,
     );
   return lines;
 }
@@ -819,6 +1207,7 @@ function renderGridItem(
   theme: Theme,
   columnWidth: number,
   sharedColumnCount: 2 | 3,
+  health?: ExtensionHealthMap,
 ): string[] {
   if (item === "Brand") return renderBrandColumn(theme, columnWidth);
 
@@ -830,6 +1219,7 @@ function renderGridItem(
     theme,
     columnWidth,
     sharedColumnCount,
+    health,
   );
   return lines;
 }
@@ -839,12 +1229,20 @@ function renderGridWelcome(
   theme: Theme,
   columnWidth: number,
   columnCount: 2 | 3,
+  health?: ExtensionHealthMap,
 ): string[] {
   const sharedColumnCount = getSharedMultiColumnCount(resources, columnWidth);
   const topAlignedColumns = GRID_COLUMNS[columnCount].map((items) =>
     items.flatMap((item, index) => [
       ...(index > 0 ? [""] : []),
-      ...renderGridItem(item, resources, theme, columnWidth, sharedColumnCount),
+      ...renderGridItem(
+        item,
+        resources,
+        theme,
+        columnWidth,
+        sharedColumnCount,
+        health,
+      ),
     ]),
   );
   const rowCount = Math.max(
@@ -886,6 +1284,7 @@ function renderStackedWelcome(
   theme: Theme,
   columnWidth: number,
   notice?: string,
+  health?: ExtensionHealthMap,
 ): string[] {
   const lines = ["", ...renderBrandColumn(theme, columnWidth)];
   if (notice) {
@@ -895,7 +1294,10 @@ function renderStackedWelcome(
     );
   }
   if (resources)
-    lines.push("", ...renderResourceColumn(resources, theme, columnWidth));
+    lines.push(
+      "",
+      ...renderResourceColumn(resources, theme, columnWidth, health),
+    );
   lines.push("");
   return lines;
 }
@@ -916,6 +1318,7 @@ export function renderCenteredWelcome(
   theme: Theme,
   width: number,
   notice?: string,
+  health?: ExtensionHealthMap,
 ): string[] {
   if (width <= 0) return [];
   const sidePadding = Math.min(
@@ -940,8 +1343,8 @@ export function renderCenteredWelcome(
   );
   const lines =
     columnCount !== 1 && resources
-      ? renderGridWelcome(resources, theme, columnWidth, columnCount)
-      : renderStackedWelcome(resources, theme, layoutWidth, notice);
+      ? renderGridWelcome(resources, theme, columnWidth, columnCount, health)
+      : renderStackedWelcome(resources, theme, layoutWidth, notice, health);
 
   return lines.map((line) =>
     line ? leftPadding + truncateToWidth(line, layoutWidth, "") : "",
@@ -957,12 +1360,21 @@ class WelcomeHeader implements Component {
   private readonly bridges = new Map<ResourcePanel, ResourceBridge>();
   private sawResourcePanel = false;
   private disposed = false;
+  private readonly notify: (
+    message: string,
+    type?: "info" | "warning" | "error",
+  ) => void;
+  private health: ExtensionHealthMap | undefined;
+  private healthCheckStarted = false;
+  private healthController: AbortController | undefined;
 
   constructor(
     private readonly tui: TUI,
     private readonly theme: Theme,
     forceInitialRender: boolean,
+    notify: (message: string, type?: "info" | "warning" | "error") => void,
   ) {
+    this.notify = notify;
     // session_start runs just before Pi populates its loaded-resource panel.
     this.resourceReadyTimer = setTimeout(
       () => this.captureResourcesWhenReady(forceInitialRender, 0),
@@ -1010,6 +1422,7 @@ class WelcomeHeader implements Component {
         removeKnownResourceChildren(panel, snapshot.knownChildren),
       );
       this.resources = candidateResources;
+      if (candidateResources) this.startHealthCheck(candidateResources);
       this.notice = undefined;
       this.clearRenderCache();
       // The document height changed. Force a redraw so retained diagnostics or
@@ -1043,6 +1456,48 @@ class WelcomeHeader implements Component {
     this.cachedLines = undefined;
   }
 
+  private startHealthCheck(resources: WelcomeResources): void {
+    if (this.healthCheckStarted) return;
+    const names = unique(
+      (resources.packageExtensions ?? []).filter((name) =>
+        NPM_PACKAGE_NAME.test(name),
+      ),
+    );
+    if (names.length === 0) return;
+    this.healthCheckStarted = true;
+    this.healthController = new AbortController();
+    void collectExtensionHealth(
+      names,
+      createHealthEnvironment(getAgentDir()),
+      this.healthController.signal,
+    )
+      .then((health) => {
+        if (this.disposed) return;
+        this.health = health;
+        this.clearRenderCache();
+        this.tui.requestRender();
+        this.announceHealth(health);
+      })
+      .catch(() => undefined);
+  }
+
+  private announceHealth(health: ExtensionHealthMap): void {
+    const flagged = [...health.entries()].filter(
+      ([, entry]) => entry.severity !== "ok",
+    );
+    if (flagged.length === 0) return;
+    const type = flagged.some(([, entry]) => entry.severity === "blocked")
+      ? "error"
+      : "warning";
+    this.notify(
+      flagged
+        .map(([name, entry]) => describeHealthIssue(name, entry))
+        .join(" · ")
+        .slice(0, 160),
+      type,
+    );
+  }
+
   render(width: number): string[] {
     if (this.cachedLines && this.cachedWidth === width) {
       return this.cachedLines;
@@ -1054,6 +1509,7 @@ class WelcomeHeader implements Component {
       this.theme,
       width,
       this.notice,
+      this.health,
     );
     if (resources) {
       this.cachedWidth = width;
@@ -1070,6 +1526,7 @@ class WelcomeHeader implements Component {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.healthController?.abort();
     if (this.resourceReadyTimer) clearTimeout(this.resourceReadyTimer);
     for (const bridge of this.bridges.values()) restoreResourcePanel(bridge);
   }
@@ -1079,8 +1536,11 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
 
+    const notify = (message: string, type?: "info" | "warning" | "error") =>
+      ctx.ui.notify(message, type);
     ctx.ui.setHeader(
-      (tui, theme) => new WelcomeHeader(tui, theme, event.reason === "startup"),
+      (tui, theme) =>
+        new WelcomeHeader(tui, theme, event.reason === "startup", notify),
     );
   });
 }

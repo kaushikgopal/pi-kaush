@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { ExtensionHealth, ExtensionHealthMap } from "../src/index.ts";
 
 const localExtensionFixture = vi.hoisted(() => ({
   filenames: [] as string[],
@@ -47,8 +48,14 @@ vi.mock("@earendil-works/pi-tui", () => ({
 
 const {
   default: welcomeScreen,
+  assessHealthSeverity,
+  collectExtensionHealth,
+  compareVersions,
+  describeHealthIssue,
+  findUndeclaredImports,
   normalizeExtensionName,
   parseWelcomeResources,
+  rangeBlocksMajor,
   renderCenteredWelcome,
 } = await import("../src/index.ts");
 const { Spacer } = await import("@earendil-works/pi-tui");
@@ -912,5 +919,186 @@ describe("welcome resource-panel bridge", () => {
     expect(
       panel.children.some((child) => initialChildren.includes(child)),
     ).toBe(false);
+  });
+});
+
+describe("extension health", () => {
+  test("compares versions numerically, ignoring prerelease suffixes", () => {
+    expect(compareVersions("1.20.0", "1.20.0")).toBe(0);
+    expect(compareVersions("1.20.0", "1.2.10")).toBe(1);
+    expect(compareVersions("1.20.0", "2.0.0")).toBe(-1);
+    expect(compareVersions("0.84.3", "0.80.6")).toBe(1);
+    expect(compareVersions("1.20.0-beta.1", "1.20.0")).toBe(0);
+  });
+
+  test("detects ranges that exclude the latest major", () => {
+    expect(rangeBlocksMajor("^1.20.0", "2.7.1")).toBe(true);
+    expect(rangeBlocksMajor("~1.20.0", "2.7.1")).toBe(true);
+    expect(rangeBlocksMajor("1.20.0", "2.7.1")).toBe(true);
+    expect(rangeBlocksMajor("^2.6.0", "2.7.1")).toBe(false);
+    expect(rangeBlocksMajor("*", "2.7.1")).toBe(false);
+    expect(rangeBlocksMajor(undefined, "2.7.1")).toBe(false);
+    expect(rangeBlocksMajor("^1.20.0", undefined)).toBe(false);
+  });
+
+  test("flags bare imports not covered by declared deps, peers, or the loader", () => {
+    const source = `
+import { existsSync } from "node:fs";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Spacer } from "@earendil-works/pi-tui";
+import { something } from "@pi-kaush/pi-agent-mode";
+import { marker } from "chalk";
+import { helper } from "./local.js";
+import("ci-sleep");
+// import { ignored } from "commented-out-package";
+`;
+    const declared = new Set(["@pi-kaush/pi-agent-mode"]);
+    expect(findUndeclaredImports(source, declared)).toEqual([
+      "chalk",
+      "ci-sleep",
+    ]);
+  });
+
+  test("scores severity: blocked pin, behind, odd imports, ok", () => {
+    expect(
+      assessHealthSeverity({
+        installed: "1.20.0",
+        declaredRange: "^1.20.0",
+        latest: "2.7.1",
+      }),
+    ).toBe("blocked");
+    expect(
+      assessHealthSeverity({
+        installed: "2.6.4",
+        declaredRange: "^2.6.4",
+        latest: "2.7.1",
+      }),
+    ).toBe("behind");
+    expect(
+      assessHealthSeverity({
+        installed: "2.7.1",
+        undeclaredImports: ["chalk"],
+      }),
+    ).toBe("odd");
+    expect(assessHealthSeverity({ installed: "2.7.1", latest: "2.7.1" })).toBe(
+      "ok",
+    );
+    expect(assessHealthSeverity({ missingDeps: ["node-pty"] })).toBe("blocked");
+  });
+
+  test("collects health through an injected environment without disk or network", async () => {
+    const storeModules = "/agent/npm/node_modules";
+    const files = new Map<string, unknown>([
+      [
+        "/agent/npm/package.json",
+        { dependencies: { "@juicesharp/rpiv-todo": "^1.20.0" } },
+      ],
+      [
+        `${storeModules}/@juicesharp/rpiv-todo/package.json`,
+        {
+          version: "1.20.0",
+          dependencies: { marked: "^12.0.0" },
+          peerDependencies: { "@earendil-works/pi-tui": ">=0.80.6" },
+        },
+      ],
+      [
+        `${storeModules}/@juicesharp/rpiv-todo/src/index.ts`,
+        [
+          'import { marked } from "marked";',
+          'import { Spacer } from "@earendil-works/pi-tui";',
+          'import { ghost } from "not-installed";',
+        ].join("\n"),
+      ],
+    ]);
+    const env = {
+      storeRoot: "/agent/npm",
+      storeModules,
+      readJson: (path: string) =>
+        typeof files.get(path) === "object" ? files.get(path) : undefined,
+      readText: (path: string) =>
+        typeof files.get(path) === "string"
+          ? (files.get(path) as string)
+          : undefined,
+      exists: (path: string) => files.has(path),
+      fetchLatestVersion: async () => "2.7.1",
+    };
+
+    const health = await collectExtensionHealth(
+      ["@juicesharp/rpiv-todo"],
+      env,
+      new AbortController().signal,
+    );
+    expect(health.get("@juicesharp/rpiv-todo")).toEqual({
+      installed: "1.20.0",
+      declaredRange: "^1.20.0",
+      latest: "2.7.1",
+      undeclaredImports: ["not-installed"],
+      missingDeps: ["marked"],
+      severity: "blocked",
+    });
+  });
+
+  test("colors and annotates unhealthy packages in the Extensions section", () => {
+    const resources = {
+      context: [],
+      skills: [],
+      prompts: [],
+      extensions: ["rpiv-todo", "agent-mode"],
+      packageExtensions: ["rpiv-todo", "agent-mode"],
+      sourceExtensions: [],
+    };
+    const health: ExtensionHealthMap = new Map<string, ExtensionHealth>([
+      [
+        "rpiv-todo",
+        {
+          installed: "1.20.0",
+          declaredRange: "^1.20.0",
+          latest: "2.7.1",
+          severity: "blocked",
+        },
+      ],
+      [
+        "agent-mode",
+        { installed: "0.1.0", latest: "0.1.1", severity: "behind" },
+      ],
+    ]);
+    const taggedTheme = {
+      bold: (text: string) => text,
+      name: "test",
+      fg: (color: string, text: string) => `[${color}]${text}[/${color}]`,
+    };
+    const rendered = renderCenteredWelcome(
+      resources,
+      taggedTheme as never,
+      128,
+      undefined,
+      health,
+    ).join("\n");
+    expect(rendered).toContain("[error]rpiv-todo ↻ 1.20.0→2.7.1[/error]");
+    expect(rendered).toContain("[warning]agent-mode ↻ 0.1.0→0.1.1[/warning]");
+  });
+
+  test("describes issues for the post-load notification", () => {
+    expect(
+      describeHealthIssue("@juicesharp/rpiv-todo", {
+        installed: "1.20.0",
+        declaredRange: "^1.20.0",
+        latest: "2.7.1",
+        severity: "blocked",
+      }),
+    ).toBe("@juicesharp/rpiv-todo pinned ^1.20.0 — 2.7.1 available");
+    expect(
+      describeHealthIssue("@pi-kaush/pi-agent-mode", {
+        installed: "0.1.0",
+        latest: "0.1.1",
+        severity: "behind",
+      }),
+    ).toBe("@pi-kaush/pi-agent-mode 0.1.0 → 0.1.1");
+    expect(
+      describeHealthIssue("@pi-kaush/pi-btw", {
+        undeclaredImports: ["chalk"],
+        severity: "odd",
+      }),
+    ).toBe("@pi-kaush/pi-btw: 1 undeclared import");
   });
 });

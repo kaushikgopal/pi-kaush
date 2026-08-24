@@ -7,6 +7,7 @@
 - Fix resource capture on Pi 0.84, where the loaded-resources panel moved inside a document container; both the nested 0.84 and flat 0.80–0.83 layouts are detected.
 - Keep Pi's resource panel mounted for fullscreen scrolling, wait for a complete snapshot, preserve diagnostic and third-party rows, and reconcile native rows rebuilt during `/reload`.
 - Warn in the header when Pi's startup layout is unrecognized (`unrecognized Pi layout — using native panel`) instead of degrading silently. Incomplete resource snapshots stay native without being mislabeled as layout failures.
+- Check installed package extensions against the npm registry after load: packages pinned behind the latest major (e.g. `^1.20.0` excluding 2.x) turn red, packages behind within range turn yellow, and unresolved or undeclared imports and missing store dependencies are flagged. Rows get a compact `↻ installed→latest` suffix and a notification summarizes the findings once the check settles. Lookups are async, timeout-guarded, and degrade silently offline.
 
 ## 0.1.4
 

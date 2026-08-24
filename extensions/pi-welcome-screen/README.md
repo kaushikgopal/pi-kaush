@@ -11,6 +11,7 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 - **Extensions grouped by source** — separates Pi-local extensions, installed packages, and linked source paths.
 - **Responsive layout** — adapts from a stacked view to a wide brand over two resource columns, then a dedicated brand beside two resource columns, while reserving two side-padding columns at normal widths and degrading that padding only on tiny terminals.
 - **Fail-safe behavior** — waits for a complete resource snapshot, preserves diagnostics and third-party startup rows, and leaves incomplete native data untouched. When the layout itself is unrecognized, the header says so instead of degrading silently.
+- **Extension health at a glance** — after load, checks installed package extensions against the npm registry and their store manifests: packages pinned behind the latest release (yellow), ranges that exclude the newer major (red), undeclared imports, and missing dependencies. A notification summarizes findings; offline and unreadable packages simply stay unannotated.
 
 ## Install
 
