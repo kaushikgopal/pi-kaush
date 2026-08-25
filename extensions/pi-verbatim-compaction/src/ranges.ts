@@ -43,10 +43,13 @@ export function parsePlannerRanges(
 
   const ranges: InclusiveRange[] = [];
   const seen = new Set<string>();
+  let submittedCount = 0;
   const lines = recordsText.split("\n");
   for (let line of lines) {
     if (line.endsWith("\r")) line = line.slice(0, -1);
     if (line.trim().length === 0) continue;
+    submittedCount += 1;
+    if (submittedCount > MAX_PLANNER_RANGES) return undefined;
 
     const match = RANGE_RECORD.exec(line);
     if (match === null) return undefined;
@@ -60,7 +63,7 @@ export function parsePlannerRanges(
       return undefined;
     }
     const key = `${start},${end}`;
-    if (seen.has(key) || ranges.length >= MAX_PLANNER_RANGES) return undefined;
+    if (seen.has(key)) continue;
     seen.add(key);
     ranges.push({ start, end });
   }
@@ -129,20 +132,14 @@ export function recoverPlannerRanges(
       );
     }
     const key = `${start},${end}`;
-    if (seen.has(key)) {
-      return recoveryFailure(
-        rangeLikeLines,
-        ignoredNonblankLines,
-        "duplicate-range",
-      );
-    }
-    if (ranges.length >= MAX_PLANNER_RANGES) {
+    if (rangeLikeLines > MAX_PLANNER_RANGES) {
       return recoveryFailure(
         rangeLikeLines,
         ignoredNonblankLines,
         "too-many-ranges",
       );
     }
+    if (seen.has(key)) continue;
     seen.add(key);
     ranges.push({ start, end });
   }

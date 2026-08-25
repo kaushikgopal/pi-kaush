@@ -9,7 +9,11 @@ import type {
   ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 
 export const COMPACTION_LOG_TYPE = "verbatim-compaction-log";
 
@@ -107,7 +111,7 @@ export function verbatimFailedLogData(
     kind: "verbatim",
     status: "failed",
     ...(reason ? { reason } : {}),
-    errorMessage: message.slice(0, 200),
+    errorMessage: sanitizeAndBoundErrorMessage(message),
   };
 }
 
@@ -158,7 +162,7 @@ export function failedLogData(
     reason: event.reason,
     willRetry: event.willRetry,
     ...(event.errorMessage
-      ? { errorMessage: event.errorMessage.slice(0, 200) }
+      ? { errorMessage: sanitizeAndBoundErrorMessage(event.errorMessage) }
       : {}),
   };
 }
@@ -210,6 +214,11 @@ function parseCompactionLogData(value: unknown): CompactionLogData | undefined {
 const OUTER_INSET = 2;
 const RULE_WIDTH = 72;
 const LOG_MARKER = "≡";
+// Below this body width, wrapping a failure message is worse than cutting it.
+const STATUS_WRAP_MIN_WIDTH = 20;
+const MAX_ERROR_MESSAGE_CHARACTERS = 4_096;
+const UNSAFE_ERROR_MESSAGE_CHARACTERS =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
 
 class CompactionLogComponent implements Component {
   constructor(
@@ -224,9 +233,10 @@ class CompactionLogComponent implements Component {
     const inset = width > OUTER_INSET * 2 ? OUTER_INSET : 0;
     const margin = " ".repeat(inset);
     const contentWidth = Math.max(1, width - inset);
-    return [...this.headerLine(contentWidth), ...this.bodyLines()].map(
-      (line) => margin + truncateToWidth(line, contentWidth, "", false),
-    );
+    return [
+      ...this.headerLine(contentWidth),
+      ...this.bodyLines(contentWidth),
+    ].map((line) => margin + truncateToWidth(line, contentWidth, "", false));
   }
 
   private headerLine(contentWidth: number): string[] {
@@ -241,9 +251,12 @@ class CompactionLogComponent implements Component {
     return [`${styled} ${this.theme.fg("dim", "─".repeat(ruleBudget))}`];
   }
 
-  private bodyLines(): string[] {
+  private bodyLines(contentWidth: number): string[] {
     const muted = (text: string) => this.theme.fg("muted", text);
-    return bodyLinesFor(this.data, this.expanded).map((line) =>
+    // Body rows sit two columns in from the header; that prefix consumes some
+    // of the width available to status summaries and wrapped error messages.
+    const bodyWidth = Math.max(1, contentWidth - 2);
+    return bodyLinesFor(this.data, this.expanded, bodyWidth).map((line) =>
       muted(`  ${line}`),
     );
   }
@@ -268,10 +281,14 @@ function titleFor(data: CompactionLogData): string {
   }
 }
 
-function bodyLinesFor(data: CompactionLogData, expanded: boolean): string[] {
+function bodyLinesFor(
+  data: CompactionLogData,
+  expanded: boolean,
+  width: number,
+): string[] {
   // A failed or cancelled card reports only its own outcome — the strategy
   // never ran to completion, so there are no metrics to show.
-  if (data.status !== undefined) return statusBodyLines(data);
+  if (data.status !== undefined) return statusBodyLines(data, expanded, width);
   switch (data.kind) {
     case "verbatim":
       return verbatimBodyLines(data, expanded);
@@ -308,14 +325,43 @@ function nativeBodyLines(data: CompactionLogData, expanded: boolean): string[] {
   return lines;
 }
 
-function statusBodyLines(data: CompactionLogData): string[] {
+// Failure cards keep to a readable slice of the message when collapsed;
+// Ctrl+O (expanded) reveals the bounded message, wrapped so it stays on-card.
+function statusBodyLines(
+  data: CompactionLogData,
+  expanded: boolean,
+  width: number,
+): string[] {
+  const summary = statusSummary(data);
+  const message = data.errorMessage
+    ? sanitizeAndBoundErrorMessage(data.errorMessage)
+    : undefined;
+  if (message === undefined || message.length === 0) return [summary];
+  if (!expanded || width < STATUS_WRAP_MIN_WIDTH) {
+    return [fitStatusLine(`${summary} · ${message}`, width)];
+  }
+  return [summary, ...wrapTextWithAnsi(message, width)];
+}
+
+function statusSummary(data: CompactionLogData): string {
   const parts: string[] = [reasonLabel(data.reason)];
   if (data.status === "cancelled") parts.push("cancelled");
-  if (data.errorMessage !== undefined && data.errorMessage.length > 0) {
-    parts.push(data.errorMessage);
-  }
   if (data.willRetry === true) parts.push("turn retry expected");
-  return [parts.join(" · ")];
+  return parts.join(" · ");
+}
+
+// Collapsed failure lines end in an ellipsis (not a hard cut at the card
+// edge), so the marker signals that Ctrl+O reveals the rest.
+function fitStatusLine(text: string, width: number): string {
+  if (visibleWidth(text) <= width) return text;
+  if (width <= 1) return truncateToWidth(text, width, "", false);
+  return `${truncateToWidth(text, width - 1, "", false)}…`;
+}
+
+function sanitizeAndBoundErrorMessage(message: string): string {
+  const sanitized = message.replace(UNSAFE_ERROR_MESSAGE_CHARACTERS, "�");
+  if (sanitized.length <= MAX_ERROR_MESSAGE_CHARACTERS) return sanitized;
+  return `${sanitized.slice(0, MAX_ERROR_MESSAGE_CHARACTERS - 1)}…`;
 }
 
 function retainedPercent(data: CompactionLogData): string {

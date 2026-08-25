@@ -7,6 +7,8 @@
 - Enforce host-side response bounds and an 80% heuristic planner-context quality gate before parsing.
 - Start opt-in prefix-safe preparation automatically for high-context session startup and agent-turn lifecycle points.
 - Document global dedicated-planner selection while keeping `current` as the provider-neutral default.
+- Collapse exact duplicate planner ranges at their first rank instead of discarding an otherwise usable plan, while retaining the raw range-count limit and all other validation.
+- Show the bounded planner failure message in an expanded (Ctrl+O) compaction card, with a short ellipsis-trimmed snippet when collapsed and terminal control characters neutralized.
 
 ## 0.1.0
 

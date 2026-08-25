@@ -9,7 +9,9 @@ import type {
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   COMPACTION_LOG_TYPE,
+  failedLogData,
   renderCompactionLogEntry,
+  verbatimFailedLogData,
   type CompactionLogData,
 } from "../src/chat-log.ts";
 import verbatimCompaction from "../src/extension.ts";
@@ -162,28 +164,34 @@ describe("planner integration", () => {
     );
   });
 
-  test("rejects duplicate ranges in constrained tool arguments", async () => {
-    await expect(
-      runPlanner(
-        {
-          transcript: buildTranscript({
-            messagesToSummarize: [userMessage("x".repeat(100))],
-            turnPrefixMessages: [],
-          }),
-          objective: "goal",
-          targetRetainedTokens: 1,
-        },
-        { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
-        plannerToolContext([
-          { start: 2, end: 4 },
-          { start: 2, end: 4 },
-        ]),
-        new AbortController().signal,
-      ),
-    ).rejects.toMatchObject({
-      reason: "malformed-output",
-      diagnostics: { failureCategory: "duplicate-range" },
-    });
+  test("deduplicates constrained tool ranges at their first rank", async () => {
+    const result = await runPlanner(
+      {
+        transcript: buildTranscript({
+          messagesToSummarize: [userMessage("x".repeat(100))],
+          turnPrefixMessages: [],
+        }),
+        objective: "goal",
+        targetRetainedTokens: 1,
+      },
+      { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+      plannerToolContext([
+        { start: 2, end: 4 },
+        { start: 2, end: 4 },
+      ]),
+      new AbortController().signal,
+    );
+
+    expect(result.ranges).toEqual([{ start: 2, end: 4 }]);
+    expect(result.proposedCount).toBe(1);
+    expect(result.parseMode).toBe("tool");
+    expect(result.responseDiagnostics).toEqual(
+      expect.objectContaining({
+        stopReason: "toolUse",
+        outputCharacters: 0,
+        rangeLikeLines: 2,
+      }),
+    );
   });
 
   test("rejects oversized constrained tool arguments before parsing", async () => {
@@ -894,6 +902,63 @@ describe("compaction chat log", () => {
     expect(cancelledLines[0]).toContain("native compaction");
     expect(cancelledLines[0]).toContain("\x1b[33m"); // warning
     expect(cancelledLines[1]).toContain("cancelled");
+  });
+  test("a failed card shows a snippet when collapsed and the full message when expanded", () => {
+    const message =
+      "malformed-output: Planner output did not contain a usable deletion plan. " +
+      "(malformed-output, stop=length, chars=12,345, lines=98, range-lines=2)";
+    const data: CompactionLogData = {
+      version: 1,
+      kind: "verbatim",
+      status: "failed",
+      reason: "threshold",
+      errorMessage: message,
+    };
+
+    const collapsed =
+      renderCompactionLogEntry(
+        { data },
+        { expanded: false },
+        fakeTheme,
+      )?.render(60) ?? [];
+    expect(collapsed.length).toBe(2); // header + one-line snippet
+    const collapsedBody = collapsed[1];
+    expect(collapsedBody).toContain("auto (context full)");
+    expect(collapsedBody).toContain("malformed-output: Planner output");
+    expect(collapsedBody).toContain("…");
+    expect(collapsedBody).not.toContain("range-lines=2");
+    expect(visibleWidth(collapsedBody)).toBeLessThanOrEqual(60);
+
+    const expanded =
+      renderCompactionLogEntry({ data }, { expanded: true }, fakeTheme)?.render(
+        60,
+      ) ?? [];
+    expect(expanded.length).toBeGreaterThan(2);
+    const expandedBody = expanded.slice(1).join("");
+    expect(expandedBody).toContain("auto (context full)");
+    expect(expandedBody).toContain("range-lines=2");
+    expect(expandedBody).not.toContain("…");
+    for (const line of expanded) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(60);
+    }
+  });
+
+  test("bounds and sanitizes persisted failure messages", () => {
+    const unsafe = `provider \u001b[31m${"x".repeat(5_000)}`;
+    const verbatim = verbatimFailedLogData(unsafe, "threshold");
+    const native = failedLogData({
+      reason: "threshold",
+      willRetry: false,
+      aborted: false,
+      fromExtension: false,
+      errorMessage: unsafe,
+    });
+
+    for (const data of [verbatim, native]) {
+      expect(data.errorMessage?.length).toBeLessThanOrEqual(4_096);
+      expect(data.errorMessage).not.toContain("\u001b");
+      expect(data.errorMessage).toEndWith("…");
+    }
   });
 });
 

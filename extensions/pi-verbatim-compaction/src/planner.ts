@@ -225,13 +225,15 @@ export async function runPlanner(
       diagnostics.failureCategory = "invalid-tool-call";
       throw malformedPlannerFailure(diagnostics);
     }
+    diagnostics.rangeLikeLines = countPlannerToolRangeRecords(
+      toolCalls[0].arguments,
+    );
     const toolPlan = parseToolPlan(toolCalls[0].arguments);
     if (toolPlan.parsed === undefined) {
       diagnostics.failureCategory = toolPlan.failureCategory;
       throw malformedPlannerFailure(diagnostics);
     }
     parsed = toolPlan.parsed;
-    diagnostics.rangeLikeLines = parsed.proposedCount;
     parseMode = "tool";
   } else if (response.stopReason === "toolUse") {
     diagnostics.failureCategory = "invalid-tool-call";
@@ -545,6 +547,24 @@ function malformedPlannerFailure(
   );
 }
 
+function countPlannerToolRangeRecords(arguments_: unknown): number {
+  try {
+    if (
+      arguments_ === null ||
+      typeof arguments_ !== "object" ||
+      Array.isArray(arguments_)
+    ) {
+      return 0;
+    }
+    const ranges = (arguments_ as { ranges?: unknown }).ranges;
+    return Array.isArray(ranges)
+      ? Math.min(ranges.length, MAX_PLANNER_RANGES + 1)
+      : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function parseToolPlan(arguments_: unknown): {
   parsed?: ParsedPlannerRanges;
   failureCategory?: PlannerFailureCategory;
@@ -587,7 +607,7 @@ function parseToolPlan(arguments_: unknown): {
         return { failureCategory: "invalid-range-record" };
       }
       const key = `${start},${end}`;
-      if (seen.has(key)) return { failureCategory: "duplicate-range" };
+      if (seen.has(key)) continue;
       seen.add(key);
       parsed.push({ start: start as number, end: end as number });
     }

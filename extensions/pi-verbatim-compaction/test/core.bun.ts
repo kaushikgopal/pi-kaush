@@ -408,7 +408,10 @@ describe("planner range parsing", () => {
     });
     expect(parsePlannerRanges("0,9")).toBeUndefined();
     expect(parsePlannerRanges("10,3")).toBeUndefined();
-    expect(parsePlannerRanges("1,2\n1,2")).toBeUndefined();
+    expect(parsePlannerRanges("1,2\n1,2")).toEqual({
+      ranges: [{ start: 1, end: 2 }],
+      proposedCount: 1,
+    });
     expect(
       parsePlannerRanges(
         Array.from(
@@ -416,6 +419,9 @@ describe("planner range parsing", () => {
           (_, index) => `${index + 1},${index + 1}`,
         ).join("\n"),
       ),
+    ).toBeUndefined();
+    expect(
+      parsePlannerRanges(Array.from({ length: 4_097 }, () => "1,2").join("\n")),
     ).toBeUndefined();
     expect(parsePlannerRanges("  \n\r\n")).toEqual({
       ranges: [],
@@ -509,9 +515,11 @@ describe("planner range parsing", () => {
     expect(recoverPlannerRanges("```text\n1,2").failureCategory).toBe(
       "invalid-wrapper",
     );
-    expect(recoverPlannerRanges("1,2\n1,2").failureCategory).toBe(
-      "duplicate-range",
-    );
+    expect(recoverPlannerRanges("1,2\n1,2")).toEqual({
+      parsed: { ranges: [{ start: 1, end: 2 }], proposedCount: 1 },
+      rangeLikeLines: 2,
+      ignoredNonblankLines: 0,
+    });
     expect(recoverPlannerRanges("4,2").failureCategory).toBe(
       "invalid-range-record",
     );
@@ -524,6 +532,11 @@ describe("planner range parsing", () => {
       rangeLikeLines: 1,
       ignoredNonblankLines: 1,
     });
+    expect(
+      recoverPlannerRanges(
+        Array.from({ length: 4_097 }, () => "1,2").join("\n"),
+      ).failureCategory,
+    ).toBe("too-many-ranges");
   });
 });
 

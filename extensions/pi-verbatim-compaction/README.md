@@ -114,7 +114,7 @@ The planner sees an explicit current objective, token target, protected line lis
 300,305
 ```
 
-Tool arguments are validated as strictly as text records. The text path first accepts the canonical grammar. Recovery allows only complete range-shaped lines inside one optional recognized heading and one optional, properly paired Markdown fence; repeated, misplaced, unclosed, or arbitrary wrappers reject the plan. A duplicate, reversed, unsafe integer, excessive, malformed, or out-of-bounds range also rejects the plan rather than being swapped or clamped.
+Tool arguments are validated as strictly as text records. The text path first accepts the canonical grammar. Recovery allows only complete range-shaped lines inside one optional recognized heading and one optional, properly paired Markdown fence; repeated, misplaced, unclosed, or arbitrary wrappers reject the plan. Exact duplicate ranges are collapsed at their first rank because they are idempotent; reversed, unsafe integer, excessive, malformed, or out-of-bounds ranges still reject the plan rather than being swapped or clamped.
 
 If a provider stops at its output limit, only complete newline-terminated records before the truncated fragment are eligible. Content-part counts, text/thinking/metadata characters, tool range-array shape, output lines, and accepted range counts are host-bounded; provider token limits are not treated as sufficient enforcement. Every accepted range is split around protected lines and constrained by the retention floor. A byte-based token estimate applies an 80% context quality gate, but it is not a tokenizer or a proof that the request fits; the provider's context check remains authoritative and any overflow fails open to Pi's native compactor.
 
@@ -169,7 +169,7 @@ Each card reports only its own strategy's outcome, via header color:
 - **error color** — that strategy failed. A verbatim fail-open (planner timeout, unusable ranges, …) renders a red `verbatim compaction` card with the reason, followed by a separate normal `native compaction` card when Pi's fallback succeeds.
 - **warning color** — the compaction was cancelled.
 
-Ctrl+O expands a successful card for retention-target and digest detail. Chat-log cards require Pi ≥ 0.84.3 (`registerEntryRenderer` and the `session_compact_failed` event).
+Ctrl+O expands a card for detail: retention-target and digest lines on a successful card, and the bounded failure message (wrapped on-card) on a failed or cancelled one — collapsed, the failure reason shows as a short snippet ending in an ellipsis. Persisted failure messages are capped and terminal control characters are neutralized. Chat-log cards require Pi ≥ 0.84.3 (`registerEntryRenderer` and the `session_compact_failed` event).
 
 ## Commands
 
