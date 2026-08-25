@@ -258,10 +258,13 @@ export function renderSubmittedUserLines(
     const { controls, content } = splitLeadingSemanticControls(line);
     const recolored = replaceBackground(content, surfaceBg);
     const rail = theme.fg(railColor, PROMPT_RAIL);
-    // One extra leading space inside the body, so submitted text sits two
-    // columns right of the rail instead of one.
+    // One column of side padding inside the box on both edges, so submitted
+    // text sits two columns right of the rail and one column off the right
+    // edge — matching the active editor's side padding.
+    const padding = " ".repeat(ACTIVE_SIDE_PADDING);
+    const innerWidth = Math.max(1, bodyWidth - ACTIVE_SIDE_PADDING * 2);
     const body = paintBackground(
-      ` ${fitLine(recolored, Math.max(1, bodyWidth - 1))}`,
+      `${padding}${fitLine(recolored, innerWidth)}${padding}`,
       bodyWidth,
       surfaceBg,
     );

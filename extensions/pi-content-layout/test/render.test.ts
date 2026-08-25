@@ -191,6 +191,20 @@ describe("submitted user block", () => {
     expect(lines[1]).toContain(`\x1b[35m▎\x1b[39m${SURFACE_BG}`);
   });
 
+  test("pads the submitted box symmetrically: one column on each side of the text", () => {
+    // Native line fills its width with visible text, so the geometry is
+    // explicit: content stops one column before the right edge of the box.
+    const native = [`\x1b[45m${"a".repeat(15)}\x1b[49m`];
+    const [line] = renderSubmittedUserLines(native, 20, theme);
+    expect(stripControls(line ?? "")).toBe(`  ▎ ${"a".repeat(13)}   `);
+    expect(visibleWidth(line ?? "")).toBe(20);
+    // Content stops one column before the box edge: a background-painted
+    // padding space sits between the text and the surface reset, followed by
+    // the right margin. (truncateToWidth emits a reset at the clip point, so
+    // the tail is matched loosely.)
+    expect(line).toContain(`${SURFACE_BG} \x1b[49m  `);
+  });
+
   test("falls back to the legacy surface hex when the theme lacks getBgAnsi", () => {
     const themeWithoutBg = {
       ...theme,
