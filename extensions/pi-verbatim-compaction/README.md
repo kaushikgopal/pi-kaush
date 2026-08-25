@@ -1,41 +1,8 @@
 # @pi-kaush/pi-verbatim-compaction
 
-Provider-neutral verbatim compaction for Pi coding sessions.
+Native compaction rewrites old history into a short prose summary. Verbatim compaction instead removes low-value lines and keeps every surviving line unchanged.
 
-Instead of asking a model to rewrite old history as a summary, the extension asks a planner model which numbered transcript ranges are safest to delete. Host code validates those ranges, enforces protected context and token floors, and reconstructs the surviving history from the original serialized lines.
-
-```text
-Pi chooses its normal safe cut point
-  → extension serializes the compactable region
-  → planner ranks deletion ranges (`start,end`)
-  → deterministic code protects, budgets, and deletes
-  → Pi persists verbatim survivors + recent untouched messages
-```
-
-The core invariant is: **the model selects; deterministic code mutates**.
-
-## Why use it
-
-Ordinary summary compaction asks a model to author a shorter version of the conversation. That can paraphrase an exact error, omit a constraint, merge two attempts, or invent connective details. Verbatim compaction gives the model a narrower job:
-
-```text
-summary compaction                    verbatim compaction
-model rewrites history                model ranks deletions
-        ↓                                      ↓
-new prose becomes durable context     host code copies surviving source lines
-```
-
-The result is still lossy—deleted lines are gone from active context—but every ordinary line that survives is the line Pi originally stored. This is especially useful in coding sessions where exact paths, commands, diagnostics, identifiers, decisions, and tool evidence matter more than a fluent narrative.
-
-Key advantages:
-
-- **Lower synthesis risk.** The planner cannot rewrite, reorder, or add durable conversation text; it can only propose deletions.
-- **Exact surviving ordinary evidence.** Ordinary textual lines preserve whitespace, Unicode, long content, paths, command output, and other stored text byte-for-byte unless selected for deletion; reserved delimiters and non-text content follow the explicit [fidelity contract](#fidelity-contract).
-- **Mechanical safety boundaries.** Host code—not planner obedience—enforces protected spans, transcript structure, token floors, range grammar, and output integrity.
-- **Token-aware retention.** Selection targets estimated tokens rather than assuming every line costs the same, avoiding large minified lines or tool payloads overwhelming the budget.
-- **Provider-neutral operation.** Planning uses Pi's configured model API; deterministic reconstruction happens locally and requires no separate compaction service.
-- **Safe failure.** A timeout, malformed plan, stale speculative result, insufficient reduction, or failed integrity check returns control to Pi's native compactor instead of persisting a questionable boundary.
-- **Inspectable and recoverable behavior.** Compaction cards and `/verbatim-context` expose what happened, while `verbatim_recall_history` can search bounded original branch history for evidence no longer in active context.
+The core rule is: **the model selects; deterministic host code mutates**.
 
 ## Install
 
@@ -45,47 +12,160 @@ pi install npm:@pi-kaush/pi-verbatim-compaction
 
 Requires Pi `>=0.84.3 <0.85` and Node.js `>=22.19.0`.
 
-Restart Pi or run `/reload`, then verify the active configuration with:
+Restart Pi or run `/reload`, then inspect the active configuration with:
 
 ```text
 /verbatim-context
 ```
 
-When enabled—and when no later custom compactor replaces its hook result—Pi's built-in `/compact`, automatic threshold compaction, overflow recovery, and `/verbatim-compact` all pass through this extension. Enable only one extension that returns a custom compaction result; see [Compaction-extension interoperability](#compaction-extension-interoperability).
+When enabled, automatic threshold compaction, overflow recovery, Pi's built-in `/compact`, and `/verbatim-compact` all pass through this strategy.
 
-## Behavior
+Enable only one extension that provides custom compaction. See [Interoperability](#interoperability).
 
-The extension:
+## Why compaction exists
 
-1. intercepts Pi's public `session_before_compact` event;
-2. preserves Pi's `firstKeptEntryId`, recent-context tail, trigger thresholds, persistence, and retry behavior;
-3. serializes complete textual message content without adding another tool-output truncation layer;
-4. calls a globally configured Pi model through `ctx.modelRegistry.complete`;
-5. prefers one constrained `submit_deletion_plan` tool response, with strict and conservatively recovered `start,end` text as compatibility fallbacks;
-6. mechanically protects transcript structure and trusted `<keepContext>` spans;
-7. applies ranked ranges until the configured estimated-token target is reached;
-8. inserts `[verbatim-compaction: N lines removed]` markers and folds their counts across repeated compactions; and
-9. returns no custom result on any unsafe or unusable outcome, allowing Pi's native compactor to run.
+LLMs have limited context windows. Eventually a coding session becomes too large to send with every request.
 
-Diagnostic metadata records counts, ratios, planner identity, latency, response stop/shape, parse mode, line provenance, and whether a foreground or speculative plan was used. `/verbatim-context` also reports planner response tokens and provider-reported cost, including discarded completed plans. The extension does not persist the planner prompt, planner response content, transcript, session ID, or credentials.
+Compaction reduces the **active history the model sees**:
 
-## Fidelity contract
+```text
+Before:
+  lots of old history + recent conversation
 
-Ordinary surviving textual content lines are copied exactly from Pi's stored messages, including whitespace and Unicode. The serializer adds protected role/field boundaries so surviving evidence remains attributable. It persists digest-bound line provenance with each compaction so those boundaries, protected spans, and deletion markers retain their meaning after restart and repeated compaction.
+After:
+  compacted old history + recent conversation
+```
 
-Reserved text that could break Pi's `<summary>` envelope or impersonate the serializer grammar is represented by a deterministic `[verbatim:escaped-line {"text":...}]` JSON record. This is lossless and host-authored, but the active summary contains the reversible quoted form instead of the raw dangerous delimiter.
+Pi decides where the old region ends. Recent messages stay outside compaction and remain unchanged. Original messages remain in the session file, even though the compacted version replaces them in active model context.
 
-Other content without a direct byte-for-byte representation:
+## How native Pi compaction works
 
-- Images become deterministic placeholders containing MIME type, encoded character count, and a SHA-256 digest. Pixel/base64 data is not copied into the compaction summary.
-- Tool-call arguments become stable key-sorted JSON, with angle brackets represented as JSON Unicode escapes. The JSON line can be deleted, while its small tool name/ID boundary remains protected.
-- `!!` bash executions marked `excludeFromContext` remain excluded from planner input, compacted output, and historical recall.
-- Pi tools may already have truncated output before storing it. This extension preserves the complete text Pi stored; it cannot recover output that never entered the session.
-- History summarized by an earlier abstractive compactor is already lossy. A later verbatim compaction can preserve that prior summary, but cannot reconstruct the original facts.
+Native compaction gives the old history to an LLM and asks it to write a prose summary:
 
-## Protected context
+```text
+Old history
+  ↓
+summarizer LLM
+  ↓
+"Goal: Fix login timeout
+ Changes: Updated auth.ts
+ Tests: 42 passed
+ Next: Review retry behavior"
+```
 
-Whole-line tags in **user text** are mechanically protected. A cooperating extension may also opt in explicitly by using Pi custom-message type `verbatim-compaction-context`; other custom-message types remain untrusted.
+The model's next request contains:
+
+```text
+system prompt
+native prose summary
+recent messages kept by Pi
+```
+
+This gives strong compression, but the history is rewritten by an LLM. Exact errors, code, numbers, constraints, or subtle decisions can be omitted or paraphrased.
+
+## How verbatim compaction changes this
+
+Verbatim compaction does **not** ask an LLM to rewrite the conversation.
+
+Instead:
+
+```text
+old history
+  ↓
+convert it to numbered lines
+  ↓
+planner LLM ranks lines that are safe to delete
+  ↓
+host code validates and applies the deletion plan
+  ↓
+surviving lines remain word-for-word unchanged
+```
+
+Deleted sections become markers such as:
+
+```text
+[verbatim-compaction: 318 lines removed]
+```
+
+The model's next request contains:
+
+```text
+system prompt
+surviving verbatim lines + deletion markers
+recent messages kept by Pi
+```
+
+Verbatim compaction is still lossy: deleted lines leave active context. Its promise is narrower—ordinary textual lines that survive are copied exactly from Pi's stored messages.
+
+## What is the planner?
+
+The planner is an LLM used only to answer:
+
+> Which parts of this old transcript are safest to remove?
+
+It receives:
+
+- the current task or objective;
+- a numbered version of the compactable transcript;
+- the desired size after compaction;
+- a list of mechanically protected lines; and
+- optional instructions supplied to `/compact` or `/verbatim-compact`.
+
+It returns ranked deletion ranges. On models with strict tool support, this is a constrained `submit_deletion_plan` tool call. Other models use the equivalent text form:
+
+```text
+120,180
+6,40
+300,305
+```
+
+This means:
+
+1. lines 120–180 are safest to delete;
+2. lines 6–40 are the next safest; and
+3. lines 300–305 are lower-priority candidates.
+
+The planner does not modify the transcript. The extension then:
+
+1. validates the response;
+2. collapses exact duplicate ranges at their first rank;
+3. splits ranges around mechanically protected lines;
+4. applies ranges in ranked order;
+5. stops when it reaches the retention target; and
+6. refuses to go below the minimum retained context.
+
+With the package defaults, it aims to keep about **50% of the compactable old region**, never fewer than 8,000 estimated tokens, and only compacts when it can save at least 2,048 estimated tokens.
+
+The current active Pi model is the planner by default. A dedicated `provider/model` can be selected in trusted global settings. Because the planner receives the complete compactable transcript, choosing another model may send that transcript to another provider.
+
+## Is there a final summary?
+
+**Technically yes, conceptually no.**
+
+Pi's compaction API requires a field named `summary`. Native compaction fills it with LLM-written prose. Verbatim compaction fills the same field with surviving original lines and deletion markers:
+
+```text
+Native summary:
+  LLM-written description of what happened
+
+Verbatim summary:
+  original transcript with selected sections removed
+```
+
+There is no second summarization call after planning. The planner's range selection is the only LLM-generated part; reconstruction is deterministic local code.
+
+On repeated verbatim compactions, deletion-marker counts are folded forward and digest-bound provenance preserves which surviving lines are structure, protected context, and prior deletion markers.
+
+## What is mechanically protected?
+
+Some lines cannot be deleted, even if the planner requests them:
+
+- serializer structure needed to keep messages and fields attributable;
+- trusted `<keepContext>` spans in user text;
+- protected structure carried through repeated verbatim compactions; and
+- the configured minimum retained-token floor.
+
+Use whole-line tags in user text when something must survive mechanically:
 
 ```text
 <keepContext>
@@ -94,92 +174,104 @@ Generated cache.ts must not be edited directly.
 </keepContext>
 ```
 
-Inline whole-line form is also protected:
+The inline whole-line form is also protected:
 
 ```text
 <keepContext>HTTP 409 is expected here.</keepContext>
 ```
 
-Identical tags in assistant text, tool results, previous summaries, repository files, terminal output, or web content are treated as ordinary untrusted transcript data. This prevents tool-output prompt injection from pinning itself indefinitely.
+Identical tags in assistant text, tool results, previous summaries, repository files, terminal output, or web content are treated as ordinary untrusted data. Tool output therefore cannot pin itself indefinitely.
 
-## Planner
+Important goals, decisions, and errors outside `<keepContext>` are preserved through the planner's judgment rather than mechanical protection.
 
-The default planner is the current active Pi model. Set `verbatimCompaction.planner.model` to an explicit `provider/model` in trusted global settings to use a dedicated planner without changing the active chat model. If no override exists, `current` is inherited. Configuring another model may send the complete compactable transcript to that model and provider.
+## Small example
 
-The planner sees an explicit current objective, token target, protected line list, and numbered transcript. OpenAI Responses models with strict tool-schema support also receive one constrained `submit_deletion_plan` tool; a valid call contains ranked positive integer `{ start, end }` objects. Models or compatibility profiles without that capability receive only the text contract:
+Suppose this is the old region being compacted. Serializer structure is hidden here for clarity.
 
 ```text
-120,180
-6,40
-300,305
+1  User: Fix the login timeout without changing the public API.
+2  Assistant: I'll inspect the repository.
+3  Tool: 500 lines of directory listing.
+4  Tool: The same directory listing repeated.
+5  Assistant: Maybe Redis is broken.
+6  Tool: auth.ts contains TIMEOUT_MS = 5000.
+7  Assistant: Root cause: TIMEOUT_MS is too low.
+8  <keepContext>
+9  The public API must not change.
+10 </keepContext>
 ```
 
-Tool arguments are validated as strictly as text records. The text path first accepts the canonical grammar. Recovery allows only complete range-shaped lines inside one optional recognized heading and one optional, properly paired Markdown fence; repeated, misplaced, unclosed, or arbitrary wrappers reject the plan. Exact duplicate ranges are collapsed at their first rank because they are idempotent; reversed, unsafe integer, excessive, malformed, or out-of-bounds ranges still reject the plan rather than being swapped or clamped.
+The planner might return these three records, in priority order:
 
-If a provider stops at its output limit, only complete newline-terminated records before the truncated fragment are eligible. Content-part counts, text/thinking/metadata characters, tool range-array shape, output lines, and accepted range counts are host-bounded; provider token limits are not treated as sufficient enforcement. Every accepted range is split around protected lines and constrained by the retention floor. A byte-based token estimate applies an 80% context quality gate, but it is not a tokenizer or a proof that the request fits; the provider's context check remains authoritative and any overflow fails open to Pi's native compactor.
+```text
+3,4
+5,5
+2,2
+```
 
-No bootstrap command is required. Pi's automatic threshold and overflow compaction invoke this planner through the same hook; `/verbatim-compact` remains an optional manual control.
+Lines 3–4 are repeated tool output, line 5 is an obsolete hypothesis, and line 2 is lower-priority generic narration. Suppose deleting lines 3–5 is enough to reach the target. The host stops there and does not apply the lower-priority `2,2` range.
 
-## Speculative background planning
+The result becomes:
 
-Speculation is implemented but disabled by default until its cost/hit rate is measured on real sessions.
+```text
+1  User: Fix the login timeout without changing the public API.
+2  Assistant: I'll inspect the repository.
+3  [verbatim-compaction: 3 lines removed]
+4  Tool: auth.ts contains TIMEOUT_MS = 5000.
+5  Assistant: Root cause: TIMEOUT_MS is too low.
+6  <keepContext>
+7  The public API must not change.
+8  </keepContext>
+```
 
-When enabled, standalone planning can start automatically when a high-context session loads, before an agent turn, and after a completed turn once context usage crosses `speculation.triggerRatio`. An idle candidate may survive the next interactive input long enough for Pi's pre-turn threshold check; `before_agent_start` then refreshes it against the new objective if compaction was unnecessary. Planning operates on an immutable active-context snapshot while the agent continues. At Pi's actual compaction point, the candidate is accepted only when:
+What happened:
 
-- Pi's exact compactable transcript is a complete, digest-identical prefix of the immutable candidate;
-- objective, planner model, retention config, and protected-context config still match;
-- no custom `/compact` focus changed relevance;
-- the candidate is less than 15 minutes old; and
-- its ranges still meet all foreground retention and safety checks.
+- the original directory listings and obsolete hypothesis were removed;
+- their place became one deletion marker;
+- the goal, evidence, and root cause survived exactly;
+- the planner proposed deleting the generic narration, but the host stopped before needing it;
+- the `<keepContext>` section was mechanically protected; and
+- recent messages outside this old region remain appended normally.
 
-Pending, stale, or incompatible work is aborted/discarded without delaying foreground compaction, which remains the fallback. Speculation never triggers a separate cut-point algorithm or mutates live context; Pi remains responsible for automatic threshold/overflow timing and safe boundaries.
+## Failure behavior
 
-## Historical recall
+If planning times out, returns an unsafe or unusable plan, cannot achieve the requested reduction, or fails an integrity check, the extension returns control to Pi. Pi's native compactor then runs instead of persisting a questionable verbatim result.
 
-The `verbatim_recall_history` tool performs bounded lexical substring search over the current branch's original session entries, including content no longer present in active model context.
+```text
+verbatim planning fails
+  ↓
+no custom result is returned
+  ↓
+Pi performs native compaction
+```
 
-It is optimized for exact paths, symbols, commands, errors, versions, and phrases. Query size, scanned entries, scanned characters, result count, and final output are bounded. Assistant thinking, images, and `excludeFromContext` bash history are excluded; the abort signal is checked while scanning.
-
-## Scope and trade-offs
-
-Verbatim means **surviving lines are verbatim**, not that the complete conversation is retained. Deletion is intentionally lossy, and history already rewritten by an earlier summarizer cannot be reconstructed. The recall tool can search original entries still present in the session branch, but it is not a substitute for active context or an external archive.
-
-The planner receives the complete compactable transcript and current objective. By default that is sent to the active model's provider; configuring another planner may send it to that provider instead. This package does not automatically borrow fallback models from other providers.
-
-The extension also does not implement a destructive "fresh context" rung when planning fails. It fails open to Pi, which retains ownership of cut points, recent-message boundaries, retries, persistence, and native fallback behavior. Speculative planning is an optional latency optimization, not a different retention policy, and remains disabled by default.
-
-## Chat log
-
-Every compaction appends a compact card to the transcript, aligned with tool-call rows. Cards are Pi custom entries: they render in the chat but never enter LLM context, so they cannot pollute the history they describe.
+A failed verbatim card and the succeeding native card are separate outcomes. Press Ctrl+O to expand a card and inspect bounded diagnostics.
 
 ```text
   ≡ verbatim compaction ───────────────────────────────
     41,203 → 20,611 tokens (50% kept) · 258 lines removed
-    3 pinned lines · gpt-5.4 · 2.1s · foreground
+    3 pinned lines · gpt-5.6 · 2.1s · foreground
 
   ≡ native compaction ─────────────────────────────────
     61,200 → ~3,400 tokens · auto (context full)
 ```
 
-The header line uses the theme's tool-title color; everything else is muted. Tokens are estimates: the verbatim card shows the compactable region before → after deletion, and the native card shows the session size → summary size. `pinned lines` are the lines the planner can never delete (`<keepContext>` blocks plus structural boundaries); `foreground` means the plan was computed on the spot, `speculative` that it was reused from background planning.
+## Historical recall
 
-Each card reports only its own strategy's outcome, via header color:
+`verbatim_recall_history` performs bounded exact-text search over original entries in the current session branch, including material no longer present in active context. It is useful for paths, symbols, commands, errors, versions, and exact phrases.
 
-- **tool-title color** — that strategy succeeded.
-- **error color** — that strategy failed. A verbatim fail-open (planner timeout, unusable ranges, …) renders a red `verbatim compaction` card with the reason, followed by a separate normal `native compaction` card when Pi's fallback succeeds.
-- **warning color** — the compaction was cancelled.
-
-Ctrl+O expands a card for detail: retention-target and digest lines on a successful card, and the bounded failure message (wrapped on-card) on a failed or cancelled one — collapsed, the failure reason shows as a short snippet ending in an ellipsis. Persisted failure messages are capped and terminal control characters are neutralized. Chat-log cards require Pi ≥ 0.84.3 (`registerEntryRenderer` and the `session_compact_failed` event).
+Assistant thinking, images, and bash history marked `excludeFromContext` are excluded. Recall is a recovery aid, not a substitute for active context or an external archive.
 
 ## Commands
 
-- `/verbatim-compact [focus]` — wait for idle, then trigger Pi compaction through the hook.
-- `/verbatim-context` — show current config, compaction counts, native fallbacks, speculation counters, and last-run metrics.
-- `/compact [focus]` — Pi's built-in command also uses this extension normally.
+- `/verbatim-compact [focus]` — trigger Pi compaction; it uses the verbatim strategy when enabled and otherwise falls back to native behavior.
+- `/verbatim-context` — show configuration, planner usage, fallback counts, and last-run metrics.
+- `/compact [focus]` — Pi's built-in command; it also uses this extension when enabled.
+- `Ctrl+O` — expand compaction cards for retention or failure details.
 
 ## Configuration
 
-Package defaults are in `settings.json`. Global overrides belong under `verbatimCompaction` in `~/.pi/agent/settings.json`:
+Defaults live in `settings.json`. Trusted global overrides belong under `verbatimCompaction` in `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -212,7 +304,7 @@ Package defaults are in `settings.json`. Global overrides belong under `verbatim
 }
 ```
 
-To select a dedicated planner, override only the model field:
+To use a dedicated planner without changing the active chat model:
 
 ```json
 {
@@ -224,11 +316,9 @@ To select a dedicated planner, override only the model field:
 }
 ```
 
-Omit the override or set it to `current` to inherit the active Pi model. Model selection is global-only so an untrusted project cannot redirect the compactable transcript to another provider.
+Project-local settings are intentionally ignored. An untrusted repository cannot redirect the compactable transcript to another provider or weaken retention and protection rules.
 
-Project-local settings are intentionally ignored. An untrusted repository must not be able to choose a different planner provider or weaken retention/protection rules.
-
-Environment variables override files:
+Environment variables override file settings:
 
 - `PI_VERBATIM_COMPACTION_ENABLED`
 - `PI_VERBATIM_COMPACTION_RETENTION_RATIO`
@@ -245,39 +335,31 @@ Environment variables override files:
 - `PI_VERBATIM_COMPACTION_SPECULATION_TRIGGER_RATIO`
 - `PI_VERBATIM_COMPACTION_DEBUG`
 
-## Compaction-extension interoperability
+Speculative planning is implemented but disabled by default. When enabled, the extension may prepare an immutable candidate before Pi reaches the compaction boundary; it is reused only if the transcript prefix and all relevant settings still match exactly.
 
-Enable only one extension that returns a custom `session_before_compact` result. Pi runs compaction handlers in load order, and a later truthy result replaces an earlier one; it does not merge strategies. Running this package alongside `pi-openai-compaction`, observational-memory compaction, VCC, or another custom compactor can waste a model call or replace the intended result.
+## Fidelity limits
 
-The `verbatim_recall_history` tool and commands are otherwise ordinary public Pi APIs and do not replace the editor or patch Pi internals.
+- Ordinary surviving textual lines preserve the text Pi stored, including whitespace and Unicode.
+- Reserved delimiters are represented by deterministic, reversible escaped-line records so they cannot break the summary envelope or impersonate serializer structure.
+- Images become deterministic metadata placeholders; image bytes are not copied into the compacted text.
+- Tool-call arguments become stable key-sorted JSON.
+- Bash executions marked `excludeFromContext` remain excluded from planning, compacted output, and recall.
+- Pi tools may already have truncated output before storing it; this extension cannot recover text that never entered the session.
+- History rewritten by an earlier summarizer is already lossy. Later verbatim compaction cannot reconstruct the original conversation.
 
-## Use from this checkout
+## Interoperability
+
+Enable only one extension that returns a custom `session_before_compact` result. Pi runs compaction handlers in load order, and a later result replaces an earlier one rather than merging strategies.
+
+Running this package alongside `pi-openai-compaction`, observational-memory compaction, VCC, or another custom compactor can waste a planner call or replace the intended result. The recall tool, commands, and chat cards otherwise use public Pi APIs and do not replace the editor.
+
+## Development
 
 ```fish
 npm install
 cd extensions/pi-verbatim-compaction
 npm run package:check
-pi -e /Users/kg/dev/oss/pi-kaush/extensions/pi-verbatim-compaction/index.ts
-```
-
-For normal local development, add the package directory to the global `packages` array, reload Pi, and confirm it with `pi list`.
-
-## Validation
-
-```fish
-cd extensions/pi-verbatim-compaction
-npm run typecheck
-npm test
-npm run package:check
 npm run bench
-```
-
-The test suite covers exact and reserved-line serialization, Unicode and huge lines, excluded bash privacy, trusted-tag injection boundaries, constrained-tool/strict-text/recovered-text plans, adversarial wrappers, malformed diagnostic privacy, local output bounds, explicit/current planner selection, truncated/out-of-bounds range parsing, protected-range splitting, token floors, repeated provenance and marker folding, planner context/deadline failures, threshold/overflow event handling, foreground fallback, cancellation, automatic startup preparation, speculative reuse, bounded recall, and two persisted compaction generations across an in-memory Pi SDK resume.
-
-`bench/replay.ts` can also read a JSON array of replay cases containing `source`, either ranked `ranges` or raw `plannerOutput`, retention settings, and exact-string `probes`:
-
-```fish
-bun run bench/replay.ts ./my-replay-cases.json
 ```
 
 ## Inspiration
