@@ -17,7 +17,6 @@
   },
   "include": ["extensions/**/*.ts"],
   "exclude": [
-    "extensions/pi-openai-compaction/**",
     "extensions/pi-verbatim-compaction/**"
   ]
 }

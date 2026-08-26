@@ -351,7 +351,7 @@ Speculative planning is implemented but disabled by default. When enabled, the e
 
 Enable only one extension that returns a custom `session_before_compact` result. Pi runs compaction handlers in load order, and a later result replaces an earlier one rather than merging strategies.
 
-Running this package alongside `pi-openai-compaction`, observational-memory compaction, VCC, or another custom compactor can waste a planner call or replace the intended result. The recall tool, commands, and chat cards otherwise use public Pi APIs and do not replace the editor.
+Running this package alongside observational-memory compaction, VCC, or another custom compactor can waste a planner call or replace the intended result. The recall tool, commands, and chat cards otherwise use public Pi APIs and do not replace the editor.
 
 ## Development
 

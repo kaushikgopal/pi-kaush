@@ -1,5 +1,0 @@
-{
-  "enabled": true,
-  "supportedProviders": ["openai"],
-  "supportedApis": ["openai-responses"]
-}
