@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-verbatim-compaction",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Provider-neutral verbatim-line compaction with deterministic pruning for Pi.",
   "license": "MIT",
   "author": "Kaushik Gopal",
