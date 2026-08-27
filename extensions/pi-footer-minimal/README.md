@@ -2,6 +2,14 @@
 
 A minimal [Pi](https://pi.dev) footer: cost and context sit on the first metadata line, and token stats appear on a second line you toggle on when you want them. Both metadata lines sit two columns in from the terminal edges.
 
+### Install
+
+```fish
+pi install npm:@pi-kaush/pi-footer-minimal
+```
+
+Restart Pi or run `/reload`.
+
 ## What it shows
 
 One blank row separates the footer from the active prompt surface above it; footer metadata begins on the next row.
@@ -28,17 +36,9 @@ When the terminal is narrow, line 1 degrades in stages: the cwd flattens to its 
 
 Pi's native footer already shows token stats; this footer rearranges them to prioritize cost and context at a glance, moves the token detail behind a toggle, and keeps the window clean. It uses only Pi's public extension APIs (`ctx.ui.setFooter`, `footerData`, `ctx.sessionManager`, `ctx.getContextUsage`) and reads other extensions' statuses (MCP badge, active agent) from Pi's status bus — nothing is imported from other packages.
 
-## Install
+## Local development
 
-After the first npm release:
-
-```bash
-pi install npm:@pi-kaush/pi-footer-minimal@0.1.0
-```
-
-For local development:
-
-```bash
+```fish
 pi -e ./extensions/pi-footer-minimal/src/index.ts
 ```
 

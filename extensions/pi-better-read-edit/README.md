@@ -2,6 +2,14 @@
 
 One Pi extension that replaces `read` and `edit` with a coordinated, context-efficient pair. Exact local text reads produce a short version tag and numbered lines; edits use that tag plus compact line operations instead of repeating old source text.
 
+### Install
+
+```fish
+pi install npm:@pi-kaush/pi-better-read-edit
+```
+
+Restart Pi or run `/reload`.
+
 ## What it improves
 
 - **One read/edit contract:** the same package mints and validates every edit tag, avoiding a tagged reader paired with an incompatible editor.
@@ -107,7 +115,7 @@ pi-better-read-edit/
 └─ package.json
 ```
 
-## Install locally
+## Local development
 
 From this repository:
 

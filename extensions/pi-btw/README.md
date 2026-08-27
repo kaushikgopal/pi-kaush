@@ -6,17 +6,17 @@ Inside Herdr, the fork opens as a parallel Pi session in a right-hand pane. With
 
 The extension has no background service, model call, transcript import, merge protocol, terminal-specific fallback, or Intercom integration.
 
-## Install
+### Install
 
-After the package's first npm release:
-
-```sh
+```fish
 pi install npm:@pi-kaush/pi-btw
 ```
 
-For local development:
+Restart Pi or run `/reload`.
 
-```sh
+## Local development
+
+```fish
 pi -e ./extensions/pi-btw/src/index.ts
 ```
 

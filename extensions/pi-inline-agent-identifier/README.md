@@ -4,23 +4,23 @@
 
 Use `&agent-name` references in Pi prompts while keeping delegation in the existing named-agent `subagent` tool.
 
+### Install
+
+```fish
+pi install npm:@pi-kaush/pi-inline-agent-identifier
+```
+
+Restart Pi or run `/reload`.
+
 ## Prerequisite
 
 Install and configure a Pi extension that registers a `subagent` tool with an `agent` parameter. Agent definitions are read from Pi's normal user agent directory and, when supported and trusted, the nearest project agent directory.
 
 This package does not implement a subagent runner or call one directly. If no compatible `subagent` tool is active, it does nothing.
 
-## Install
+## Local development
 
-```sh
-pi install npm:@pi-kaush/pi-inline-agent-identifier
-```
-
-Restart Pi or run `/reload` after the named-agent subagent extension is loaded.
-
-To run the extension from a local checkout instead:
-
-```sh
+```fish
 pi -e ~/path/to/pi-kaush/extensions/pi-inline-agent-identifier/src/index.ts
 ```
 

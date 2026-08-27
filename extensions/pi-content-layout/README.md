@@ -2,6 +2,14 @@
 
 A small Pi extension that insets the main conversation, renders the active editor as a full-width dark surface, and gives submitted prompts a compact rail shell.
 
+### Install
+
+```fish
+pi install npm:@pi-kaush/pi-content-layout
+```
+
+Restart Pi or run `/reload`.
+
 ```text
 Assistant output
   Text wraps inside the inset width.
@@ -53,15 +61,15 @@ for the restyle to take effect. Without pi-intercom installed the
 registration is inert; malformed message payloads fall back to Pi's default
 custom-message box.
 
-## Install
+## Manual configuration
+
+If you manage Pi package sources directly, add the package to `settings.json`:
 
 ```json
 {
   "packages": ["npm:@pi-kaush/pi-content-layout"]
 }
 ```
-
-The package is not published while its version is `0.0.0`; use the repository path for local development.
 
 ## Theme ownership
 

@@ -5,14 +5,13 @@ the session to the agent's model, thinking level, and tool set, appends the agen
 prompt to Pi's base instructions, and restores the pre-activation baseline when cleared.
 It does not spawn children and provides no delegated subagents.
 
-## Install
+### Install
 
-```sh
+```fish
 pi install npm:@pi-kaush/pi-agent-mode
 ```
 
-Restart Pi or run `/reload`. To pin a specific release, append its version, such as
-`@0.1.0`.
+Restart Pi or run `/reload`.
 
 ## Usage
 

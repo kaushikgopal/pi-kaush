@@ -2,25 +2,25 @@
 
 Use inline references for loaded Pi skills, named subagents, and prompt templates without replacing Pi's editor or command handling.
 
+### Install
+
+```fish
+pi install npm:@pi-kaush/pi-inline-identifier
+```
+
+Restart Pi or run `/reload`.
+
 | Identifier      | Example           | Color  |
 | --------------- | ----------------- | ------ |
 | Skill           | `$review`         | Purple |
 | Agent           | `&reviewer`       | Blue   |
 | Prompt template | `/publish-pi-ext` | Green  |
 
-## Install
-
-```sh
-pi install npm:@pi-kaush/pi-inline-identifier
-```
-
-Restart Pi or run `/reload`.
-
 Do not load this package together with `@pi-kaush/pi-inline-skill-identifier` or `@pi-kaush/pi-inline-agent-identifier`. Those compatibility packages handle the same input independently and can transform it twice.
 
-For local development:
+## Local development
 
-```sh
+```fish
 pi \
   -e ./extensions/pi-inline-identifier/src/skill.ts \
   -e ./extensions/pi-inline-identifier/src/agent.ts \

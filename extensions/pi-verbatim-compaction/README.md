@@ -4,15 +4,19 @@ Native compaction rewrites old history into a short prose summary. Verbatim comp
 
 The core rule is: **the model selects; deterministic host code mutates**.
 
-## Install
+### Install
 
 ```fish
 pi install npm:@pi-kaush/pi-verbatim-compaction
 ```
 
+Restart Pi or run `/reload`.
+
+## Requirements
+
 Requires Pi `>=0.84.3 <0.85` and Node.js `>=22.19.0`.
 
-Restart Pi or run `/reload`, then inspect the active configuration with:
+Inspect the active configuration with:
 
 ```text
 /verbatim-context

@@ -4,17 +4,17 @@
 
 Use Codex-style `$skill-name` references in Pi prompts while keeping Pi's native skill loading.
 
-## Install
+### Install
 
-```sh
+```fish
 pi install npm:@pi-kaush/pi-inline-skill-identifier
 ```
 
 Restart Pi or run `/reload`.
 
-To run the extension from a local checkout instead:
+## Local development
 
-```sh
+```fish
 pi -e ~/path/to/pi-kaush/extensions/pi-inline-skill-identifier/src/index.ts
 ```
 

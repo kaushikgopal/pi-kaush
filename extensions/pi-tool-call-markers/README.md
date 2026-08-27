@@ -2,6 +2,14 @@
 
 Give Pi's collapsed tool calls a quiet, width-safe transcript shell while preserving native details under `Ctrl+O`. The package also includes a display-only thinking-block adapter.
 
+### Install
+
+```fish
+pi install npm:@pi-kaush/pi-tool-call-markers
+```
+
+Restart Pi or run `/reload`.
+
 ## What it changes
 
 Collapsed tool rows use semantic theme colors with no gear, background fill, box padding, or filled blank rows:
@@ -73,15 +81,9 @@ When Pi exposes its per-row hidden-thinking and streaming fields, hidden reasoni
 
 The live label samples Pi's native braille spinner sequence from the content updates Pi already renders; it does not add a timer. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `+ Thought`. Visible-thinking mode remains native. There is no interval, timeout, render request, model call, or network work.
 
-## Install
+## Local development
 
-```bash
-pi install npm:@pi-kaush/pi-tool-call-markers
-```
-
-For local development:
-
-```bash
+```fish
 pi \
   -e ./extensions/pi-tool-call-markers/src/index.ts \
   -e ./extensions/pi-tool-call-markers/src/thinking-block-merger.ts

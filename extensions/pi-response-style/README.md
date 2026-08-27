@@ -9,14 +9,13 @@ appended to the system prompt each turn. Bundled styles ship with the package.
 Your own styles live in `~/.pi/agent/response-styles/` and override the bundled
 ones by filename.
 
-## Install
+### Install
 
-```sh
+```fish
 pi install npm:@pi-kaush/pi-response-style
 ```
 
-Restart Pi or run `/reload`. To pin a release, append the version, such as
-`@0.1.0`.
+Restart Pi or run `/reload`.
 
 ## Usage
 

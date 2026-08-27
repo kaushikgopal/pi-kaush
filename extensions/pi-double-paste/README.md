@@ -2,6 +2,14 @@
 
 Paste the same large block twice to expand Pi's compact paste markers into ordinary editable text.
 
+### Install
+
+```fish
+pi install npm:@pi-kaush/pi-double-paste
+```
+
+Restart Pi or run `/reload`.
+
 ## Why
 
 [Pi](https://pi.dev) keeps its editor readable by collapsing large pastes into markers such as:
@@ -14,17 +22,9 @@ That is useful until you need to edit the pasted text. This extension keeps Pi's
 
 > **Lightweight by design:** This extension uses only Pi's native, public extension APIs. It does not replace, wrap, or rebuild the input editor.
 
-## Install
+## Local development
 
-After the first npm release:
-
-```bash
-pi install npm:@pi-kaush/pi-double-paste@0.1.0
-```
-
-For local development:
-
-```bash
+```fish
 pi -e ./extensions/pi-double-paste/src/index.ts
 ```
 

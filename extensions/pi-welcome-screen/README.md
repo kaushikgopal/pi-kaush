@@ -4,6 +4,14 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 
 ![Responsive Pi welcome screen in three-column, two-column, and stacked layouts](https://raw.githubusercontent.com/kaushikgopal/pi-kaush/main/extensions/pi-welcome-screen/assets/pi-welcome.webp)
 
+### Install
+
+```fish
+pi install npm:@pi-kaush/pi-welcome-screen
+```
+
+Restart Pi or run `/reload`.
+
 ## Why use it
 
 - **Zero runtime dependencies** — installs as readable TypeScript without pulling additional packages into your Pi setup.
@@ -12,14 +20,6 @@ A compact, centered startup screen for the [Pi coding agent](https://pi.dev). It
 - **Responsive layout** — adapts from a stacked view to a wide brand over two resource columns, then a dedicated brand beside two resource columns, while reserving two side-padding columns at normal widths and degrading that padding only on tiny terminals.
 - **Fail-safe behavior** — waits for a complete resource snapshot, preserves diagnostics and third-party startup rows, and leaves incomplete native data untouched. When the layout itself is unrecognized, the header says so instead of degrading silently.
 - **Extension health at a glance** — after load, checks installed package extensions against the npm registry and their store manifests: packages pinned behind the latest release (yellow), ranges that exclude the newer major (red), undeclared imports, and missing dependencies. A notification summarizes findings; offline and unreadable packages simply stay unannotated.
-
-## Install
-
-```sh
-pi install npm:@pi-kaush/pi-welcome-screen@0.1.3
-```
-
-Restart Pi or run `/reload`.
 
 ## Run from a local clone
 
