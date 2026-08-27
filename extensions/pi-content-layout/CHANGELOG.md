@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Give the submitted-prompt box an explicit right padding column inside the
-  surface, matching the one already on the left of the text, so wrapped
-  content no longer sits flush against the box's right edge.
+- Pad the submitted-prompt box with two columns on the right of the text so
+  it matches the two-column visual gap the quarter-block rail leaves on the
+  left; previously wrapped content sat one column off the right edge.
 
 - Reference semantic tokens for the remaining extension-colored elements:
   the intercom sender name rides `customMessageLabel`, the submitted-prompt

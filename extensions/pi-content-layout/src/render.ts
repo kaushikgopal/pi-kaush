@@ -258,13 +258,14 @@ export function renderSubmittedUserLines(
     const { controls, content } = splitLeadingSemanticControls(line);
     const recolored = replaceBackground(content, surfaceBg);
     const rail = theme.fg(railColor, PROMPT_RAIL);
-    // One column of side padding inside the box on both edges, so submitted
-    // text sits two columns right of the rail and one column off the right
-    // edge — matching the active editor's side padding.
-    const padding = " ".repeat(ACTIVE_SIDE_PADDING);
-    const innerWidth = Math.max(1, bodyWidth - ACTIVE_SIDE_PADDING * 2);
+    // The rail glyph (▎) fills only the left quarter of its cell, so one
+    // column of left padding already reads as a two-column visual gap.
+    // Give the right edge two columns so both sides of the text read equal.
+    const leftPadding = " ".repeat(ACTIVE_SIDE_PADDING);
+    const rightPadding = " ".repeat(ACTIVE_SIDE_PADDING + 1);
+    const innerWidth = Math.max(1, bodyWidth - ACTIVE_SIDE_PADDING * 2 - 1);
     const body = paintBackground(
-      `${padding}${fitLine(recolored, innerWidth)}${padding}`,
+      `${leftPadding}${fitLine(recolored, innerWidth)}${rightPadding}`,
       bodyWidth,
       surfaceBg,
     );

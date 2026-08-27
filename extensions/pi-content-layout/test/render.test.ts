@@ -191,18 +191,19 @@ describe("submitted user block", () => {
     expect(lines[1]).toContain(`\x1b[35m▎\x1b[39m${SURFACE_BG}`);
   });
 
-  test("pads the submitted box symmetrically: one column on each side of the text", () => {
+  test("pads the submitted box one column left of the text, two columns right", () => {
     // Native line fills its width with visible text, so the geometry is
-    // explicit: content stops one column before the right edge of the box.
+    // explicit: content stops two columns before the right edge of the box,
+    // matching the two-column visual gap the quarter-block rail leaves.
     const native = [`\x1b[45m${"a".repeat(15)}\x1b[49m`];
     const [line] = renderSubmittedUserLines(native, 20, theme);
-    expect(stripControls(line ?? "")).toBe(`  ▎ ${"a".repeat(13)}   `);
+    expect(stripControls(line ?? "")).toBe(`  ▎ ${"a".repeat(12)}    `);
     expect(visibleWidth(line ?? "")).toBe(20);
-    // Content stops one column before the box edge: a background-painted
-    // padding space sits between the text and the surface reset, followed by
+    // Content stops two columns before the box edge: two background-painted
+    // padding spaces sit between the text and the surface reset, followed by
     // the right margin. (truncateToWidth emits a reset at the clip point, so
     // the tail is matched loosely.)
-    expect(line).toContain(`${SURFACE_BG} \x1b[49m  `);
+    expect(line).toContain(`${SURFACE_BG}  \x1b[49m  `);
   });
 
   test("falls back to the legacy surface hex when the theme lacks getBgAnsi", () => {
