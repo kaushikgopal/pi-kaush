@@ -7,3 +7,6 @@ extensions/pi-response-style/bench/results/
 
 # Pi local session state
 .pi/
+
+# Agent working docs (not held to prose formatting rules)
+.agents/
