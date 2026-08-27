@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-content-layout",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Inset Pi's conversation surface and style active and submitted prompts as matching blocks.",
   "license": "MIT",
   "author": "Kaushik Gopal",
