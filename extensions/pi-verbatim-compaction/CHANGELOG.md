@@ -9,6 +9,8 @@
 - Document global dedicated-planner selection while keeping `current` as the provider-neutral default.
 - Collapse exact duplicate planner ranges at their first rank instead of discarding an otherwise usable plan, while retaining the raw range-count limit and all other validation.
 - Show the bounded planner failure message in an expanded (Ctrl+O) compaction card, with a short ellipsis-trimmed snippet when collapsed and terminal control characters neutralized.
+- Recover constrained tool plans by discarding isolated invalid or out-of-bounds records only when the remaining valid ranges still satisfy host retention and protection checks.
+- Persist bounded accepted, discarded, invalid, out-of-bounds, duplicate, and first-discarded record diagnostics without storing planner content or raw arguments.
 
 ## 0.1.0
 

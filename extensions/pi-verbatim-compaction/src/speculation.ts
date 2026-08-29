@@ -188,11 +188,49 @@ export class SpeculationController {
       return undefined;
     }
 
+    const compatibleRanges = planner.ranges.filter(
+      (range) => range.start >= 1 && range.end <= prefixLength,
+    );
+    const discardedForPrefix = planner.ranges.length - compatibleRanges.length;
+    if (
+      discardedForPrefix > 0 &&
+      planner.parseMode !== "tool" &&
+      planner.parseMode !== "tool-recovered"
+    ) {
+      this.markStale();
+      return undefined;
+    }
+    const firstPrefixDiscard = planner.ranges.findIndex(
+      (range) => range.start < 1 || range.end > prefixLength,
+    );
+    const prefixDiagnostics = {
+      ...planner.responseDiagnostics,
+      parseMode: "tool-recovered" as const,
+      acceptedRangeRecords: compatibleRanges.length,
+      discardedRangeRecords:
+        (planner.responseDiagnostics.discardedRangeRecords ?? 0) +
+        discardedForPrefix,
+      outOfBoundsRangeRecords:
+        (planner.responseDiagnostics.outOfBoundsRangeRecords ?? 0) +
+        discardedForPrefix,
+    };
+    delete prefixDiagnostics.firstDiscardedRecord;
+    if (
+      (planner.responseDiagnostics.discardedRangeRecords ?? 0) === 0 &&
+      (planner.responseDiagnostics.duplicateRangeRecords ?? 0) === 0
+    ) {
+      prefixDiagnostics.firstDiscardedRecord = firstPrefixDiscard + 1;
+    }
     const compatiblePlanner: PlannerResult = {
       ...planner,
-      ranges: planner.ranges.filter(
-        (range) => range.start >= 1 && range.end <= prefixLength,
-      ),
+      ranges: compatibleRanges,
+      proposedCount: compatibleRanges.length,
+      ...(discardedForPrefix === 0
+        ? {}
+        : {
+            parseMode: "tool-recovered",
+            responseDiagnostics: prefixDiagnostics,
+          }),
     };
     const attempt = createCompactionFromPlan(
       event,

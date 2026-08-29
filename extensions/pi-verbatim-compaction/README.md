@@ -131,12 +131,15 @@ This means:
 
 The planner does not modify the transcript. The extension then:
 
-1. validates the response;
-2. collapses exact duplicate ranges at their first rank;
-3. splits ranges around mechanically protected lines;
-4. applies ranges in ranked order;
-5. stops when it reaches the retention target; and
-6. refuses to go below the minimum retained context.
+1. validates the response envelope and range-record shape;
+2. for constrained tool plans, discards isolated invalid or out-of-bounds records while retaining their rank order and bounded diagnostics;
+3. collapses exact duplicate ranges at their first rank;
+4. splits ranges around mechanically protected lines;
+5. applies ranges in ranked order;
+6. stops when it reaches the retention target; and
+7. refuses to go below the minimum retained context.
+
+Recovered plans proceed only when the remaining valid ranges still satisfy every host-side retention and protection check. Otherwise, the extension falls back to native compaction. Text plans remain all-or-nothing except for the existing bounded wrapper and truncation recovery.
 
 With the package defaults, it aims to keep about **50% of the compactable old region**, never fewer than 8,000 estimated tokens, and only compacts when it can save at least 2,048 estimated tokens.
 
@@ -241,6 +244,8 @@ What happened:
 
 If planning times out, returns an unsafe or unusable plan, cannot achieve the requested reduction, or fails an integrity check, the extension returns control to Pi. Pi's native compactor then runs instead of persisting a questionable verbatim result.
 
+Failure cards preserve bounded structural diagnostics such as the parser category, stop reason, accepted/discarded counts, category counts, and the first discarded record index. They never persist the transcript, planner text, or raw tool arguments. Successful recovered plans retain the same counts in their expandable compaction card.
+
 ```text
 verbatim planning fails
   ↓
@@ -339,7 +344,7 @@ Environment variables override file settings:
 - `PI_VERBATIM_COMPACTION_SPECULATION_TRIGGER_RATIO`
 - `PI_VERBATIM_COMPACTION_DEBUG`
 
-Speculative planning is implemented but disabled by default. When enabled, the extension may prepare an immutable candidate before Pi reaches the compaction boundary; it is reused only if the transcript prefix and all relevant settings still match exactly.
+Speculative planning is implemented but disabled by default. When enabled, the extension may prepare an immutable candidate before Pi reaches the compaction boundary; it is reused only if the transcript prefix and all relevant settings still match exactly. A `0.7` trigger gives the default current-model planner headroom before its 80% quality gate, at the cost of possible extra planner calls when high-context turns invalidate prepared candidates.
 
 ## Fidelity limits
 

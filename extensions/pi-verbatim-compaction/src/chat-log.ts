@@ -34,12 +34,22 @@ export interface CompactionLogData {
   plannerModel?: string;
   plannerLatencyMs?: number;
   planSource?: "foreground" | "speculative";
-  plannerParseMode?: "tool" | "text-strict" | "text-recovered";
+  plannerParseMode?:
+    | "tool"
+    | "tool-recovered"
+    | "text-strict"
+    | "text-recovered";
   plannerStopReason?: string;
   plannerOutputCharacters?: number;
   plannerOutputLines?: number;
   plannerRangeLikeLines?: number;
   plannerIgnoredLines?: number;
+  plannerAcceptedRanges?: number;
+  plannerDiscardedRanges?: number;
+  plannerInvalidRanges?: number;
+  plannerOutOfBoundsRanges?: number;
+  plannerDuplicateRanges?: number;
+  plannerFirstDiscardedRange?: number;
   summaryDigest?: string;
   summaryTokens?: number;
   strategyName?: string;
@@ -70,6 +80,12 @@ export type VerbatimLogDetailsLike = Pick<
     outputLines: number;
     rangeLikeLines: number;
     ignoredNonblankLines: number;
+    acceptedRangeRecords?: number;
+    discardedRangeRecords?: number;
+    invalidRangeRecords?: number;
+    outOfBoundsRangeRecords?: number;
+    duplicateRangeRecords?: number;
+    firstDiscardedRecord?: number;
   };
 };
 
@@ -98,6 +114,18 @@ export function verbatimLogData(
     plannerRangeLikeLines: details.plannerResponseDiagnostics?.rangeLikeLines,
     plannerIgnoredLines:
       details.plannerResponseDiagnostics?.ignoredNonblankLines,
+    plannerAcceptedRanges:
+      details.plannerResponseDiagnostics?.acceptedRangeRecords,
+    plannerDiscardedRanges:
+      details.plannerResponseDiagnostics?.discardedRangeRecords,
+    plannerInvalidRanges:
+      details.plannerResponseDiagnostics?.invalidRangeRecords,
+    plannerOutOfBoundsRanges:
+      details.plannerResponseDiagnostics?.outOfBoundsRangeRecords,
+    plannerDuplicateRanges:
+      details.plannerResponseDiagnostics?.duplicateRangeRecords,
+    plannerFirstDiscardedRange:
+      details.plannerResponseDiagnostics?.firstDiscardedRecord,
     summaryDigest: details.summaryDigest,
   };
 }
@@ -310,6 +338,7 @@ function verbatimBodyLines(
     lines.push(
       `target ≤ ${formatCount(data.targetRetainedTokens)} tokens · ${formatCount(data.rangesProposed)} ranges proposed · digest ${(data.summaryDigest ?? "").slice(0, 12)}`,
       `planner response: ${data.plannerParseMode ?? "unknown"} · ${data.plannerStopReason ?? "unknown stop"} · ${formatCount(data.plannerOutputCharacters)} chars / ${formatCount(data.plannerOutputLines)} lines${typeof data.plannerIgnoredLines === "number" && data.plannerIgnoredLines > 0 ? ` · ${formatCount(data.plannerIgnoredLines)} wrapper lines ignored` : ""}`,
+      `range records: ${formatCount(data.plannerAcceptedRanges)} accepted · ${formatCount(data.plannerDiscardedRanges)} discarded${typeof data.plannerInvalidRanges === "number" && data.plannerInvalidRanges > 0 ? ` · ${formatCount(data.plannerInvalidRanges)} invalid` : ""}${typeof data.plannerOutOfBoundsRanges === "number" && data.plannerOutOfBoundsRanges > 0 ? ` · ${formatCount(data.plannerOutOfBoundsRanges)} out of bounds` : ""}${typeof data.plannerDuplicateRanges === "number" && data.plannerDuplicateRanges > 0 ? ` · ${formatCount(data.plannerDuplicateRanges)} duplicates` : ""}${typeof data.plannerFirstDiscardedRange === "number" ? ` · first discarded #${formatCount(data.plannerFirstDiscardedRange)}` : ""}`,
     );
   }
   return lines;

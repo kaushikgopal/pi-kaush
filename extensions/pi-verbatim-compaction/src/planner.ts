@@ -69,7 +69,8 @@ export class PlannerFailure extends Error {
       | "context-overflow"
       | "model-error"
       | "malformed-output"
-      | "empty-plan",
+      | "empty-plan"
+      | "insufficient-plan",
     message: string,
     readonly diagnostics?: PlannerResponseDiagnostics,
   ) {
@@ -228,13 +229,18 @@ export async function runPlanner(
     diagnostics.rangeLikeLines = countPlannerToolRangeRecords(
       toolCalls[0].arguments,
     );
-    const toolPlan = parseToolPlan(toolCalls[0].arguments);
+    const toolPlan = parseToolPlan(
+      toolCalls[0].arguments,
+      input.transcript.lines.length,
+    );
+    Object.assign(diagnostics, toolPlan.diagnostics);
     if (toolPlan.parsed === undefined) {
       diagnostics.failureCategory = toolPlan.failureCategory;
       throw malformedPlannerFailure(diagnostics);
     }
     parsed = toolPlan.parsed;
-    parseMode = "tool";
+    parseMode =
+      (diagnostics.discardedRangeRecords ?? 0) > 0 ? "tool-recovered" : "tool";
   } else if (response.stopReason === "toolUse") {
     diagnostics.failureCategory = "invalid-tool-call";
     throw malformedPlannerFailure(diagnostics);
@@ -268,9 +274,10 @@ export async function runPlanner(
       diagnostics,
     );
   }
-  if (
-    parsed.ranges.some((range) => range.end > input.transcript.lines.length)
-  ) {
+  const firstOutOfBounds = parsed.ranges.findIndex(
+    (range) => range.end > input.transcript.lines.length,
+  );
+  if (firstOutOfBounds >= 0) {
     diagnostics.failureCategory = "out-of-bounds";
     throw new PlannerFailure(
       "malformed-output",
@@ -506,8 +513,6 @@ function measurePlannerToolArguments(arguments_: unknown): number | undefined {
     ) {
       return undefined;
     }
-    const { start, end } = range as { start?: unknown; end?: unknown };
-    if (typeof start !== "number" || typeof end !== "number") return undefined;
   }
   try {
     return JSON.stringify(arguments_).length;
@@ -565,9 +570,13 @@ function countPlannerToolRangeRecords(arguments_: unknown): number {
   }
 }
 
-function parseToolPlan(arguments_: unknown): {
+function parseToolPlan(
+  arguments_: unknown,
+  maximumLine: number,
+): {
   parsed?: ParsedPlannerRanges;
   failureCategory?: PlannerFailureCategory;
+  diagnostics?: Partial<PlannerResponseDiagnostics>;
 } {
   try {
     if (
@@ -588,7 +597,12 @@ function parseToolPlan(arguments_: unknown): {
 
     const parsed: InclusiveRange[] = [];
     const seen = new Set<string>();
-    for (const value of ranges) {
+    let invalidRangeRecords = 0;
+    let outOfBoundsRangeRecords = 0;
+    let duplicateRangeRecords = 0;
+    let firstDiscardedRecord: number | undefined;
+    for (let index = 0; index < ranges.length; index += 1) {
+      const value = ranges[index];
       if (
         value === null ||
         typeof value !== "object" ||
@@ -604,14 +618,43 @@ function parseToolPlan(arguments_: unknown): {
         (start as number) < 1 ||
         (end as number) < (start as number)
       ) {
-        return { failureCategory: "invalid-range-record" };
+        invalidRangeRecords += 1;
+        firstDiscardedRecord ??= index + 1;
+        continue;
+      }
+      if ((end as number) > maximumLine) {
+        outOfBoundsRangeRecords += 1;
+        firstDiscardedRecord ??= index + 1;
+        continue;
       }
       const key = `${start},${end}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) {
+        duplicateRangeRecords += 1;
+        continue;
+      }
       seen.add(key);
       parsed.push({ start: start as number, end: end as number });
     }
-    return { parsed: { ranges: parsed, proposedCount: parsed.length } };
+    const discardedRangeRecords = invalidRangeRecords + outOfBoundsRangeRecords;
+    const diagnostics: Partial<PlannerResponseDiagnostics> = {
+      acceptedRangeRecords: parsed.length,
+      discardedRangeRecords,
+      invalidRangeRecords,
+      outOfBoundsRangeRecords,
+      duplicateRangeRecords,
+      ...(firstDiscardedRecord === undefined ? {} : { firstDiscardedRecord }),
+    };
+    if (parsed.length === 0) {
+      return {
+        failureCategory:
+          invalidRangeRecords > 0 ? "invalid-range-record" : "out-of-bounds",
+        diagnostics,
+      };
+    }
+    return {
+      parsed: { ranges: parsed, proposedCount: parsed.length },
+      diagnostics,
+    };
   } catch {
     return { failureCategory: "invalid-tool-call" };
   }

@@ -245,13 +245,45 @@ function plannerErrorMessage(error: unknown): string {
           `chars=${diagnostics.outputCharacters}`,
           `lines=${diagnostics.outputLines}`,
           `range-lines=${diagnostics.rangeLikeLines}`,
+          diagnostics.acceptedRangeRecords === undefined
+            ? undefined
+            : `accepted=${diagnostics.acceptedRangeRecords}`,
+          diagnostics.discardedRangeRecords === undefined
+            ? undefined
+            : `discarded=${diagnostics.discardedRangeRecords}`,
+          diagnostics.invalidRangeRecords
+            ? `invalid=${diagnostics.invalidRangeRecords}`
+            : undefined,
+          diagnostics.outOfBoundsRangeRecords
+            ? `out-of-bounds=${diagnostics.outOfBoundsRangeRecords}`
+            : undefined,
+          diagnostics.duplicateRangeRecords
+            ? `duplicates=${diagnostics.duplicateRangeRecords}`
+            : undefined,
+          diagnostics.firstDiscardedRecord === undefined
+            ? undefined
+            : `first-discarded=${diagnostics.firstDiscardedRecord}`,
         ]
           .filter((value) => value !== undefined)
           .join(", ")
       : "";
-    return `${error.reason}: ${error.message}${shape ? ` (${shape})` : ""}`;
+    const message =
+      error.reason === "model-error"
+        ? "Planner provider returned an error."
+        : error.message;
+    return `${error.reason}: ${message}${shape ? ` (${shape})` : ""}`;
   }
-  return error instanceof Error ? error.message : String(error);
+  const kind =
+    error instanceof TypeError
+      ? "TypeError"
+      : error instanceof RangeError
+        ? "RangeError"
+        : error instanceof SyntaxError
+          ? "SyntaxError"
+          : error instanceof Error
+            ? "Error"
+            : typeof error;
+  return `unexpected-error (${kind}): Planner failed unexpectedly.`;
 }
 
 function recordPlannerUsage(state: RuntimeState, usage: Usage): void {

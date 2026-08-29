@@ -30,7 +30,11 @@ export interface InclusiveRange {
   end: number;
 }
 
-export type PlannerParseMode = "tool" | "text-strict" | "text-recovered";
+export type PlannerParseMode =
+  | "tool"
+  | "tool-recovered"
+  | "text-strict"
+  | "text-recovered";
 
 export type PlannerFailureCategory =
   | "no-range-records"
@@ -41,7 +45,8 @@ export type PlannerFailureCategory =
   | "invalid-tool-call"
   | "multiple-tool-calls"
   | "response-too-large"
-  | "out-of-bounds";
+  | "out-of-bounds"
+  | "insufficient-retention";
 
 export interface PlannerResponseDiagnostics {
   stopReason: string;
@@ -51,6 +56,12 @@ export interface PlannerResponseDiagnostics {
   ignoredNonblankLines: number;
   parseMode?: PlannerParseMode;
   failureCategory?: PlannerFailureCategory;
+  acceptedRangeRecords?: number;
+  discardedRangeRecords?: number;
+  invalidRangeRecords?: number;
+  outOfBoundsRangeRecords?: number;
+  duplicateRangeRecords?: number;
+  firstDiscardedRecord?: number;
 }
 export interface ParsedPlannerRanges {
   ranges: InclusiveRange[];

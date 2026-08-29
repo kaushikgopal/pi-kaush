@@ -194,6 +194,73 @@ describe("planner integration", () => {
     );
   });
 
+  test("recovers a constrained tool plan when valid ranges remain", async () => {
+    const result = await runPlanner(
+      {
+        transcript: buildTranscript({
+          messagesToSummarize: [userMessage("x".repeat(100))],
+          turnPrefixMessages: [],
+        }),
+        objective: "goal",
+        targetRetainedTokens: 1,
+      },
+      { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+      plannerToolContext([
+        { start: 2, end: 4 },
+        { start: 9, end: 3 },
+        { start: "999", end: 999 } as never,
+        { start: 2, end: 4 },
+      ]),
+      new AbortController().signal,
+    );
+
+    expect(result.ranges).toEqual([{ start: 2, end: 4 }]);
+    expect(result.proposedCount).toBe(1);
+    expect(result.parseMode).toBe("tool-recovered");
+    expect(result.responseDiagnostics).toEqual(
+      expect.objectContaining({
+        rangeLikeLines: 4,
+        acceptedRangeRecords: 1,
+        discardedRangeRecords: 2,
+        invalidRangeRecords: 2,
+        outOfBoundsRangeRecords: 0,
+        duplicateRangeRecords: 1,
+        firstDiscardedRecord: 2,
+      }),
+    );
+  });
+
+  test("rejects a constrained tool plan when no valid ranges remain", async () => {
+    await expect(
+      runPlanner(
+        {
+          transcript: buildTranscript({
+            messagesToSummarize: [userMessage("x".repeat(100))],
+            turnPrefixMessages: [],
+          }),
+          objective: "goal",
+          targetRetainedTokens: 1,
+        },
+        { model: "current", maxOutputTokens: 128, timeoutMs: 10_000 },
+        plannerToolContext([
+          { start: 9, end: 3 },
+          { start: 999, end: 999 },
+        ]),
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({
+      reason: "malformed-output",
+      diagnostics: {
+        failureCategory: "invalid-range-record",
+        acceptedRangeRecords: 0,
+        discardedRangeRecords: 2,
+        invalidRangeRecords: 1,
+        outOfBoundsRangeRecords: 1,
+        firstDiscardedRecord: 1,
+      },
+    });
+  });
+
   test("rejects oversized constrained tool arguments before parsing", async () => {
     await expect(
       runPlanner(
@@ -518,6 +585,11 @@ describe("extension hook", () => {
     const event = compactionEvent();
     harness.start(event.branchEntries);
     expect(await harness.beforeCompact(event)).toBeUndefined();
+    const failure = harness.appended[0]?.data as CompactionLogData;
+    expect(failure.errorMessage).toBe(
+      "model-error: Planner provider returned an error.",
+    );
+    expect(failure.errorMessage).not.toContain("aborted");
   });
 
   test("cancels only when Pi aborts the compaction event", async () => {
@@ -547,6 +619,61 @@ describe("extension hook", () => {
     expect(result?.compaction?.details).toEqual(
       expect.objectContaining({ planSource: "speculative" }),
     );
+    expect(harness.completeCalls()).toBe(1);
+  });
+
+  test("revalidates speculative tool ranges against the compactable prefix", async () => {
+    configureSmallFixture();
+    process.env.PI_VERBATIM_COMPACTION_SPECULATION_ENABLED = "true";
+    process.env.PI_VERBATIM_COMPACTION_SPECULATION_TRIGGER_RATIO = "0.7";
+    const event = compactionEvent();
+    const compactable = buildTranscript({
+      messagesToSummarize: event.preparation.messagesToSummarize,
+      turnPrefixMessages: event.preparation.turnPrefixMessages,
+    });
+    const recent = assistantMessage("recent\n" + "z".repeat(1_000));
+    const activeTranscript = buildTranscript({
+      messagesToSummarize: [...event.preparation.messagesToSummarize, recent],
+      turnPrefixMessages: [],
+    });
+    const harness = createHarness([
+      { start: 4, end: 4 },
+      { start: 9, end: 3 },
+      { start: 10, end: 10 },
+      {
+        start: compactable.lines.length + 1,
+        end: activeTranscript.lines.length,
+      },
+    ]);
+    harness.start([
+      ...event.branchEntries,
+      sessionEntry("recent-entry", "assistant-entry", recent),
+    ]);
+    await waitFor(() => harness.completeCalls() === 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const result = await harness.beforeCompact(event);
+    const details = result?.compaction?.details as
+      | {
+          planSource?: string;
+          plannerParseMode?: string;
+          plannerResponseDiagnostics?: Record<string, unknown>;
+        }
+      | undefined;
+    expect(details?.planSource).toBe("speculative");
+    expect(details?.plannerParseMode).toBe("tool-recovered");
+    expect(details?.plannerResponseDiagnostics).toEqual(
+      expect.objectContaining({
+        parseMode: "tool-recovered",
+        acceptedRangeRecords: 2,
+        discardedRangeRecords: 2,
+        invalidRangeRecords: 1,
+        outOfBoundsRangeRecords: 1,
+      }),
+    );
+    expect(
+      details?.plannerResponseDiagnostics?.firstDiscardedRecord,
+    ).toBeUndefined();
     expect(harness.completeCalls()).toBe(1);
   });
 
@@ -783,6 +910,17 @@ describe("compaction chat log", () => {
       plannerModel: "gpt-5.4",
       plannerLatencyMs: 2_100,
       planSource: "speculative",
+      plannerParseMode: "tool-recovered",
+      plannerStopReason: "toolUse",
+      plannerOutputCharacters: 0,
+      plannerOutputLines: 0,
+      plannerRangeLikeLines: 265,
+      plannerAcceptedRanges: 264,
+      plannerDiscardedRanges: 1,
+      plannerInvalidRanges: 1,
+      plannerOutOfBoundsRanges: 0,
+      plannerDuplicateRanges: 0,
+      plannerFirstDiscardedRange: 153,
       summaryDigest: "ab12cd34ef56",
     };
     const expanded = renderCompactionLogEntry(
@@ -793,6 +931,14 @@ describe("compaction chat log", () => {
     expect(expanded?.some((line) => line.includes("digest ab12cd34ef56"))).toBe(
       true,
     );
+    expect(
+      expanded?.some(
+        (line) => line.includes("264 accepted") && line.includes("1 discarded"),
+      ),
+    ).toBe(true);
+    expect(
+      expanded?.some((line) => line.includes("first discarded #153")),
+    ).toBe(true);
     const narrow =
       renderCompactionLogEntry(
         { data },
@@ -987,21 +1133,28 @@ function configureSmallFixture(): void {
 }
 
 function createHarness(
-  output: string,
+  output: string | Array<{ start: number; end: number }>,
   stopReason: "stop" | "aborted" = "stop",
 ) {
   const handlers = new Map<string, (...args: any[]) => any>();
   let calls = 0;
   let branch: SessionEntry[] = [];
   const entries = () => branch;
+  const toolModel = {
+    ...(model as unknown as Record<string, unknown>),
+    api: "openai-responses",
+  } as never;
+  const selectedModel = Array.isArray(output) ? toolModel : model;
   const ctx = {
-    model,
+    model: selectedModel,
     modelRegistry: {
       hasConfiguredAuth: () => true,
-      find: () => model,
+      find: () => selectedModel,
       complete: async () => {
         calls += 1;
-        return assistantResponse(output, stopReason);
+        return Array.isArray(output)
+          ? assistantToolResponse(output)
+          : assistantResponse(output, stopReason);
       },
     },
     sessionManager: {

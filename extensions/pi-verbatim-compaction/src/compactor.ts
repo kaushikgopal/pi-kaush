@@ -6,7 +6,7 @@ import type {
   SessionBeforeCompactEvent,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { runPlanner } from "./planner.ts";
+import { PlannerFailure, runPlanner } from "./planner.ts";
 import { applyCompaction, selectRangesForRetention } from "./ranges.ts";
 import {
   buildTranscript,
@@ -103,13 +103,24 @@ export async function runForegroundCompaction(
     event.signal,
     onPlannerResponse,
   );
-  return createCompactionFromPlan(
+  const attempt = createCompactionFromPlan(
     event,
     prepared,
     planner,
     settings,
     "foreground",
   );
+  if (attempt === undefined) {
+    throw new PlannerFailure(
+      "insufficient-plan",
+      "Valid planner ranges did not meet the retention target.",
+      {
+        ...planner.responseDiagnostics,
+        failureCategory: "insufficient-retention",
+      },
+    );
+  }
+  return attempt;
 }
 
 export function createCompactionFromPlan(
