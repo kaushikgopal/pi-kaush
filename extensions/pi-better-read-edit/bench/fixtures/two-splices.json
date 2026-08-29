@@ -1,0 +1,11 @@
+{
+  "name": "two-splices",
+  "description": "Rewrite two spots of one small file (rename + recursive call) in a single edit call. Probes whether the model reads for a tag and batches both splices into one edit invocation.",
+  "prompt": "Edit src/greeting.ts using ONLY the read and edit tools. Rename the exported function formatGreeting to composeGreeting everywhere it appears, so BOTH the export line and the recursive return statement use the new name. Read the file first, then make both changes in ONE edit call. Do not use any other tool.",
+  "files": {
+    "src/greeting.ts": "// Greeting utilities.\n\nconst DEFAULT_STYLE = \"formal\";\n\nexport function formatGreeting(name: string): string {\n  if (DEFAULT_STYLE === \"formal\") {\n    return formatGreeting(`Dear ${name}`);\n  }\n  return `Hey ${name}!`;\n}\n"
+  },
+  "expectedFiles": {
+    "src/greeting.ts": "// Greeting utilities.\n\nconst DEFAULT_STYLE = \"formal\";\n\nexport function composeGreeting(name: string): string {\n  if (DEFAULT_STYLE === \"formal\") {\n    return composeGreeting(`Dear ${name}`);\n  }\n  return `Hey ${name}!`;\n}\n"
+  }
+}

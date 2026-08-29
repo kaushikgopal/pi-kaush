@@ -143,6 +143,7 @@ pi-better-read-edit/
 │     ├─ recovery.ts           unique-context operation translation
 │     ├─ snapshot-store.ts     bounded session-runtime text history
 │     └─ render.ts             numbered reads and changed windows
+├─ bench/                   extension-local A/B harness (see below)
 ├─ test/
 ├─ README.md
 ├─ CHANGELOG.md
@@ -164,6 +165,22 @@ pi -e ./extensions/pi-better-read-edit/src/index.ts
 ```
 
 Restart Pi or run `/reload` after changing the configured package.
+
+## Bench: better vs builtin
+
+An extension-local A/B harness compares these tools against Pi's built-in `read`/`edit` on exact fixture edits (two-splices, repeated context, two files, large delete). Every arm gets a fresh workspace plus a private 0700 `PI_CODING_AGENT_DIR` in the system temp dir; `auth.json`/`models.json`/`models-store.json` are copied in with 0600 permissions (never symlinked, contents never read), and a forced `settings.json` keeps `betterReadEdit.avoidModels` empty so an avoidlist cannot silently route the better arm to builtin. Tree scoring is byte-exact over the complete workspace.
+
+**This is not an OS sandbox:** models run as your user and can read/write beyond the scratch workspace — benchmark only models you trust, and don't run the bench concurrently with an interactive Pi session on the same agent dir. The harness ships in the npm package too, so installed users can `npm run bench` from the extension directory. See `bench/README.md` for the full contract.
+
+```fish
+make bench                    # full default run (4 models x 4 fixtures x 2 arms)
+make bench-quick              # one-fixture smoke run
+make publish RUN=<runId>      # sanitized, checksummed public bundle
+make report RUN=<runId>       # regenerate report.md from raw.json
+make verify RUN=<runId>       # independent re-check of run + bundle
+```
+
+Equivalently `npm run bench -- <flags>` (`--model`, `--fixture`, `--trials`, `--seed`, `--timeout`, `--max-calls`, `--dry-run`, `--help`). Bench source is Node/Bun MJS with no runtime dependencies, covered by Vitest tests under `bench/tests/`; generated results live under `bench/runs/` (gitignored) and published bundles under `bench/published/`. The npm tarball ships only the bench runtime, fixtures, and READMEs — never the tests or generated runs.
 
 ## Migrate from read-plus or unified-edit
 

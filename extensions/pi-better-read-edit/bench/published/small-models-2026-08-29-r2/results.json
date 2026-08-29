@@ -1,0 +1,1602 @@
+{
+  "arms": [
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 310,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 3925,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2272,
+          "output": 251,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6448
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4441
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 340,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 1460,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2984,
+          "output": 218,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4662
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4574
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 0,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "source": "none",
+          "total": 0
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 0,
+          "total": 0
+        },
+        "toolCallsByTool": {}
+      },
+      "model": "huggingface/zai-org/GLM-5.2",
+      "outcome": "assistant-error",
+      "reported": {
+        "model": "zai-org/GLM-5.2",
+        "provider": "huggingface"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 178,
+            "actualSha256": "7144186ece60ed57c4597ad6e0664a59717384112d8623fc1b7f3de21bf88cd8",
+            "expectedBytes": 179,
+            "expectedSha256": "97164ca2cb5601da09191dd763032721fdb4cb60033104e5b2681b246b8b14bc",
+            "path": "data.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 713
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 0,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "source": "none",
+          "total": 0
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 0,
+          "total": 0
+        },
+        "toolCallsByTool": {}
+      },
+      "model": "huggingface/zai-org/GLM-5.2",
+      "outcome": "assistant-error",
+      "reported": {
+        "model": "zai-org/GLM-5.2",
+        "provider": "huggingface"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 178,
+            "actualSha256": "7144186ece60ed57c4597ad6e0664a59717384112d8623fc1b7f3de21bf88cd8",
+            "expectedBytes": 179,
+            "expectedSha256": "97164ca2cb5601da09191dd763032721fdb4cb60033104e5b2681b246b8b14bc",
+            "path": "data.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 651
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 167,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 1096,
+          "cacheWrite": 1283,
+          "costTotal": 0,
+          "input": 992,
+          "output": 226,
+          "reasoning": 83,
+          "source": "summed",
+          "total": 3597
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5619
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 174,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 2912,
+          "cacheWrite": 1660,
+          "costTotal": 0,
+          "input": 9,
+          "output": 133,
+          "reasoning": 8,
+          "source": "summed",
+          "total": 4714
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4489
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 0,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "source": "none",
+          "total": 0
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 0,
+          "total": 0
+        },
+        "toolCallsByTool": {}
+      },
+      "model": "huggingface/zai-org/GLM-5.2",
+      "outcome": "assistant-error",
+      "reported": {
+        "model": "zai-org/GLM-5.2",
+        "provider": "huggingface"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 34,
+            "actualSha256": "3b74ce96812db5ff20db31fccb984928305563bdfaa47f6f6030e8c75ea8761e",
+            "expectedBytes": 34,
+            "expectedSha256": "3f23a5e967cfb0e78e6631fb163cba0bd3d8e5c05fe4ac68645d4327451f6d46",
+            "path": "src/a.ts"
+          },
+          {
+            "actualBytes": 34,
+            "actualSha256": "884c7de7b4ffc926ed4dfbb98c3dbc9078a597686547a859476cbb92bbb67929",
+            "expectedBytes": 34,
+            "expectedSha256": "d24db7467e3fb8f87059a14ea505411a82cb4fee752352cb260b69d7c6ead24f",
+            "path": "src/b.ts"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 688
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 0,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "source": "none",
+          "total": 0
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 0,
+          "total": 0
+        },
+        "toolCallsByTool": {}
+      },
+      "model": "huggingface/zai-org/GLM-5.2",
+      "outcome": "assistant-error",
+      "reported": {
+        "model": "zai-org/GLM-5.2",
+        "provider": "huggingface"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 34,
+            "actualSha256": "3b74ce96812db5ff20db31fccb984928305563bdfaa47f6f6030e8c75ea8761e",
+            "expectedBytes": 34,
+            "expectedSha256": "3f23a5e967cfb0e78e6631fb163cba0bd3d8e5c05fe4ac68645d4327451f6d46",
+            "path": "src/a.ts"
+          },
+          {
+            "actualBytes": 34,
+            "actualSha256": "884c7de7b4ffc926ed4dfbb98c3dbc9078a597686547a859476cbb92bbb67929",
+            "expectedBytes": 34,
+            "expectedSha256": "d24db7467e3fb8f87059a14ea505411a82cb4fee752352cb260b69d7c6ead24f",
+            "path": "src/b.ts"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 658
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 129,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 36,
+        "tokens": {
+          "cacheRead": 4455,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 1753,
+          "output": 230,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6438
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5739
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 334,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 178,
+        "tokens": {
+          "cacheRead": 1897,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4725,
+          "output": 354,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6976
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5291
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 947,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 7096,
+          "cacheWrite": 2597,
+          "costTotal": 0,
+          "input": 15,
+          "output": 616,
+          "reasoning": 139,
+          "source": "summed",
+          "total": 10324
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 2,
+          "read": 2,
+          "total": 5
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 2
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 9089
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 254,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 1091,
+          "cacheWrite": 1262,
+          "costTotal": 0,
+          "input": 992,
+          "output": 239,
+          "reasoning": 14,
+          "source": "summed",
+          "total": 3584
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4721
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 310,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 7592,
+          "output": 358,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 7950
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5763
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 286,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 5705,
+          "output": 318,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6023
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4816
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 0,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "source": "none",
+          "total": 0
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 0,
+          "total": 0
+        },
+        "toolCallsByTool": {}
+      },
+      "model": "huggingface/zai-org/GLM-5.2",
+      "outcome": "assistant-error",
+      "reported": {
+        "model": "zai-org/GLM-5.2",
+        "provider": "huggingface"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 74945,
+            "actualSha256": "dfb7e6ac1a4906338330d3fae0ddc18a2cbf33b9595425cf0907d4fa749154b6",
+            "expectedBytes": 55945,
+            "expectedSha256": "543152d4e563ed193021d58f46f5e24e8b5c71bcb9cd8a76290e6ac771d9a9b2",
+            "path": "records.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 695
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 0,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "source": "none",
+          "total": 0
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 0,
+          "total": 0
+        },
+        "toolCallsByTool": {}
+      },
+      "model": "huggingface/zai-org/GLM-5.2",
+      "outcome": "assistant-error",
+      "reported": {
+        "model": "zai-org/GLM-5.2",
+        "provider": "huggingface"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 74945,
+            "actualSha256": "dfb7e6ac1a4906338330d3fae0ddc18a2cbf33b9595425cf0907d4fa749154b6",
+            "expectedBytes": 55945,
+            "expectedSha256": "543152d4e563ed193021d58f46f5e24e8b5c71bcb9cd8a76290e6ac771d9a9b2",
+            "path": "records.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 679
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 376,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 8418,
+          "output": 514,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 8932
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 1,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 1
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 7433
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 390,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 10872,
+          "output": 486,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 11358
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 1,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 1
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 7371
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 373,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 3956,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2339,
+          "output": 330,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6625
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5482
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 198,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 2835,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 1704,
+          "output": 305,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4844
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4615
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 227,
+        "tokens": {
+          "cacheRead": 3114,
+          "cacheWrite": 10527,
+          "costTotal": 0,
+          "input": 986,
+          "output": 1207,
+          "reasoning": 1037,
+          "source": "summed",
+          "total": 15834
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 5,
+          "total": 5
+        },
+        "toolCallsByTool": {
+          "read": 5
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 74945,
+            "actualSha256": "dfb7e6ac1a4906338330d3fae0ddc18a2cbf33b9595425cf0907d4fa749154b6",
+            "expectedBytes": 55945,
+            "expectedSha256": "543152d4e563ed193021d58f46f5e24e8b5c71bcb9cd8a76290e6ac771d9a9b2",
+            "path": "records.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 15872
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 562,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 137,
+        "tokens": {
+          "cacheRead": 26258,
+          "cacheWrite": 13065,
+          "costTotal": 0,
+          "input": 24,
+          "output": 624,
+          "reasoning": 255,
+          "source": "summed",
+          "total": 39971
+        },
+        "toolCalls": {
+          "edit": 4,
+          "errors": 3,
+          "read": 3,
+          "total": 7
+        },
+        "toolCallsByTool": {
+          "edit": 4,
+          "read": 3
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 14044
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 20559,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 396,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 86163,
+          "output": 10882,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 97045
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 9,
+          "total": 10
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 9
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 50155
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 324,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 166,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 50331,
+          "output": 966,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 51297
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 4,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 4
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 15729
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 0,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "source": "none",
+          "total": 0
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 0,
+          "total": 0
+        },
+        "toolCallsByTool": {}
+      },
+      "model": "huggingface/zai-org/GLM-5.2",
+      "outcome": "assistant-error",
+      "reported": {
+        "model": "zai-org/GLM-5.2",
+        "provider": "huggingface"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 222,
+            "actualSha256": "cc2e46cd48792f32115221d5845bb15dadced0d7fe5c2d9142e00ed7395e283d",
+            "expectedBytes": 224,
+            "expectedSha256": "3f9c26f54e346260d401e44a88262bbafd41264c4ae693facc2a8180080ce95b",
+            "path": "src/greeting.ts"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 758
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 0,
+        "firstEdit": {
+          "status": "none"
+        },
+        "readArgsBytes": 0,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "source": "none",
+          "total": 0
+        },
+        "toolCalls": {
+          "edit": 0,
+          "errors": 0,
+          "read": 0,
+          "total": 0
+        },
+        "toolCallsByTool": {}
+      },
+      "model": "huggingface/zai-org/GLM-5.2",
+      "outcome": "assistant-error",
+      "reported": {
+        "model": "zai-org/GLM-5.2",
+        "provider": "huggingface"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 222,
+            "actualSha256": "cc2e46cd48792f32115221d5845bb15dadced0d7fe5c2d9142e00ed7395e283d",
+            "expectedBytes": 224,
+            "expectedSha256": "3f9c26f54e346260d401e44a88262bbafd41264c4ae693facc2a8180080ce95b",
+            "path": "src/greeting.ts"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 672
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 20559,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 171,
+        "tokens": {
+          "cacheRead": 110051,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 35318,
+          "output": 10322,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 155691
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 4,
+          "total": 5
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 4
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 55215
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 324,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 167,
+        "tokens": {
+          "cacheRead": 33661,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 16382,
+          "output": 831,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 50874
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 4,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 4
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 11202
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 887,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 49,
+        "tokens": {
+          "cacheRead": 6766,
+          "cacheWrite": 2358,
+          "costTotal": 0,
+          "input": 15,
+          "output": 478,
+          "reasoning": 116,
+          "source": "summed",
+          "total": 9617
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 2,
+          "read": 1,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 1
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 9962
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 278,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 1048,
+          "cacheWrite": 1150,
+          "costTotal": 0,
+          "input": 976,
+          "output": 134,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 3308
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 3603
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 373,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 7728,
+          "output": 472,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 8200
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5634
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 254,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 5962,
+          "output": 404,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6366
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5742
+    }
+  ],
+  "schema": "pi-better-read-edit-bench/v1"
+}

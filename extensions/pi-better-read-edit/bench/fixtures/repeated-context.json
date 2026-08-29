@@ -1,0 +1,11 @@
+{
+  "name": "repeated-context",
+  "description": "Change one row whose exact text appears twice (duplicate context). The model must use line coordinates from a read or surrounding unique context instead of relying on globally unique oldText.",
+  "prompt": "In data.js, change the SECOND gamma row (the second row whose text is exactly [\"gamma\", 3]) to [\"GAMMA\", 30]. Because row texts repeat in pairs, the exact old text is not unique: read the file to get exact line numbers, then edit by coordinate or include the neighboring unique row as context. Use ONLY the read and edit tools.",
+  "files": {
+    "data.js": "var rows = [\n  [\"alpha\", 1],\n  [\"alpha\", 1],\n  [\"beta\", 2],\n  [\"beta\", 2],\n  [\"gamma\", 3],\n  [\"gamma\", 3],\n  [\"delta\", 4],\n  [\"delta\", 4],\n  [\"epsilon\", 5],\n  [\"epsilon\", 5],\n];\n"
+  },
+  "expectedFiles": {
+    "data.js": "var rows = [\n  [\"alpha\", 1],\n  [\"alpha\", 1],\n  [\"beta\", 2],\n  [\"beta\", 2],\n  [\"gamma\", 3],\n  [\"GAMMA\", 30],\n  [\"delta\", 4],\n  [\"delta\", 4],\n  [\"epsilon\", 5],\n  [\"epsilon\", 5],\n];\n"
+  }
+}

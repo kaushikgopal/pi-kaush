@@ -25,6 +25,11 @@
   },
   "files": [
     "src",
+    "bench/*.mjs",
+    "bench/fixtures",
+    "bench/README.md",
+    "bench/published/README.md",
+    "Makefile",
     "CHANGELOG.md",
     "LICENSE",
     "README.md"
@@ -57,6 +62,7 @@
     "access": "public"
   },
   "scripts": {
+    "bench": "node ./bench/cli.mjs",
     "package:check": "node ./scripts/check-package.mjs"
   },
   "sideEffects": false

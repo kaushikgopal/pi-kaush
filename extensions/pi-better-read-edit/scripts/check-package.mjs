@@ -11,10 +11,13 @@ const output = execFileSync(
 const [pack] = JSON.parse(output);
 const files = pack.files.map(({ path }) => path).sort();
 const expected = [
+  // core package
   "CHANGELOG.md",
   "LICENSE",
   "README.md",
+  "Makefile",
   "package.json",
+  // extension source
   "src/edit/input.ts",
   "src/edit/tool.ts",
   "src/hashline/apply.ts",
@@ -34,6 +37,29 @@ const expected = [
   "src/read/selectors.ts",
   "src/settings.ts",
   "src/read/tool.ts",
+  // bench runtime modules + fixtures + docs (tests and runs excluded)
+  "bench/cli.mjs",
+  "bench/config.mjs",
+  "bench/fixtures.mjs",
+  "bench/fixtures/large-delete.json",
+  "bench/fixtures/repeated-context.json",
+  "bench/fixtures/two-files.json",
+  "bench/fixtures/two-splices.json",
+  "bench/isolation.mjs",
+  "bench/journal.mjs",
+  "bench/models.mjs",
+  "bench/orchestrator.mjs",
+  "bench/protocol.mjs",
+  "bench/publish.mjs",
+  "bench/README.md",
+  "bench/report.mjs",
+  "bench/runner.mjs",
+  "bench/scheduler.mjs",
+  "bench/scoring.mjs",
+  "bench/util.mjs",
+  "bench/verify.mjs",
+  "bench/workspace.mjs",
+  "bench/published/README.md",
 ].sort();
 
 if (JSON.stringify(files) !== JSON.stringify(expected)) {

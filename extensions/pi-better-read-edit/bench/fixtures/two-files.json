@@ -1,0 +1,13 @@
+{
+  "name": "two-files",
+  "description": "Edit two separate files. The better arm can batch both files in one multi-file edit call; the builtin edit tool is single-path, so it needs two calls. The prompt is arm-neutral: either strategy is a valid completion, and final tree scoring is identical for both.",
+  "prompt": "Edit both files: bump VERSION_A to \"0.2.0\" in src/a.ts and VERSION_B to \"0.2.0\" in src/b.ts. Read both files first, then edit them — use whatever number of edit calls your tool requires (one batched call if it supports multiple files, otherwise one call per file). Use ONLY the read and edit tools.",
+  "files": {
+    "src/a.ts": "export const VERSION_A = \"0.1.0\";\n",
+    "src/b.ts": "export const VERSION_B = \"0.1.0\";\n"
+  },
+  "expectedFiles": {
+    "src/a.ts": "export const VERSION_A = \"0.2.0\";\n",
+    "src/b.ts": "export const VERSION_B = \"0.2.0\";\n"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "large-delete",
+  "description": "Delete a 500-row block out of a 2000-row generated records file in one edit. The better arm sends one small splice (deleteCount 500, no replacement); the builtin arm must echo ~500 lines of exact oldText, so edit argument bytes differ by orders of magnitude.",
+  "prompt": "In records.js, delete exactly 500 array element lines: the elements whose id values run from 1000 through 1499 (both inclusive). Read enough of the file to get the exact line coordinates first, then remove the whole block in ONE edit call. Do not add or reorder anything else. Use ONLY the read and edit tools.",
+  "generator": {
+    "kind": "large-delete",
+    "args": {
+      "lines": 2000,
+      "deleteStartId": 1000,
+      "deleteCount": 500
+    }
+  }
+}
