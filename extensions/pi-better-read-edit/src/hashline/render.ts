@@ -34,10 +34,11 @@ export function changedWindows(
   const windows: LineRange[] = [];
   for (const span of spans) {
     if (span.start <= span.end) {
-      windows.push({
+      const window = {
         start: Math.max(1, span.start - contextLines),
         end: Math.min(lineCount, span.end + contextLines),
-      });
+      };
+      if (window.start <= window.end) windows.push(window);
       continue;
     }
 

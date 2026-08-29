@@ -32,6 +32,7 @@ export function applyHashlineOperations(input: {
   finalNewline: boolean;
   operations: readonly HashlineOperation[];
   label?: string;
+  finalNewlineOverride?: boolean;
 }): AppliedHashline {
   const label = input.label ?? "file";
   const lineCount = input.lines.length;
@@ -146,8 +147,24 @@ export function applyHashlineOperations(input: {
   }
   copyUntil(lineCount);
 
+  if (input.finalNewlineOverride === false && result.at(-1) === "") {
+    throw new Error(
+      `${label} cannot remove the terminal newline while preserving an explicit final blank line. Delete that blank line in the same edit.`,
+    );
+  }
+  if (input.finalNewlineOverride === true && result.length === 0) {
+    result.push("");
+  }
   const finalNewline =
-    result.length > 0 && (input.finalNewline || result.at(-1) === "");
+    result.length > 0 &&
+    (input.finalNewlineOverride ??
+      (input.finalNewline || result.at(-1) === ""));
+  if (finalNewline !== input.finalNewline) {
+    const line = Math.max(1, result.length);
+    if (!changedSpans.some((span) => span.start <= line && line <= span.end)) {
+      changedSpans.push({ start: line, end: line });
+    }
+  }
   const logicalText = joinLogicalLines(result, finalNewline);
   const firstChangedLine = changedSpans.reduce(
     (first, span) => Math.min(first, span.start),

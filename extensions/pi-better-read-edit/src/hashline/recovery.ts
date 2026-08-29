@@ -25,12 +25,20 @@ function lineIndexAt(text: string, offset: number): number {
   return lines;
 }
 
-/** Locate one unchanged base span in current text using context unique in both. */
+/**
+ * Locate one unchanged base span in current text using context unique in both.
+ * When `requireNeighbor` is set, the matching window must include at least one
+ * line beyond the span itself. A bare target match only proves that identical
+ * content exists somewhere: an unchanged target whose original location was
+ * edited could silently relocate onto identical content that appears
+ * elsewhere, so identity without a neighbor is unprovable and fails closed.
+ */
 function locateUniqueSpan(
   baseLines: readonly string[],
   currentLines: readonly string[],
   start: number,
   end: number,
+  requireNeighbor = false,
 ): { start: number; end: number } | undefined {
   const baseText = wrappedLines(baseLines);
   const currentText = wrappedLines(currentLines);
@@ -39,7 +47,9 @@ function locateUniqueSpan(
       const right = context - left;
       const windowStart = Math.max(0, start - left);
       const windowEnd = Math.min(baseLines.length, end + right);
-      if (windowStart > start || windowEnd < end) continue;
+      if (requireNeighbor && windowStart === start && windowEnd === end) {
+        continue;
+      }
       const needle = wrappedLines(baseLines.slice(windowStart, windowEnd));
       const baseOffset = uniqueOccurrence(baseText, needle);
       if (
@@ -69,6 +79,7 @@ function translateOperation(
       current.lines,
       operation.start - 1,
       operation.end,
+      true,
     );
     if (!mapped) return undefined;
     return {
@@ -107,7 +118,11 @@ export function recoverNonOverlappingEdit(
   current: LogicalDocument,
   operations: readonly HashlineOperation[],
   label: string,
+  finalNewlineOverride?: boolean,
 ): AppliedHashline | undefined {
+  // A stale file cannot prove that its original EOF boundary is still the same
+  // boundary. Newline-only changes therefore require an exact live snapshot.
+  if (finalNewlineOverride !== undefined) return undefined;
   const translated: HashlineOperation[] = [];
   for (const operation of operations) {
     const mapped = translateOperation(base, current, operation);
@@ -120,6 +135,7 @@ export function recoverNonOverlappingEdit(
       finalNewline: current.finalNewline,
       operations: translated,
       label,
+      ...(finalNewlineOverride !== undefined ? { finalNewlineOverride } : {}),
     });
   } catch {
     return undefined;

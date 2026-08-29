@@ -54,22 +54,29 @@ export async function tryHashlineRead(
   selection: { offset?: number; limit?: number; selector?: string },
   snapshots: HashlineSnapshotStore,
   signal?: AbortSignal,
+  reportUnavailable?: (reason: string) => void,
 ): Promise<HashlineReadResult | undefined> {
-  if (!displayPath.trim() || /[\u0000-\u001F\u007F]/.test(displayPath)) {
+  const unavailable = (reason: string): undefined => {
+    reportUnavailable?.(reason);
     return undefined;
+  };
+  if (!displayPath.trim() || /[\u0000-\u001F\u007F]/.test(displayPath)) {
+    return unavailable(
+      "the path cannot be represented safely in a hashline header",
+    );
   }
   throwIfAborted(signal);
   const absolutePath = resolveLocalPath(cwd, displayPath);
   const extension = extname(absolutePath).toLowerCase();
   if (IMAGE_EXTENSIONS.has(extension) || PROJECTION_EXTENSIONS.has(extension)) {
-    return undefined;
+    return unavailable("this file type uses Pi's ordinary reader");
   }
 
   let canonicalPath: string;
   try {
     canonicalPath = await realpath(absolutePath);
   } catch {
-    return undefined;
+    return unavailable("the path could not be resolved to one existing file");
   }
 
   throwIfAborted(signal);
@@ -81,22 +88,33 @@ export async function tryHashlineRead(
       signal,
     );
   } catch {
-    return undefined;
+    return unavailable("the file could not be safely snapshotted");
   }
   throwIfAborted(signal);
-  if (bounded.truncated || bounded.links > 1) return undefined;
+  if (bounded.truncated) {
+    return unavailable("the file exceeds the 4 MiB hashline snapshot cap");
+  }
+  if (bounded.links > 1) {
+    return unavailable("the file has multiple hard links");
+  }
 
   let document: ReturnType<typeof decodeEligibleText>;
   try {
     document = decodeEligibleText(bounded.bytes);
-  } catch {
-    return undefined;
+  } catch (error) {
+    return unavailable(
+      error instanceof Error
+        ? error.message
+        : "the file is not eligible exact UTF-8 text",
+    );
   }
 
   const lineCount = document.lines.length;
   let ranges: LineRange[];
   if (selection.selector !== undefined) {
-    if (!isLineSelector(selection.selector)) return undefined;
+    if (!isLineSelector(selection.selector)) {
+      return unavailable("the line selector is not supported for tagged text");
+    }
     ranges = clampRanges(parseLineSelector(selection.selector), lineCount);
   } else if (selection.offset !== undefined || selection.limit !== undefined) {
     const offset = selection.offset ?? 1;
@@ -131,7 +149,11 @@ export async function tryHashlineRead(
     (total, range) => total + range.end - range.start + 1,
     0,
   );
-  if (selectedLineCount > MAX_TAGGED_SOURCE_LINES) return undefined;
+  if (selectedLineCount > MAX_TAGGED_SOURCE_LINES) {
+    return unavailable(
+      `the selection exceeds the ${MAX_TAGGED_SOURCE_LINES}-line tagged-output cap`,
+    );
+  }
   const lastSelectedLine = ranges.at(-1)?.end ?? 0;
   const nextOffset =
     selection.selector === undefined && lastSelectedLine < lineCount
@@ -151,7 +173,7 @@ export async function tryHashlineRead(
     for (let line = range.start; line <= range.end; line++) {
       const source = document.lines[line - 1] ?? "";
       if (Buffer.byteLength(source, "utf8") > DEFAULT_MAX_BYTES) {
-        return undefined;
+        return unavailable(`line ${line} exceeds Pi's tagged-read byte cap`);
       }
       output.push(`${line}:${source}`);
     }
@@ -165,7 +187,7 @@ export async function tryHashlineRead(
     output.length > DEFAULT_MAX_LINES ||
     Buffer.byteLength(text, "utf8") > DEFAULT_MAX_BYTES
   ) {
-    return undefined;
+    return unavailable("the tagged rendering exceeds Pi's read output cap");
   }
   snapshots.record(record, document);
 

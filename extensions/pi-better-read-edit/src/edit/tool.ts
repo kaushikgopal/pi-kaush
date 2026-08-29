@@ -9,7 +9,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { constants } from "node:fs";
 import { access, realpath, stat, writeFile } from "node:fs/promises";
-import { Type } from "typebox";
+import {
+  editSchema,
+  getLegacyInsertionAnchor,
+  normalizeEditArguments,
+  toHashlineSection,
+  type EditParams,
+  type FinalNewlineMode,
+} from "./input.ts";
 import {
   applyHashlineOperations,
   type ChangedSpan,
@@ -26,11 +33,7 @@ import {
   type HashlineRecord,
   type LogicalDocument,
 } from "../hashline/contract.ts";
-import {
-  operationRange,
-  parseHashlineScript,
-  type HashlineOperation,
-} from "../hashline/parser.ts";
+import { operationRange, type HashlineOperation } from "../hashline/parser.ts";
 import { HashlineRegistry } from "../hashline/registry.ts";
 import { renderChangedHashline } from "../hashline/render.ts";
 import { recoverNonOverlappingEdit } from "../hashline/recovery.ts";
@@ -40,20 +43,6 @@ import { resolveLocalPath } from "../read/artifacts.ts";
 const MAX_EDIT_TARGETS = 16;
 const MAX_EDIT_OPERATIONS = 1_000;
 const MAX_AGGREGATE_PLAN_BYTES = 16 * 1024 * 1024;
-const MAX_EDIT_SCRIPT_LINES = 20_000;
-
-const editSchema = Type.Object(
-  {
-    script: Type.String({
-      description:
-        "Hashline edit script with one or more [path#TAG] sections and PUT/CUT operations. Coordinates refer to the original tagged read.",
-      maxLength: HASHLINE_SNAPSHOT_CAP_BYTES,
-    }),
-  },
-  { additionalProperties: false },
-);
-
-type EditParams = { script: string };
 
 type PlannedFile = {
   displayPath: string;
@@ -66,6 +55,7 @@ type PlannedFile = {
   changedSpans: ChangedSpan[];
   recoveryWarnings: string[];
   firstChangedLine?: number;
+  finalNewlineOverride?: boolean;
   device: number;
   inode: number;
 };
@@ -98,9 +88,9 @@ async function readEligibleFile(path: string): Promise<LogicalDocument> {
   return decodeEligibleText(bounded.bytes);
 }
 
-function staleError(displayPath: string, currentTag?: string): Error {
+function staleError(displayPath: string): Error {
   return new Error(
-    `${displayPath} no longer matches the tagged read.${currentTag ? ` Current tag: ${currentTag}.` : ""} Reread the file and retry with the fresh tag.`,
+    `${displayPath} no longer matches the tagged read. Reread the file and retry with the fresh tag.`,
   );
 }
 
@@ -125,10 +115,7 @@ function verifyUnchanged(
     document.logicalText !== expected.logicalText ||
     document.lineEnding !== expected.lineEnding
   ) {
-    throw staleError(
-      displayPath,
-      computeFullDigest(document.logicalText).slice(0, 16),
-    );
+    throw staleError(displayPath);
   }
 }
 
@@ -146,6 +133,10 @@ function operationLabel(operation: HashlineOperation): string {
       return "PUT >$";
   }
 }
+function finalNewlineOverride(mode: FinalNewlineMode): boolean | undefined {
+  return mode === "preserve" ? undefined : mode === "present";
+}
+
 function prepareEdit(
   displayPath: string,
   tag: string,
@@ -153,6 +144,7 @@ function prepareEdit(
   baseDocument: LogicalDocument,
   currentDocument: LogicalDocument,
   operations: readonly HashlineOperation[],
+  newlineOverride?: boolean,
 ): Pick<
   PlannedFile,
   | "oldDocument"
@@ -166,6 +158,9 @@ function prepareEdit(
     finalNewline: baseDocument.finalNewline,
     operations,
     label: formatHashlineHeader(displayPath, tag),
+    ...(newlineOverride !== undefined
+      ? { finalNewlineOverride: newlineOverride }
+      : {}),
   });
   if (applied.logicalText === baseDocument.logicalText) {
     throw new Error(
@@ -190,12 +185,10 @@ function prepareEdit(
     currentDocument,
     operations,
     formatHashlineHeader(displayPath, tag),
+    newlineOverride,
   );
   if (!recovered) {
-    throw staleError(
-      displayPath,
-      computeFullDigest(currentDocument.logicalText).slice(0, 16),
-    );
+    throw staleError(displayPath);
   }
   return {
     oldDocument: currentDocument,
@@ -211,36 +204,36 @@ function prepareEdit(
 }
 
 async function buildPlan(
-  script: string,
+  input: EditParams,
   cwd: string,
   registry: HashlineRegistry,
   snapshots: HashlineSnapshotStore,
 ): Promise<PlannedFile[]> {
-  if (Buffer.byteLength(script, "utf8") > HASHLINE_SNAPSHOT_CAP_BYTES) {
-    throw new Error("Hashline edit script exceeds the 4 MiB input cap.");
+  if (
+    Buffer.byteLength(JSON.stringify(input), "utf8") >
+    HASHLINE_SNAPSHOT_CAP_BYTES
+  ) {
+    throw new Error("Hashline edit input exceeds the 4 MiB input cap.");
   }
-  let scriptLines = script.length === 0 ? 0 : 1;
-  for (let index = 0; index < script.length; index++) {
-    if (script.charCodeAt(index) === 10) scriptLines++;
+  if (input.files.length === 0) {
+    throw new Error("Hashline edit requires at least one file section.");
   }
-  if (scriptLines > MAX_EDIT_SCRIPT_LINES) {
-    throw new Error(
-      `Hashline edit script exceeds the ${MAX_EDIT_SCRIPT_LINES}-line input cap.`,
-    );
-  }
-  const sections = parseHashlineScript(script);
-  if (sections.length > MAX_EDIT_TARGETS) {
+  if (input.files.length > MAX_EDIT_TARGETS) {
     throw new Error(
       `Hashline edit accepts at most ${MAX_EDIT_TARGETS} file sections per call.`,
     );
   }
-  const operationCount = sections.reduce(
-    (total, section) => total + section.operations.length,
+  const operationCount = input.files.reduce(
+    (total, file) =>
+      total +
+      file.edits.length +
+      (file.appendLines.length > 0 ? 1 : 0) +
+      (file.finalNewline === "preserve" ? 0 : 1),
     0,
   );
-  if (operationCount > MAX_EDIT_OPERATIONS) {
+  if (operationCount === 0 || operationCount > MAX_EDIT_OPERATIONS) {
     throw new Error(
-      `Hashline edit accepts at most ${MAX_EDIT_OPERATIONS} operations per call.`,
+      `Hashline edit accepts 1 to ${MAX_EDIT_OPERATIONS} changes per call.`,
     );
   }
   let aggregatePlanBytes = 0;
@@ -248,19 +241,27 @@ async function buildPlan(
   const targets = new Set<string>();
   const targetInodes = new Set<string>();
 
-  for (const section of sections) {
-    const resolved = resolveLocalPath(cwd, section.displayPath);
+  for (const fileInput of input.files) {
+    if (
+      !fileInput.path.trim() ||
+      /[\u0000-\u001F\u007F]/u.test(fileInput.path)
+    ) {
+      throw new Error(
+        "Hashline edit paths must be non-blank and contain no control characters.",
+      );
+    }
+    const resolved = resolveLocalPath(cwd, fileInput.path);
     let canonicalPath: string;
     let device: number;
     let inode: number;
     try {
       const info = await stat(resolved);
       if (!info.isFile()) {
-        throw new Error(`${section.displayPath} is not a regular file.`);
+        throw new Error(`${fileInput.path} is not a regular file.`);
       }
       if (info.nlink > 1) {
         throw new Error(
-          `${section.displayPath} has multiple hard links; hashline editing requires one filesystem path.`,
+          `${fileInput.path} has multiple hard links; hashline editing requires one filesystem path.`,
         );
       }
       canonicalPath = await realpath(resolved);
@@ -271,25 +272,25 @@ async function buildPlan(
         throw error;
       }
       throw new Error(
-        `Cannot hashline-edit ${section.displayPath}: the file does not exist.`,
+        `Cannot hashline-edit ${fileInput.path}: the file does not exist.`,
       );
     }
     if (targets.has(canonicalPath)) {
       throw new Error(
-        `Hashline script targets ${section.displayPath} more than once; merge its sections.`,
+        `Hashline edit targets ${fileInput.path} more than once; merge its entries.`,
       );
     }
     targets.add(canonicalPath);
     const inodeIdentity = `${device}:${inode}`;
     if (targetInodes.has(inodeIdentity)) {
       throw new Error(
-        `Hashline script targets two hard-link aliases of the same file; keep one path.`,
+        "Hashline edit targets two hard-link aliases of the same file; keep one path.",
       );
     }
     targetInodes.add(inodeIdentity);
 
     const oldDocument = await readEligibleFile(canonicalPath);
-    const found = registry.lookup(canonicalPath, section.tag, {
+    const found = registry.lookup(canonicalPath, fileInput.tag.toUpperCase(), {
       fullDigest: computeFullDigest(oldDocument.logicalText),
       lineEnding: oldDocument.lineEnding,
       finalNewline: oldDocument.finalNewline,
@@ -297,16 +298,35 @@ async function buildPlan(
     });
     if (!found) {
       throw new Error(
-        `Unknown tag ${section.tag} for ${section.displayPath}. Use a tag returned by read or edit on the current session branch.`,
+        `Unknown tag ${fileInput.tag} for ${fileInput.path}. Use a tag returned by read or edit on the current session branch.`,
       );
     }
     if ("ambiguous" in found) {
       throw new Error(
-        `Tag ${section.tag} is ambiguous for ${section.displayPath}; reread the file.`,
+        `Tag ${fileInput.tag} is ambiguous for ${fileInput.path}; reread the file.`,
       );
     }
+    const section = toHashlineSection(fileInput, found.record.lineCount);
+    const newlineOverride = finalNewlineOverride(fileInput.finalNewline);
 
     for (const operation of section.operations) {
+      const legacyAnchor = getLegacyInsertionAnchor(operation);
+      if (legacyAnchor) {
+        const label = `legacy PUT ${legacyAnchor.kind === "before" ? "<" : ">"}${legacyAnchor.line}`;
+        if (legacyAnchor.line > found.record.lineCount) {
+          throw new Error(
+            `${label} is out of bounds for ${fileInput.path} (${found.record.lineCount} line(s)).`,
+          );
+        }
+        if (
+          !rangesCover(found.seenRanges, legacyAnchor.line, legacyAnchor.line)
+        ) {
+          throw new Error(
+            `${label} targets an anchor line that was not displayed by the tagged read. Reread that range first.`,
+          );
+        }
+        continue;
+      }
       if (operation.kind === "append") {
         if (!found.eofSeen) {
           throw new Error(
@@ -318,33 +338,45 @@ async function buildPlan(
       const target = operationRange(operation)!;
       if (target.end > found.record.lineCount) {
         throw new Error(
-          `${operationLabel(operation)} is out of bounds for ${section.displayPath} (${found.record.lineCount} line(s)).`,
+          `${operationLabel(operation)} is out of bounds for ${fileInput.path} (${found.record.lineCount} line(s)).`,
         );
       }
-      if (!rangesCover(found.seenRanges, target.start, target.end)) {
+      const targetSeen = rangesCover(
+        found.seenRanges,
+        target.start,
+        target.end,
+      );
+      const leftBoundarySeen =
+        operation.kind === "insert-before" &&
+        operation.line > 1 &&
+        rangesCover(found.seenRanges, operation.line - 1, operation.line - 1);
+      if (!targetSeen && !leftBoundarySeen) {
         throw new Error(
-          `${operationLabel(operation)} targets lines that were not displayed by the tagged read. Reread that range first.`,
+          `${operationLabel(operation)} targets a boundary or lines that were not displayed by the tagged read. Reread that range first.`,
         );
       }
+    }
+    if (newlineOverride !== undefined && !found.eofSeen) {
+      throw new Error(
+        `Changing the terminal newline for ${fileInput.path} requires a tagged read that displayed EOF.`,
+      );
     }
 
     const baseDocument = snapshotMatches(oldDocument, found.record)
       ? oldDocument
       : snapshots.lookup(found.record)?.document;
     if (!baseDocument) {
-      throw staleError(
-        section.displayPath,
-        computeFullDigest(oldDocument.logicalText).slice(0, 16),
-      );
+      throw staleError(fileInput.path);
     }
     snapshots.record(found.record, baseDocument);
     const prepared = prepareEdit(
-      section.displayPath,
-      section.tag,
+      fileInput.path,
+      found.record.tag,
       found.record,
       baseDocument,
       oldDocument,
       section.operations,
+      newlineOverride,
     );
     const physical = encodePhysicalText(
       prepared.newLogicalText,
@@ -352,7 +384,7 @@ async function buildPlan(
     );
     if (Buffer.byteLength(physical, "utf8") > HASHLINE_SNAPSHOT_CAP_BYTES) {
       throw new Error(
-        `Hashline edit would grow ${section.displayPath} beyond the ${HASHLINE_SNAPSHOT_CAP_BYTES}-byte snapshot cap.`,
+        `Hashline edit would grow ${fileInput.path} beyond the ${HASHLINE_SNAPSHOT_CAP_BYTES}-byte snapshot cap.`,
       );
     }
     aggregatePlanBytes +=
@@ -365,12 +397,15 @@ async function buildPlan(
       );
     }
     planned.push({
-      displayPath: section.displayPath,
+      displayPath: fileInput.path,
       canonicalPath,
       record: found.record,
       operations: section.operations,
       baseDocument,
       ...prepared,
+      ...(newlineOverride !== undefined
+        ? { finalNewlineOverride: newlineOverride }
+        : {}),
       device,
       inode,
     });
@@ -425,6 +460,7 @@ async function applyPlan(
         file.baseDocument,
         document,
         file.operations,
+        file.finalNewlineOverride,
       );
       file.oldDocument = prepared.oldDocument;
       file.newLogicalText = prepared.newLogicalText;
@@ -523,6 +559,18 @@ async function applyPlan(
     const successOutput = `Updated ${files.length} file(s).\n\n${visibleOutput}${warningOutput}`;
     const combinedDiff = diffs.join("\n");
     const combinedPatch = patches.join("\n");
+    const firstChangedLine = files[0]?.firstChangedLine;
+    const firstAnchor = anchors[0]!;
+    const details: BetterEditDetails = {
+      diff: combinedDiff,
+      patch: combinedPatch,
+      ...(firstChangedLine !== undefined ? { firstChangedLine } : {}),
+      files: files.map((file) => file.displayPath),
+      fileEdits,
+      hashlineAnchor: firstAnchor,
+      hashlineAnchors: anchors,
+      ...(recoveryWarnings.length > 0 ? { recoveryWarnings } : {}),
+    };
     if (
       Buffer.byteLength(successOutput, "utf8") > DEFAULT_MAX_BYTES ||
       successOutput.split("\n").length > DEFAULT_MAX_LINES
@@ -532,12 +580,11 @@ async function applyPlan(
       );
     }
     if (
-      Buffer.byteLength(combinedDiff, "utf8") +
-        Buffer.byteLength(combinedPatch, "utf8") >
+      Buffer.byteLength(JSON.stringify(details), "utf8") >
       HASHLINE_SNAPSHOT_CAP_BYTES
     ) {
       throw new Error(
-        "Hashline diff details would exceed the 4 MiB session cap. Split the edit into smaller calls.",
+        "Serialized hashline edit details would exceed the 4 MiB session cap. Split the edit into smaller calls.",
       );
     }
     // Do not observe cancellation between writes: all paths were preflighted,
@@ -576,21 +623,7 @@ async function applyPlan(
       snapshots.record(anchor, newDocuments[index]!);
     }
 
-    const firstChangedLine = files[0]?.firstChangedLine;
-    const firstAnchor = anchors[0]!;
-    return {
-      windows,
-      details: {
-        diff: combinedDiff,
-        patch: combinedPatch,
-        ...(firstChangedLine !== undefined ? { firstChangedLine } : {}),
-        files: files.map((file) => file.displayPath),
-        fileEdits,
-        hashlineAnchor: firstAnchor,
-        hashlineAnchors: anchors,
-        ...(recoveryWarnings.length > 0 ? { recoveryWarnings } : {}),
-      },
-    };
+    return { windows, details };
   });
 }
 
@@ -602,24 +635,27 @@ export default function registerEditTool(
     name: "edit",
     label: "edit",
     description:
-      "Edit one or more tagged local text files with concise hashline operations. Each [path#TAG] must come from this session's read/edit output. PUT replaces or inserts lines; CUT deletes lines. All coordinates use the original tagged snapshot. Every target is preflighted before any write; retained snapshots can preserve exact non-overlapping drift, while unknown, overlapping, unseen, ambiguous, or unrecoverable edits fail closed.",
+      "Edit tagged local text with structured line splices. Each file needs the path and 16-character tag returned by read/edit. A splice starts at an original line, deletes deleteCount lines, then inserts newLines; appendLines writes at observed EOF. Every target is preflighted, and stale recovery requires unique unchanged neighboring context.",
     promptSnippet:
-      "Edit tagged text with concise PUT/CUT operations in original read coordinates",
+      "Edit tagged text with structured original-coordinate line splices",
     promptGuidelines: [
-      "Use the [path#TAG] header emitted by read; tags authorize only the displayed ranges on that session branch.",
-      "Use PUT N.=M: followed by + rows to replace lines, PUT <N:/PUT >N: to insert, PUT >$: to append after observing EOF, and CUT N.=M to delete.",
-      "Combine disjoint changes, including multiple file sections, in one script. Every coordinate refers to the original tagged read, not an earlier operation.",
-      "Reread after a stale-tag error. Retained snapshots recover only when each operation maps through unique unchanged context; duplicate, ambiguous, same-gap, or overlapping drift fails closed.",
+      "Use the path and tag emitted by read; tags authorize only displayed original lines.",
+      "For each edit, set startLine to the first original line, deleteCount to the number of original lines removed, and newLines to the inserted replacement lines. Use deleteCount 0 to insert and newLines [] to delete.",
+      "Use appendLines to append after a read that observed EOF. Set finalNewline to preserve unless the terminal newline itself must change.",
+      "Combine disjoint changes and files in one call. Every coordinate refers to the original tagged read, not an earlier edit in the same call.",
+      "Reread after stale, unknown-tag, or unseen-range errors.",
     ],
     parameters: editSchema,
+    prepareArguments: normalizeEditArguments,
     async execute(_toolCallId, params: EditParams, signal, _onUpdate, ctx) {
-      if (!params.script?.trim()) {
-        throw new Error("edit requires a non-empty hashline script.");
+      const input = normalizeEditArguments(params) as EditParams;
+      if (!input?.files) {
+        throw new Error("edit requires at least one structured file entry.");
       }
       const registry = HashlineRegistry.fromBranch(
         ctx.sessionManager.getBranch(),
       );
-      const plan = await buildPlan(params.script, ctx.cwd, registry, snapshots);
+      const plan = await buildPlan(input, ctx.cwd, registry, snapshots);
       const applied = await applyPlan(plan, snapshots, signal);
       return {
         content: [

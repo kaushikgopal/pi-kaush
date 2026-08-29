@@ -15,6 +15,7 @@ const expected = [
   "LICENSE",
   "README.md",
   "package.json",
+  "src/edit/input.ts",
   "src/edit/tool.ts",
   "src/hashline/apply.ts",
   "src/hashline/contract.ts",
@@ -24,12 +25,14 @@ const expected = [
   "src/hashline/render.ts",
   "src/hashline/snapshot-store.ts",
   "src/index.ts",
+  "src/model-routing.ts",
   "src/read/artifacts.ts",
   "src/read/bounded.ts",
   "src/read/commands.ts",
   "src/read/local-text.ts",
   "src/read/safe-url.ts",
   "src/read/selectors.ts",
+  "src/settings.ts",
   "src/read/tool.ts",
 ].sort();
 
