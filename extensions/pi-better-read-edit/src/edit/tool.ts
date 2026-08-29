@@ -28,9 +28,11 @@ import {
   encodePhysicalText,
   formatHashlineHeader,
   HASHLINE_SNAPSHOT_CAP_BYTES,
+  mergeRanges,
   rangesCover,
   throwIfAborted,
   type HashlineRecord,
+  type LineRange,
   type LogicalDocument,
 } from "../hashline/contract.ts";
 import { operationRange, type HashlineOperation } from "../hashline/parser.ts";
@@ -132,6 +134,36 @@ function operationLabel(operation: HashlineOperation): string {
     case "append":
       return "PUT >$";
   }
+}
+
+function uncoveredRanges(
+  seenRanges: readonly LineRange[],
+  start: number,
+  end: number,
+): LineRange[] {
+  const missing: LineRange[] = [];
+  let cursor = start;
+  for (const seen of mergeRanges(seenRanges)) {
+    if (seen.end < cursor) continue;
+    if (seen.start > end) break;
+    if (seen.start > cursor) {
+      missing.push({ start: cursor, end: Math.min(end, seen.start - 1) });
+    }
+    cursor = Math.max(cursor, seen.end + 1);
+    if (cursor > end) break;
+  }
+  if (cursor <= end) missing.push({ start: cursor, end });
+  return missing;
+}
+
+function formatReadRanges(ranges: readonly LineRange[]): string {
+  return ranges
+    .map((range) =>
+      range.start === range.end
+        ? `${range.start}`
+        : `${range.start}-${range.end}`,
+    )
+    .join(",");
 }
 function finalNewlineOverride(mode: FinalNewlineMode): boolean | undefined {
   return mode === "preserve" ? undefined : mode === "present";
@@ -351,8 +383,12 @@ async function buildPlan(
         operation.line > 1 &&
         rangesCover(found.seenRanges, operation.line - 1, operation.line - 1);
       if (!targetSeen && !leftBoundarySeen) {
+        const missing = formatReadRanges(
+          uncoveredRanges(found.seenRanges, target.start, target.end),
+        );
         throw new Error(
-          `${operationLabel(operation)} targets a boundary or lines that were not displayed by the tagged read. Reread that range first.`,
+          `${operationLabel(operation)} targets lines that were not displayed by the tagged read. ` +
+            `Read ${fileInput.path} with ranges "${missing}", then retry using the returned tag.`,
         );
       }
     }
@@ -635,15 +671,16 @@ export default function registerEditTool(
     name: "edit",
     label: "edit",
     description:
-      "Edit tagged local text with structured line splices. Each file needs the path and 16-character tag returned by read/edit. A splice starts at an original line, deletes deleteCount lines, then inserts newLines; appendLines writes at observed EOF. Every target is preflighted, and stale recovery requires unique unchanged neighboring context.",
+      "Edit tagged local text with structured line splices. Each file needs the path and 16-character tag returned by read/edit. A splice starts at an original line, deletes deleteCount lines, then inserts newLines. Omit edits, appendLines, newLines, and finalNewline when their defaults apply. Every replaced or deleted line must have been displayed by the tagged read; reading only range boundaries is insufficient. Every target is preflighted, and stale recovery requires unique unchanged neighboring context.",
     promptSnippet:
       "Edit tagged text with structured original-coordinate line splices",
     promptGuidelines: [
-      "Use the path and tag emitted by read; tags authorize only displayed original lines.",
-      "For each edit, set startLine to the first original line, deleteCount to the number of original lines removed, and newLines to the inserted replacement lines. Use deleteCount 0 to insert and newLines [] to delete.",
-      "Use appendLines to append after a read that observed EOF. Set finalNewline to preserve unless the terminal newline itself must change.",
+      "Use each file's own path and tag from read; a tag authorizes only original lines that read actually displayed.",
+      "Before replacing or deleting lines N-M, read must have displayed every line N through M. Reading only the first and last lines is insufficient.",
+      "For each edit, set startLine to the first original line and deleteCount to the number removed. Add newLines only for replacement/insertion; omit it for deletion-only edits.",
+      "Omit appendLines and finalNewline unless appending or changing the terminal newline. Append and terminal-newline changes require a read that displayed EOF.",
       "Combine disjoint changes and files in one call. Every coordinate refers to the original tagged read, not an earlier edit in the same call.",
-      "Reread after stale, unknown-tag, or unseen-range errors.",
+      "On an unseen-range error, read the exact suggested ranges and retry with the returned tag.",
     ],
     parameters: editSchema,
     prepareArguments: normalizeEditArguments,

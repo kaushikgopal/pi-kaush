@@ -1,0 +1,134 @@
+{
+  "config": {
+    "agentDirMode": "copied-config",
+    "copiedConfigFiles": [
+      "auth.json",
+      "models.json",
+      "models-store.json"
+    ],
+    "fixtures": [
+      "two-splices",
+      "repeated-context",
+      "two-files",
+      "large-delete"
+    ],
+    "maxCalls": 200,
+    "models": [
+      {
+        "id": "instacart-openai/gpt-5.6-luna",
+        "thinking": "low"
+      },
+      {
+        "id": "open-weights/deepseek-v4-flash-0731-priority",
+        "thinking": "off"
+      },
+      {
+        "id": "instacart-anthropic/claude-haiku-4-5@20251001",
+        "thinking": "off"
+      }
+    ],
+    "piBin": "pi",
+    "piVersion": "0.80.6",
+    "seed": 1,
+    "settingsForced": true,
+    "timeoutMs": 300000,
+    "trials": 1
+  },
+  "createdAt": "2026-08-29T03:49:44.505Z",
+  "fixtures": {
+    "large-delete": {
+      "descriptorSha256": "69d0339e672d11892d34e1ccaa9070c31daed7cc6c61aa86865ff5f4d86e5af1",
+      "expectedTree": {
+        "files": {
+          "records.js": {
+            "bytes": 55945,
+            "sha256": "543152d4e563ed193021d58f46f5e24e8b5c71bcb9cd8a76290e6ac771d9a9b2"
+          }
+        },
+        "totalBytes": 55945
+      },
+      "startTree": {
+        "files": {
+          "records.js": {
+            "bytes": 74945,
+            "sha256": "dfb7e6ac1a4906338330d3fae0ddc18a2cbf33b9595425cf0907d4fa749154b6"
+          }
+        },
+        "totalBytes": 74945
+      }
+    },
+    "repeated-context": {
+      "descriptorSha256": "34ca6e48e7860f1b454b21f19fbec5700ddeb94c5efe82380a06eef8fc776ac9",
+      "expectedTree": {
+        "files": {
+          "data.js": {
+            "bytes": 179,
+            "sha256": "97164ca2cb5601da09191dd763032721fdb4cb60033104e5b2681b246b8b14bc"
+          }
+        },
+        "totalBytes": 179
+      },
+      "startTree": {
+        "files": {
+          "data.js": {
+            "bytes": 178,
+            "sha256": "7144186ece60ed57c4597ad6e0664a59717384112d8623fc1b7f3de21bf88cd8"
+          }
+        },
+        "totalBytes": 178
+      }
+    },
+    "two-files": {
+      "descriptorSha256": "3dc056ebf6a3c0b07612ab24faf76af678e066078415801742118b8e6062de63",
+      "expectedTree": {
+        "files": {
+          "src/a.ts": {
+            "bytes": 34,
+            "sha256": "3f23a5e967cfb0e78e6631fb163cba0bd3d8e5c05fe4ac68645d4327451f6d46"
+          },
+          "src/b.ts": {
+            "bytes": 34,
+            "sha256": "d24db7467e3fb8f87059a14ea505411a82cb4fee752352cb260b69d7c6ead24f"
+          }
+        },
+        "totalBytes": 68
+      },
+      "startTree": {
+        "files": {
+          "src/a.ts": {
+            "bytes": 34,
+            "sha256": "3b74ce96812db5ff20db31fccb984928305563bdfaa47f6f6030e8c75ea8761e"
+          },
+          "src/b.ts": {
+            "bytes": 34,
+            "sha256": "884c7de7b4ffc926ed4dfbb98c3dbc9078a597686547a859476cbb92bbb67929"
+          }
+        },
+        "totalBytes": 68
+      }
+    },
+    "two-splices": {
+      "descriptorSha256": "502d57a9a2f70c9b5ce74f8de6845095c1acdf8da3470f29875f791a8fba43e3",
+      "expectedTree": {
+        "files": {
+          "src/greeting.ts": {
+            "bytes": 224,
+            "sha256": "3f9c26f54e346260d401e44a88262bbafd41264c4ae693facc2a8180080ce95b"
+          }
+        },
+        "totalBytes": 224
+      },
+      "startTree": {
+        "files": {
+          "src/greeting.ts": {
+            "bytes": 222,
+            "sha256": "cc2e46cd48792f32115221d5845bb15dadced0d7fe5c2d9142e00ed7395e283d"
+          }
+        },
+        "totalBytes": 222
+      }
+    }
+  },
+  "runId": "first-edit-improvements-r1",
+  "schema": "pi-better-read-edit-bench/v1"
+}

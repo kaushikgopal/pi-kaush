@@ -73,7 +73,7 @@ function baseLines({ editError = false, lastReason = "stop" } = {}) {
       toolName: "edit",
       isError: editError,
       result: editError
-        ? { details: { error: "unseen lines" } }
+        ? { content: [{ type: "text", text: "unseen lines" }], details: {} }
         : { details: {} },
     }),
     j({
@@ -163,13 +163,17 @@ describe("parseStream", () => {
     expect(modelSelect).toMatchObject({ provider: "fake", model: "model" });
   });
 
-  test("omits message prose and tool args from normalized events", () => {
-    const { events } = parseStream(baseLines());
+  test("retains private edit arguments and error text but omits message prose", () => {
+    const { events } = parseStream(baseLines({ editError: true }));
     const editStart = events.find(
       (event) => event.type === "tool_execution_start" && event.name === "edit",
     );
     expect(editStart.argsBytes).toBeGreaterThan(0);
-    expect(JSON.stringify(editStart)).not.toContain("newLines");
+    expect(editStart.args.files[0].edits[0].newLines).toEqual(["x"]);
+    const editEnd = events.find(
+      (event) => event.type === "tool_execution_end" && event.name === "edit",
+    );
+    expect(editEnd.errorText).toBe("unseen lines");
     const messageEnd = events.find((event) => event.type === "message_end");
     expect(messageEnd.usage.total).toBe(15);
     expect(messageEnd.provider).toBe("fake");

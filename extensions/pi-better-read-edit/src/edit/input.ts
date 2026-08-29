@@ -35,17 +35,21 @@ const lineEditSchema = Type.Object(
       minimum: 1,
       maximum: 100_001,
       description:
-        "First original line to replace/delete, or the insertion point. Use original lineCount + 1 to append.",
+        "First original line to replace/delete, or the insertion point. Use original lineCount + 1 to append. Every replaced/deleted line must have been displayed by the tagged read.",
     }),
     deleteCount: Type.Integer({
       minimum: 0,
       maximum: 100_000,
-      description: "Number of original lines to delete; use 0 to insert.",
+      description:
+        "Number of original lines to delete; use 0 to insert. The tagged read must have displayed the full deleted range, not only its boundaries.",
     }),
-    newLines: Type.Array(Type.String(), {
-      maxItems: 100_000,
-      description: "Replacement or inserted lines; use [] to delete only.",
-    }),
+    newLines: Type.Optional(
+      Type.Array(Type.String(), {
+        maxItems: 100_000,
+        description:
+          "Replacement or inserted lines. Omit or use [] to delete only.",
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -61,15 +65,25 @@ const fileEditSchema = Type.Object(
       pattern: "^[0-9A-Fa-f]{16}$",
       description: "The 16-character tag returned by read or edit.",
     }),
-    edits: Type.Array(lineEditSchema, { maxItems: 1_000 }),
-    appendLines: Type.Array(Type.String(), {
-      maxItems: 100_000,
-      description: "Lines appended at observed EOF; use [] when not appending.",
-    }),
-    finalNewline: StringEnum(["preserve", "present", "absent"] as const, {
-      description:
-        "Keep, add, or remove the terminal newline after applying the line edits.",
-    }),
+    edits: Type.Optional(
+      Type.Array(lineEditSchema, {
+        maxItems: 1_000,
+        description:
+          "Original-coordinate line splices; omit when only appending.",
+      }),
+    ),
+    appendLines: Type.Optional(
+      Type.Array(Type.String(), {
+        maxItems: 100_000,
+        description: "Lines appended at observed EOF; omit when not appending.",
+      }),
+    ),
+    finalNewline: Type.Optional(
+      StringEnum(["preserve", "present", "absent"] as const, {
+        description:
+          'Terminal newline mode; omit for the default "preserve" behavior.',
+      }),
+    ),
   },
   { additionalProperties: false },
 );
@@ -94,11 +108,13 @@ export function normalizeEditArguments(input: unknown): EditParams {
     }
     return legacyScriptToParams(raw.script);
   }
-  if (!Array.isArray(raw.files)) return input as EditParams;
+
+  const files = parseJsonArray(raw.files, "files");
+  if (!Array.isArray(files)) return { ...raw, files } as unknown as EditParams;
 
   return {
     ...raw,
-    files: raw.files.map((candidate) => {
+    files: files.map((candidate) => {
       if (!candidate || typeof candidate !== "object") {
         return candidate as StructuredFileEdit;
       }
@@ -110,6 +126,7 @@ export function normalizeEditArguments(input: unknown): EditParams {
           file.finalNewline.trim() === "")
           ? "preserve"
           : file.finalNewline;
+      const edits = parseJsonArray(file.edits, "files[].edits");
       return {
         ...file,
         ...(typeof file.tag === "string"
@@ -119,14 +136,31 @@ export function normalizeEditArguments(input: unknown): EditParams {
         ...(file.appendLines === null || file.appendLines === undefined
           ? { appendLines: [] }
           : {}),
-        ...(Array.isArray(file.edits)
-          ? {
-              edits: file.edits.map((edit) => normalizeLineEdit(edit)),
-            }
-          : {}),
+        ...(edits === null || edits === undefined
+          ? { edits: [] }
+          : Array.isArray(edits)
+            ? { edits: edits.map((edit) => normalizeLineEdit(edit)) }
+            : { edits }),
       };
     }),
   } as unknown as EditParams;
+}
+
+function parseJsonArray(value: unknown, label: string): unknown {
+  if (typeof value !== "string") return value;
+  if (Buffer.byteLength(value, "utf8") > HASHLINE_SNAPSHOT_CAP_BYTES) {
+    throw new Error(`${label} JSON string exceeds the 4 MiB input cap.`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`${label} must be an array, not malformed JSON text.`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${label} JSON text must decode to an array.`);
+  }
+  return parsed;
 }
 
 function normalizeLineEdit(input: unknown): unknown {
@@ -139,7 +173,9 @@ function normalizeLineEdit(input: unknown): unknown {
       normalized[key] = Number(value.trim());
     }
   }
-  if (edit.newLines === null) normalized.newLines = [];
+  if (edit.newLines === null || edit.newLines === undefined) {
+    normalized.newLines = [];
+  }
   return normalized;
 }
 

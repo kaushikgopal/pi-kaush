@@ -96,6 +96,11 @@ describe("structured edit input", () => {
       "deleteCount",
       "newLines",
     ]);
+    expect(file.required).toEqual(["path", "tag"]);
+    expect(file.properties.edits.items.required).toEqual([
+      "startLine",
+      "deleteCount",
+    ]);
   });
 
   test("replaces, inserts, and appends in original coordinates", async () => {
@@ -217,6 +222,61 @@ describe("structured edit input", () => {
         },
       ],
     });
+  });
+
+  test("defaults optional fields and parses bounded JSON-string arrays", () => {
+    const normalized = normalizeEditArguments({
+      files: JSON.stringify([
+        {
+          path: "example.txt",
+          tag: "abcdef0123456789",
+          edits: JSON.stringify([{ startLine: "2", deleteCount: "1" }]),
+        },
+      ]),
+    });
+    expect(normalized).toEqual({
+      files: [
+        {
+          path: "example.txt",
+          tag: "ABCDEF0123456789",
+          edits: [{ startLine: 2, deleteCount: 1, newLines: [] }],
+          appendLines: [],
+          finalNewline: "preserve",
+        },
+      ],
+    });
+  });
+
+  test("rejects malformed or non-array JSON-string fields", () => {
+    expect(() => normalizeEditArguments({ files: "not json" })).toThrow(
+      /malformed JSON/,
+    );
+    expect(() => normalizeEditArguments({ files: '{"path":"x"}' })).toThrow(
+      /decode to an array/,
+    );
+  });
+
+  test("reports exact unread subranges without weakening authorization", async () => {
+    await writeFile(
+      join(root, "example.txt"),
+      Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n") +
+        "\n",
+    );
+    const tag = await taggedRead("example.txt", { ranges: "1-2,5-6" });
+    await expect(
+      edit([
+        {
+          path: "example.txt",
+          tag,
+          edits: [{ startLine: 1, deleteCount: 8 }],
+        },
+      ]),
+    ).rejects.toThrow(
+      /Read example\.txt with ranges "3-4,7-8", then retry using the returned tag/,
+    );
+    expect(await readFile(join(root, "example.txt"), "utf8")).toContain(
+      "line 10",
+    );
   });
 
   test("converts legacy scripts before validation", () => {

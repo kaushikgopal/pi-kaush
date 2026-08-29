@@ -82,13 +82,13 @@ Pass the path and tag to `edit` with structured original-coordinate splices:
 Each splice starts before `startLine`, removes `deleteCount` original lines, then inserts `newLines`:
 
 - Replace lines `N..M` with `startLine: N`, `deleteCount: M - N + 1`, and replacement `newLines`.
-- Delete lines with the same coordinates and `newLines: []`.
-- Insert before original line `N` with `startLine: N` and `deleteCount: 0`.
-- Append `appendLines` at the observed EOF; use `[]` when not appending. A splice at original `lineCount + 1` also appends.
+- Delete lines with the same coordinates and omit `newLines` (or use `[]`).
+- Insert before original line `N` with `startLine: N`, `deleteCount: 0`, and `newLines`.
+- The tagged read must have displayed **every replaced or deleted line**; reading only the range boundaries is insufficient. Unseen-range errors return the exact ranges to read before retrying.
+- Omit `edits`, `appendLines`, and `finalNewline` when unused. `appendLines` requires observed EOF; `finalNewline` defaults to `preserve`.
 - Put exactly one logical UTF-8 line in each `newLines` or `appendLines` item; embedded CR/LF and invalid surrogate content are rejected.
-- Set `finalNewline` to `preserve`, `present`, or `absent`. Changing it requires an exact current snapshot from a read that displayed EOF.
 
-Repeat file entries to edit multiple files. Every splice uses original-snapshot coordinates, so earlier entries never shift later ones. Overlapping ranges, duplicate insertion boundaries, inserts beside changed spans, no-ops, unseen boundaries or lines, and unrecoverable stale files are rejected before writing. Stored calls using the original `script` format are converted before schema validation for session compatibility, but new calls see only the structured schema.
+Repeat file entries to edit multiple files, using each file's own tag. Every splice uses original-snapshot coordinates, so earlier entries never shift later ones. Overlapping ranges, duplicate insertion boundaries, inserts beside changed spans, no-ops, unseen boundaries or lines, and unrecoverable stale files are rejected before writing. Bounded JSON-string encodings of `files` or `edits` are normalized before the same strict schema validation for provider compatibility. Stored calls using the original `script` format are also converted before validation, but new calls see only the structured schema.
 
 ## Read selectors and projections
 

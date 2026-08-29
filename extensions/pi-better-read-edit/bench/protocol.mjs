@@ -96,6 +96,7 @@ function normalizeEvent(raw) {
         id: raw.toolCallId,
         name: raw.toolName,
         argsBytes: byteLength(JSON.stringify(raw.args ?? null)),
+        ...(raw.toolName === "edit" ? { args: raw.args ?? null } : {}),
       };
     case "tool_execution_update":
       return {
@@ -191,6 +192,12 @@ function pickUsage(usage) {
 function extractToolError(result) {
   if (typeof result === "string") return truncate(result, 300);
   if (typeof result === "object" && result !== null) {
+    if (Array.isArray(result.content)) {
+      const text = result.content.find(
+        (part) => part?.type === "text" && typeof part.text === "string",
+      )?.text;
+      if (text) return truncate(text, 1_000);
+    }
     const details = result.details;
     if (typeof details === "string") return truncate(details, 300);
     if (typeof details === "object" && details !== null) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Make mechanical structured-edit defaults optional and normalize bounded JSON-string array encodings before strict validation.
+- Explain full-range read authorization in the tool contract and return exact unread ranges after a rejected edit.
+- Preserve private failed-edit diagnostics in benchmark runs while keeping published bundles sanitized.
+
 ## 0.1.0
 
 - Add coordinated tagged local-text reads and strict hashline edits.

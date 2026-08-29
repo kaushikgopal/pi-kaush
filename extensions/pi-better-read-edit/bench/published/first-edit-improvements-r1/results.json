@@ -1,0 +1,1157 @@
+{
+  "arms": [
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 267,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 4135,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2384,
+          "output": 252,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6771
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 6129
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 422,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 4423,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 1788,
+          "output": 331,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6542
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 1,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 1
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 6237
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 287,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 8025,
+          "output": 408,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 8433
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5434
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 254,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 5958,
+          "output": 422,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6380
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5520
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 287,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 3126,
+          "cacheWrite": 1828,
+          "costTotal": 0,
+          "input": 9,
+          "output": 225,
+          "reasoning": 12,
+          "source": "summed",
+          "total": 5188
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4752
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 254,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 1092,
+          "cacheWrite": 1263,
+          "costTotal": 0,
+          "input": 993,
+          "output": 239,
+          "reasoning": 14,
+          "source": "summed",
+          "total": 3587
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 6786
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 593,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 344,
+        "tokens": {
+          "cacheRead": 4444,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2978,
+          "output": 585,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 8007
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 7603
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 198,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 2837,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 1705,
+          "output": 305,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4847
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4733
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 374,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 8356,
+          "output": 488,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 8844
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 1,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 1
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 7640
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 131,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 7908,
+          "output": 294,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 8202
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5441
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 20559,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 181,
+        "tokens": {
+          "cacheRead": 14088,
+          "cacheWrite": 20468,
+          "costTotal": 0,
+          "input": 991,
+          "output": 10063,
+          "reasoning": 380,
+          "source": "summed",
+          "total": 45610
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 4,
+          "total": 5
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 4
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 56496
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 105,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 84,
+        "tokens": {
+          "cacheRead": 14936,
+          "cacheWrite": 11968,
+          "costTotal": 0,
+          "input": 12,
+          "output": 194,
+          "reasoning": 60,
+          "source": "summed",
+          "total": 27110
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 7426
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 203,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 1097,
+          "cacheWrite": 1260,
+          "costTotal": 0,
+          "input": 993,
+          "output": 202,
+          "reasoning": 39,
+          "source": "summed",
+          "total": 3552
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4096
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 131,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 41,
+        "tokens": {
+          "cacheRead": 3144,
+          "cacheWrite": 1769,
+          "costTotal": 0,
+          "input": 9,
+          "output": 130,
+          "reasoning": 8,
+          "source": "summed",
+          "total": 5052
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 3532
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 20559,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 305,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 97403,
+          "output": 10666,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 108069
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 7,
+          "total": 8
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 7
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 46810
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 210,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 126,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 43751,
+          "output": 812,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 44563
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 3,
+          "total": 5
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 3
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 13232
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 267,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 7900,
+          "output": 356,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 8256
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5799
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 286,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 5689,
+          "output": 308,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 5997
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-anthropic/claude-haiku-4-5@20251001",
+      "outcome": "completed",
+      "reported": {
+        "model": "claude-haiku-4-5@20251001",
+        "provider": "instacart-anthropic"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5189
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 129,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 36,
+        "tokens": {
+          "cacheRead": 4520,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 1863,
+          "output": 343,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6726
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 6793
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 131,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 2164,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4347,
+          "output": 211,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6722
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 6115
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 267,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 3087,
+          "cacheWrite": 1773,
+          "costTotal": 0,
+          "input": 9,
+          "output": 162,
+          "reasoning": 14,
+          "source": "summed",
+          "total": 5031
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 6825
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 278,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 1050,
+          "cacheWrite": 1152,
+          "costTotal": 0,
+          "input": 978,
+          "output": 134,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 3314
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "instacart-openai/gpt-5.6-luna",
+      "outcome": "completed",
+      "reported": {
+        "model": "gpt-5.6-luna",
+        "provider": "instacart-openai"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4970
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 20717,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 113,
+        "tokens": {
+          "cacheRead": 87649,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 36505,
+          "output": 10156,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 134310
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 3,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 3
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 55956
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 105,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 114,
+        "tokens": {
+          "cacheRead": 64044,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 60726,
+          "output": 1564,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 126334
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 3,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 3
+        }
+      },
+      "model": "open-weights/deepseek-v4-flash-0731-priority",
+      "outcome": "completed",
+      "reported": {
+        "model": "deepseek-v4-flash-0731-priority",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "off",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 21695
+    }
+  ],
+  "schema": "pi-better-read-edit-bench/v1"
+}
