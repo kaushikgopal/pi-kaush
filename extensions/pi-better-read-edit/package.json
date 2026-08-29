@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-better-read-edit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Coordinated tagged read and context-efficient hashline edit tools for Pi.",
   "license": "MIT",
   "author": "Kaushik Gopal",
