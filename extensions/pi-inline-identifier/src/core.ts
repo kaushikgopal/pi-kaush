@@ -255,9 +255,14 @@ function createAutocompleteProvider(
         }
         if (!match) continue;
 
+        const query = match.query.toLowerCase();
+        const startsWithQuery = (name: string) =>
+          name.toLowerCase().startsWith(query);
         const items: AutocompleteItem[] = definitionsFor(feature, ctx)
-          .filter((definition) =>
-            definition.name.toLowerCase().startsWith(match.query.toLowerCase()),
+          .filter((definition) => definition.name.toLowerCase().includes(query))
+          .sort(
+            (a, b) =>
+              Number(startsWithQuery(b.name)) - Number(startsWithQuery(a.name)),
           )
           .slice(0, MAX_AUTOCOMPLETE_ITEMS)
           .map((definition) => ({

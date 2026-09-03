@@ -1,5 +1,9 @@
 # Changelog
 
+- Match autocomplete queries anywhere in skill, agent, and prompt names,
+  ranking exact-prefix matches first, so `/pi-ext` finds `/publish-pi-ext`
+  and `&view` finds `&reviewer`.
+
 ## Unreleased
 
 - Source `$skill`/`/prompt`/`&agent` identifier colors from theme tokens

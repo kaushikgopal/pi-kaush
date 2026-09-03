@@ -658,6 +658,58 @@ describe("shared TUI behavior", () => {
     harness.shutdown();
   });
 
+  test("matches the query anywhere in skill and agent names too", async () => {
+    const skill: Command = {
+      name: "skill:pi-ext-review",
+      source: "skill",
+      sourceInfo: sourceInfo("/skills/pi-ext-review/SKILL.md"),
+    };
+    writeAgent("reviewer");
+    const harness = createHarness(["skill", "agent"], [skill]);
+    harness.start();
+
+    const provider = harness.autocompleteProvider();
+    for (const [line, token] of [
+      ["Then use $ext-review", "$pi-ext-review"],
+      ["Then use &view", "&reviewer"],
+    ] as const) {
+      const suggestions = await provider.getSuggestions(
+        [line],
+        0,
+        line.length,
+        {
+          signal: new AbortController().signal,
+        },
+      );
+      expect(suggestions).toMatchObject({ items: [{ value: token }] });
+      expect(harness.currentAutocomplete.getSuggestions).not.toHaveBeenCalled();
+    }
+    harness.shutdown();
+  });
+
+  test("matches the query anywhere in the name, prefix matches first", async () => {
+    const harness = createHarness(
+      ["prompt"],
+      [
+        writePrompt("publish-pi-ext", "Publish carefully."),
+        writePrompt("pi-ext-review", "Review carefully."),
+      ],
+    );
+    harness.start();
+
+    const provider = harness.autocompleteProvider();
+    const line = "Then use /pi-ext";
+    const suggestions = await provider.getSuggestions([line], 0, line.length, {
+      signal: new AbortController().signal,
+    });
+    expect(suggestions).toMatchObject({
+      prefix: "/pi-ext",
+      items: [{ value: "/pi-ext-review" }, { value: "/publish-pi-ext" }],
+    });
+    expect(harness.currentAutocomplete.getSuggestions).not.toHaveBeenCalled();
+    harness.shutdown();
+  });
+
   test("uses one provider and one render patch for all enabled features", async () => {
     writeAgent("reviewer");
     const prompt = writePrompt("pi-prompt-review", "Review carefully.");
