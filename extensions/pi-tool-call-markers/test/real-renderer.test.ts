@@ -40,12 +40,15 @@ const extensionTheme = {
   bg: (_color: string, text: string) => text,
   getBgAnsi: (color: string) =>
     color === "userMessageBg" ? SURFACE_BG : "\x1b[40m",
-  // The Thought-label color now comes from the mdHeading token; cobalt2's
-  // value (#ffb86c) keeps the existing assertions stable.
+  // The live Thought label samples the thinking-level token; cobalt2's
+  // mdHeading value (#ffb86c) keeps that assertion stable, while muted
+  // gets a distinct gray for the settled label.
   getFgAnsi: (color: string) =>
     color === "mdHeading" || color === "thinkingMedium"
       ? "\x1b[38;2;255;184;108m"
-      : "\x1b[39m",
+      : color === "muted"
+        ? "\x1b[38;2;110;118;129m"
+        : "\x1b[39m",
 };
 
 function install(): void {
@@ -283,7 +286,7 @@ afterEach(() => {
 });
 
 describe("tool-call-markers with Pi's real renderer", () => {
-  test("renders hidden thought labels non-italic in the experiment color", () => {
+  test("renders settled thought labels non-italic in the muted tone", () => {
     const message = (stopReason?: string) =>
       ({
         role: "assistant",
@@ -306,8 +309,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
       .find((candidate) => candidate.includes("Thought"));
     expect(line).toBeDefined();
     // The label Text node is swapped for a self-styled one: italic-off plus
-    // the experiment color, with no italic-on anywhere on the line.
-    expect(line).toContain("\x1b[23m\x1b[38;2;255;184;108m+ Thought");
+    // the muted tool-row color, with no italic-on anywhere on the line.
+    expect(line).toContain("\x1b[23m\x1b[38;2;110;118;129m+ Thought");
     expect(line).not.toContain("\x1b[3m");
   });
 

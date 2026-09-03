@@ -68,15 +68,18 @@ function startSession(theme?: unknown): void {
   }
 }
 
-// mdHeading resolves to cobalt2's orange (#ffb86c) in truecolor; the mock
-// hands back the ready sequence like a real Theme would.
+// mdHeading resolves to cobalt2's orange (#ffb86c) in truecolor and muted to
+// a distinct gray; the mock hands back the ready sequence like a real Theme
+// would.
 function mockTheme(colorMode = "truecolor"): unknown {
   return {
     getColorMode: () => colorMode,
     getFgAnsi: (color: string) =>
       color === "mdHeading" || color === "thinkingMedium"
         ? "\x1b[38;2;255;184;108m"
-        : "\x1b[39m",
+        : color === "muted"
+          ? "\x1b[38;2;110;118;129m"
+          : "\x1b[39m",
   };
 }
 
@@ -277,7 +280,7 @@ describe("thinking block merger", () => {
     }
   });
 
-  test("replaces label nodes with non-italic thinking-level-colored text", () => {
+  test("replaces label nodes: live level-colored, settled muted", () => {
     vi.useFakeTimers();
     startSession(mockTheme());
     const assistant = new MockAssistantMessageComponent();
@@ -294,8 +297,9 @@ describe("thinking block merger", () => {
     vi.setSystemTime(3_500);
     assistant.updateContent(thinkingMessage(), false);
     expect(assistant.hiddenThinkingLabel).toBe("+ Thought · 2.5s");
+    // Settled rows quiet down to the muted tool-call tone.
     expect(assistant.labelChild?.text).toBe(
-      "\x1b[23m\x1b[38;2;255;184;108m+ Thought · 2.5s\x1b[39m",
+      "\x1b[23m\x1b[38;2;110;118;129m+ Thought · 2.5s\x1b[39m",
     );
   });
 
@@ -328,14 +332,21 @@ describe("thinking block merger", () => {
     expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
   });
 
-  test("tints the label with the level's theme token", () => {
+  test("tints the live label with the level token and settles muted", () => {
     startSession({
       getColorMode: () => "truecolor",
       getFgAnsi: (color: string) =>
-        color === "thinkingMedium" ? "\x1b[38;5;67m" : "\x1b[39m",
+        color === "thinkingMedium"
+          ? "\x1b[38;5;67m"
+          : color === "muted"
+            ? "\x1b[38;5;244m"
+            : "\x1b[39m",
     });
+    expect(visibleThoughtLabel("⠋ Thinking…")).toBe(
+      "\x1b[23m\x1b[38;5;67m⠋ Thinking…\x1b[39m",
+    );
     expect(visibleThoughtLabel("+ Thought")).toBe(
-      "\x1b[23m\x1b[38;5;67m+ Thought\x1b[39m",
+      "\x1b[23m\x1b[38;5;244m+ Thought\x1b[39m",
     );
   });
 

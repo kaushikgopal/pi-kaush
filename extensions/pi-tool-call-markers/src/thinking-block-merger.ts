@@ -6,13 +6,16 @@ const THINKING_GROUPING_PATCHED = Symbol.for("kg.pi.thinkingGrouping.v2");
 const PI_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS = 80;
 
-// Visual experiment for the settled "+ Thought" label. "inherit" keeps Pi's
-// native styling (italic + thinkingText); "mdheading" rides the theme's
-// mdHeading token; the default tints the label with the session's active
-// thinking-level color (thinkingOff…thinkingMax), so the collapsed label
-// quietly advertises the level Pi is reasoning at. Only the collapsed label
-// is restyled — the expanded thinking block keeps Pi's thinkingText. The env
-// var overrides the default so variants can be compared without republishing.
+// Visual treatment for the collapsed thinking label. The live "Thinking…"
+// spinner tints with the session's active thinking-level color
+// (thinkingOff…thinkingMax), so progress reads as activity; the settled
+// "+ Thought" row drops to the muted token collapsed tool calls use, so
+// finished reasoning stops advertising the level. "inherit" keeps Pi's
+// native styling (italic + thinkingText) for both states, and "mdheading"
+// rides the theme's mdHeading token for both. The env var overrides the
+// default so variants can be compared without republishing. Only the
+// collapsed label is restyled — the expanded thinking block keeps Pi's
+// thinkingText.
 const THOUGHT_LABEL_COLOR_ENV = "PI_TOOL_CALL_MARKERS_THOUGHT_COLOR";
 type ThoughtLabelColor = "inherit" | "level" | "mdheading";
 const DEFAULT_THOUGHT_LABEL_COLOR: ThoughtLabelColor = "level";
@@ -44,35 +47,48 @@ type ThemeDetail = {
 let activeTheme: ThemeDetail | undefined;
 let activeLevel: (() => string) | undefined;
 
-let thoughtLabelPrefix = "";
-let thoughtLabelSuffix = "";
+type LabelStyle = { prefix: string; suffix: string };
+let liveLabelStyle: LabelStyle | undefined;
+let settledLabelStyle: LabelStyle | undefined;
 
-function updateThoughtLabelStyle(): void {
-  thoughtLabelPrefix = "";
-  thoughtLabelSuffix = "";
-  const choice = thoughtLabelColorChoice();
-  if (choice === "inherit" || !activeTheme) return;
-
-  let ansi: string | undefined;
-  const token =
-    choice === "mdheading"
-      ? "mdHeading"
-      : (LEVEL_TOKEN[activeLevel?.() ?? "off"] ?? "thinkingOff");
-  ansi = activeTheme.getFgAnsi?.(token);
-  if (!ansi) return;
-
+function styledWith(token: string): LabelStyle | undefined {
+  const ansi = activeTheme?.getFgAnsi?.(token);
+  if (!ansi) return undefined;
   // The styled label replaces Pi's italicized Text node wholesale (see
   // restyleHiddenThinkingLabel). The leading italic-off still matters: the
   // TUI's diff renderer can skip bytes shared with the previously drawn
   // italic line, leaving the terminal in italic state otherwise.
-  thoughtLabelPrefix = `\x1b[23m${ansi}`;
-  thoughtLabelSuffix = "\x1b[39m";
+  return { prefix: `\x1b[23m${ansi}`, suffix: "\x1b[39m" };
+}
+
+function updateThoughtLabelStyle(): void {
+  liveLabelStyle = undefined;
+  settledLabelStyle = undefined;
+  const choice = thoughtLabelColorChoice();
+  if (choice === "inherit" || !activeTheme) return;
+
+  const token =
+    choice === "mdheading"
+      ? "mdHeading"
+      : (LEVEL_TOKEN[activeLevel?.() ?? "off"] ?? "thinkingOff");
+  liveLabelStyle = styledWith(token);
+  settledLabelStyle =
+    choice === "mdheading" ? liveLabelStyle : styledWith("muted");
+}
+
+// The settled label is the finalized "+ Thought" row; every other label is
+// the live spinner.
+function isSettledThoughtLabel(label: string): boolean {
+  return label.startsWith("+ Thought");
 }
 
 export function visibleThoughtLabel(label: string): string {
-  if (!thoughtLabelPrefix) return label;
+  const style = isSettledThoughtLabel(label)
+    ? settledLabelStyle
+    : liveLabelStyle;
+  if (!style) return label;
   const raw = label.replace(/\x1b\[[0-9;]*m/g, "");
-  return `${thoughtLabelPrefix}${raw}${thoughtLabelSuffix}`;
+  return `${style.prefix}${raw}${style.suffix}`;
 }
 
 type AssistantMessageLike = {
@@ -98,7 +114,6 @@ type TextLikeChild = {
 // terminal. Swap the node's text for a self-contained styled version after
 // each native render pass instead.
 function restyleHiddenThinkingLabel(row: AssistantMessageRow): void {
-  if (!thoughtLabelPrefix) return;
   if (
     row.hideThinkingBlock !== true ||
     typeof row.hiddenThinkingLabel !== "string"
@@ -108,6 +123,7 @@ function restyleHiddenThinkingLabel(row: AssistantMessageRow): void {
   const label = row.hiddenThinkingLabel;
   const children = row.contentContainer?.children;
   if (!Array.isArray(children)) return;
+  if (!liveLabelStyle && !settledLabelStyle) return;
   const styled = visibleThoughtLabel(label);
   for (const child of children) {
     const textChild = child as TextLikeChild | undefined;
@@ -419,7 +435,7 @@ export default function (pi: ExtensionAPI) {
     if (patch && !uninstallThinkingGroupingPatch(patch)) return;
     activeTheme = undefined;
     activeLevel = undefined;
-    thoughtLabelPrefix = "";
-    thoughtLabelSuffix = "";
+    liveLabelStyle = undefined;
+    settledLabelStyle = undefined;
   });
 }

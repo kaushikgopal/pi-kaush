@@ -13,10 +13,11 @@
 - Adopt Pi's native content-color split in collapsed rows: tool names ride
   `toolTitle` and call content/outcomes ride `toolOutput` (structural
   chrome stays muted; failed rows stay uniformly error).
-- Tint the collapsed "+ Thought" label with the session's active
-  thinking-level token (thinkingOff…thinkingMax), re-tinting on
+- Quiet the settled "+ Thought" label to the muted tone collapsed tool
+  calls use; only the live "⠋ Thinking…" spinner keeps the session's active
+  thinking-level tint (thinkingOff…thinkingMax), re-tinting on
   thinking_level_select; the expanded thinking block is untouched. The
-  PI_TOOL_CALL_MARKERS_THOUGHT_COLOR values are now `level` (default),
+  PI_TOOL_CALL_MARKERS_THOUGHT_COLOR values are `level` (default),
   `mdheading`, and `inherit`; the midpoint `gray` variant and its RGB
   color math are gone.
 - Paint user-run `!` bash block surfaces with the theme's
