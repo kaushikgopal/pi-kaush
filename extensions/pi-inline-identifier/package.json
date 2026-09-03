@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-inline-identifier",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Highlight and route inline Pi skill, agent, and prompt identifiers.",
   "license": "MIT",
   "author": "Kaushik Gopal",
