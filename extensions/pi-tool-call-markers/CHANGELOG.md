@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Color collapsed rows (tool calls, `+ Thought`, subagents) from the
+  theme's `syntaxComment` token — which ships with every theme — instead of
+  the louder muted/toolTitle/toolOutput split. The bolded tool name and the
+  call content share the single tone, so collapsed blocks read as one
+  muted unit under any theme without per-theme tuning. Failures stay
+  error-colored and live spinners keep their thinking-level tint.
+- Add optional `collapsedToolCall` and `collapsedThinkingCall` theme color
+  tokens to override each collapsed kind independently; themes without
+  them are unchanged.
+- Fix settled "+ Thought" labels keeping stale colors after a mid-session
+  theme switch: label styles now recompute whenever the theme object
+  changes instead of only on session start and thinking-level selects.
 - Add `/toggle-info`: hide tool calls and thinking entirely, or restore them
   collapsed. Execution rows (including user-run `!` blocks) are lifted out of
   the render pass via the shared chat-container hook; thinking blocks are

@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
 import { infoVisibilityHidden } from "./info-visibility-state.ts";
+import { collapsedThinkingAnsi } from "./muted.ts";
 
 const THINKING_GROUPING_PATCHED = Symbol.for("kg.pi.thinkingGrouping.v2");
 const PI_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -44,15 +45,22 @@ type ThemeDetail = {
   getColorMode?(): "truecolor" | "256color" | string;
 };
 
-let activeTheme: ThemeDetail | undefined;
+// Live reference into the UI context: reading .theme per check keeps label
+// styles current across mid-session theme switches, which fire no event.
+let themeProvider: (() => ThemeDetail | undefined) | undefined;
 let activeLevel: (() => string) | undefined;
+// Theme object the current label styles were computed from.
+let stylesTheme: ThemeDetail | undefined;
 
 type LabelStyle = { prefix: string; suffix: string };
 let liveLabelStyle: LabelStyle | undefined;
 let settledLabelStyle: LabelStyle | undefined;
 
-function styledWith(token: string): LabelStyle | undefined {
-  const ansi = activeTheme?.getFgAnsi?.(token);
+function styledWith(
+  token: string,
+  theme: ThemeDetail | undefined = themeProvider?.(),
+): LabelStyle | undefined {
+  const ansi = theme?.getFgAnsi?.(token);
   if (!ansi) return undefined;
   // The styled label replaces Pi's italicized Text node wholesale (see
   // restyleHiddenThinkingLabel). The leading italic-off still matters: the
@@ -61,19 +69,36 @@ function styledWith(token: string): LabelStyle | undefined {
   return { prefix: `\x1b[23m${ansi}`, suffix: "\x1b[39m" };
 }
 
+// The theme's collapsedThinkingCall override when defined, else its comment
+// color, else the muted token.
+function settledMutedStyle(
+  theme: ThemeDetail | undefined,
+): LabelStyle | undefined {
+  const ansi = theme ? collapsedThinkingAnsi(theme) : null;
+  if (ansi) return { prefix: `\x1b[23m${ansi}`, suffix: "\x1b[39m" };
+  return styledWith("muted", theme);
+}
 function updateThoughtLabelStyle(): void {
   liveLabelStyle = undefined;
   settledLabelStyle = undefined;
+  const theme = themeProvider?.();
+  stylesTheme = theme;
   const choice = thoughtLabelColorChoice();
-  if (choice === "inherit" || !activeTheme) return;
+  if (choice === "inherit" || !theme) return;
 
   const token =
     choice === "mdheading"
       ? "mdHeading"
       : (LEVEL_TOKEN[activeLevel?.() ?? "off"] ?? "thinkingOff");
-  liveLabelStyle = styledWith(token);
+  liveLabelStyle = styledWith(token, theme);
   settledLabelStyle =
-    choice === "mdheading" ? liveLabelStyle : styledWith("muted");
+    choice === "mdheading" ? liveLabelStyle : settledMutedStyle(theme);
+}
+
+// Recompute label styles whenever the theme object has swapped (theme switch
+// or /reload); those transitions fire no extension event.
+function ensureLabelStyles(): void {
+  if (themeProvider?.() !== stylesTheme) updateThoughtLabelStyle();
 }
 
 // The settled label is the finalized "+ Thought" row; every other label is
@@ -83,6 +108,7 @@ function isSettledThoughtLabel(label: string): boolean {
 }
 
 export function visibleThoughtLabel(label: string): string {
+  ensureLabelStyles();
   const style = isSettledThoughtLabel(label)
     ? settledLabelStyle
     : liveLabelStyle;
@@ -418,7 +444,8 @@ export default function (pi: ExtensionAPI) {
     } catch {
       // Best effort; stale rows would only linger until the process exits.
     }
-    activeTheme = ctx.ui.theme as unknown as ThemeDetail;
+    const uiCtx = ctx;
+    themeProvider = () => uiCtx.ui?.theme as unknown as ThemeDetail;
     activeLevel = () => {
       try {
         return pi.getThinkingLevel();
@@ -433,8 +460,9 @@ export default function (pi: ExtensionAPI) {
     if (released) return;
     released = true;
     if (patch && !uninstallThinkingGroupingPatch(patch)) return;
-    activeTheme = undefined;
+    themeProvider = undefined;
     activeLevel = undefined;
+    stylesTheme = undefined;
     liveLabelStyle = undefined;
     settledLabelStyle = undefined;
   });

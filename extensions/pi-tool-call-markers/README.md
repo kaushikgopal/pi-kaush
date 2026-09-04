@@ -100,6 +100,21 @@ pi
 
 `0`, `false`, `no`, and `off` disable parallel grouping. `1`, `true`, `yes`, and `on` enable it. The value is read when the extension loads.
 
+### Collapsed-row colors
+
+Collapsed rows (tool calls, `+ Thought`, subagents) default to the theme's `syntaxComment` color — it ships with every Pi theme and reads as a muted tone — with the bolded tool name and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
+
+A theme can override each collapsed kind independently with optional color tokens:
+
+```json
+{
+  "colors": {
+    "collapsedToolCall": "#6272a4",
+    "collapsedThinkingCall": "#6272a4"
+  }
+}
+```
+
 ## Compatibility and fallback policy
 
 **Compatible Pi version:** `@earendil-works/pi-coding-agent` and `@earendil-works/pi-tui` `>=0.80.6`.

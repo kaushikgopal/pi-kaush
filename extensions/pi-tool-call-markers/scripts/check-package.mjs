@@ -20,6 +20,7 @@ const expected = [
   "src/index.ts",
   "src/info-visibility-state.ts",
   "src/info-visibility.ts",
+  "src/muted.ts",
   "src/thinking-block-merger.ts",
 ].sort();
 

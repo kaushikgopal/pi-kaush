@@ -16,6 +16,7 @@ import {
 } from "./bash-block.ts";
 import { runChatContainerHooks } from "./container-hooks.ts";
 import { installInfoVisibility } from "./info-visibility.ts";
+import { fgCollapsed } from "./muted.ts";
 
 const OUTER_INSET = 2;
 const GROUP_MARKER = "%";
@@ -29,6 +30,8 @@ const COLLAPSE_PARALLEL_ENV = "PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL";
 type ThemeLike = {
   bold(text: string): string;
   fg(color: string, text: string): string;
+  getFgAnsi?(color: string): string;
+  getColorMode?(): "truecolor" | "256color" | string;
 };
 
 type ComponentLike = {
@@ -252,7 +255,7 @@ function capFailureTail(tail: string, cap: number, theme: ThemeLike): string {
 }
 
 function renderedGenericOutcome(theme: ThemeLike): string {
-  return theme.fg("toolOutput", "→ done");
+  return fgCollapsed(theme, "toolOutput", "→ done");
 }
 
 // The MCP adapter stashes its call's first line in renderer state before
@@ -637,7 +640,7 @@ function renderedEditDiffLines(
   for (const line of raw.slice(0, MAX_EDIT_DIFF_LINES)) {
     const clean = sanitizeInline(line).trimEnd();
     if (clean.trim() === "...") {
-      lines.push(theme.fg("muted", "  ..."));
+      lines.push(fgCollapsed(theme, "muted", "  ..."));
       continue;
     }
     const match = EDIT_DIFF_LINE_RE.exec(clean);
@@ -652,7 +655,11 @@ function renderedEditDiffLines(
   }
   if (raw.length > MAX_EDIT_DIFF_LINES) {
     lines.push(
-      theme.fg("muted", `  ... +${raw.length - MAX_EDIT_DIFF_LINES} more`),
+      fgCollapsed(
+        theme,
+        "muted",
+        `  ... +${raw.length - MAX_EDIT_DIFF_LINES} more`,
+      ),
     );
   }
   return lines;
@@ -706,7 +713,7 @@ function renderedOutcome(
 ): string | undefined {
   const summary = outcomeSummary(row);
   if (!summary) return undefined;
-  return theme.fg("toolOutput", `→ ${summary}`);
+  return fgCollapsed(theme, "toolOutput", `→ ${summary}`);
 }
 
 function renderedGroupedOutcome(
@@ -835,10 +842,10 @@ function renderedCallSummary(
           .map(trimRenderedLine)
           .filter(hasVisibleContent);
         if (visibleLines.length > rendered.length)
-          continuations.push(theme.fg("muted", "…"));
+          continuations.push(fgCollapsed(theme, "muted", "…"));
         const compact = [firstSummary, ...continuations]
           .filter(hasVisibleContent)
-          .join(theme.fg("muted", " · "));
+          .join(fgCollapsed(theme, "muted", " · "));
         if (hasVisibleContent(compact)) return compact;
       }
     }
@@ -846,8 +853,8 @@ function renderedCallSummary(
 
   const fallback = compactArgs(row.args);
   return fallback
-    ? theme.fg("toolOutput", fallback)
-    : theme.fg("muted", "(no arguments)");
+    ? fgCollapsed(theme, "toolOutput", fallback)
+    : fgCollapsed(theme, "muted", "(no arguments)");
 }
 
 function styledCallLabel(
@@ -857,15 +864,14 @@ function styledCallLabel(
 ): string {
   const plain = sanitizeInline(stripAnsi(label)).trim();
   const match = /^(\S+)(.*)$/s.exec(plain);
-  if (!match) return theme.fg(color, plain);
+  if (!match) return fgCollapsed(theme, color, plain);
   const rest = match[2] ?? "";
-  // Failed rows stay uniformly error-colored; settled rows use Pi's native
-  // split — toolTitle for the name, toolOutput for the call content.
-  const nameColor = color === "muted" ? "toolTitle" : color;
-  const restColor = color === "muted" ? "toolOutput" : color;
+  // The colon joins the bolded name to its content. Failed rows stay
+  // uniformly error-colored; settled rows use the collapsed mute — same
+  // color for the bolded name and the call content.
   return (
-    theme.fg(nameColor, theme.bold(match[1] ?? "")) +
-    (rest ? theme.fg(restColor, `:${rest}`) : "")
+    fgCollapsed(theme, color, match[1] ?? "", true) +
+    (rest ? fgCollapsed(theme, color, `:${rest}`) : "")
   );
 }
 
@@ -904,7 +910,7 @@ function collapsedOutcome(
   }
   if (row.getRenderShell?.() === "self") {
     const editStat = renderedEditDiffStat(row);
-    if (editStat) return theme.fg("toolOutput", `→ ${editStat}`);
+    if (editStat) return fgCollapsed(theme, "toolOutput", `→ ${editStat}`);
     return renderedGenericOutcome(theme);
   }
   return renderedOutcome(row, theme);
@@ -917,18 +923,19 @@ function collapsedHeadline(
 ): string {
   // Failed rows render entirely in error so the row reads as the one that
   // failed, not just its outcome tail. Only the tool name is bold.
-  const color = rowHasFailed(row) ? "error" : "muted";
-  const marker = `${theme.fg(
-    color,
+  const tone = rowHasFailed(row) ? "error" : "muted";
+  const marker = `${fgCollapsed(
+    theme,
+    tone,
     row.toolName === "subagent" ? SUBAGENT_MARKER : GROUP_MARKER,
   )} `;
   const budget = Math.max(1, width - visibleWidth(marker));
-  const label = collapsedCallLabel(row, budget, theme, color);
+  const label = collapsedCallLabel(row, budget, theme, tone);
   const outcome = collapsedOutcome(row, budget, theme);
   // The truncation suffix inherits the row tone; pi-tui's truncation resets
   // around a plain suffix, which would render it in the terminal default
   // foreground instead of the row color.
-  const suffix = theme.fg(color, "…");
+  const suffix = fgCollapsed(theme, tone, "…");
   return (
     marker +
     (outcome
@@ -1099,20 +1106,25 @@ function renderSubagentPlan(
   const failed = rowHasFailed(row);
   const color = failed ? "error" : "muted";
   const nameColor = failed ? "error" : "accent";
-  const suffix = theme.fg(color, "…");
+  const suffix = fgCollapsed(theme, color, "…");
   const displayNames = scrapeSubagentDisplayNames(row);
   // Agent/profile/task values are model-supplied; sanitize them like every
   // other collapsed-row text so control bytes cannot reach the terminal.
   const displayOf = (agent: string) =>
-    theme.fg(nameColor, displayNames.get(agent) ?? sanitizeInline(agent));
+    fgCollapsed(
+      theme,
+      nameColor,
+      displayNames.get(agent) ?? sanitizeInline(agent),
+    );
   const detailColor = failed ? "error" : "toolOutput";
   const detailOf = (step: SubagentStep) =>
-    theme.fg(
+    fgCollapsed(
+      theme,
       detailColor,
       `${step.profile ? ` [${sanitizeInline(step.profile)}]` : ""} ${subagentStepPreview(step.task)}`,
     );
 
-  const marker = `${theme.fg(color, theme.bold(SUBAGENT_MARKER))} `;
+  const marker = `${fgCollapsed(theme, color, SUBAGENT_MARKER, true)} `;
   const budget = Math.max(1, width - visibleWidth(marker));
   const progress = subagentProgressText(row);
   const outcome = failed
@@ -1120,7 +1132,11 @@ function renderSubagentPlan(
     : isLiveRow(row)
       ? theme.fg("warning", progress ? `→ ${progress}` : "…")
       : row.result
-        ? theme.fg("toolOutput", progress ? `→ ${progress}` : "→ done")
+        ? fgCollapsed(
+            theme,
+            "toolOutput",
+            progress ? `→ ${progress}` : "→ done",
+          )
         : theme.fg("warning", "…");
   const headline = (label: string) =>
     marker +
@@ -1132,7 +1148,7 @@ function renderSubagentPlan(
     const step = plan.steps[0]!;
     return [
       headline(
-        theme.fg(failed ? "error" : "toolTitle", theme.bold("subagent")) +
+        fgCollapsed(theme, failed ? "error" : "toolTitle", "subagent", true) +
           " " +
           displayOf(step.agent) +
           detailOf(step),
@@ -1146,22 +1162,24 @@ function renderSubagentPlan(
       : `parallel (${plan.steps.length} tasks)`;
   const lines = [
     headline(
-      theme.fg(failed ? "error" : "toolTitle", theme.bold("subagent")) +
+      fgCollapsed(theme, failed ? "error" : "toolTitle", "subagent", true) +
         " " +
-        theme.fg(failed ? "error" : "toolOutput", kindLabel) +
-        theme.fg(failed ? "error" : "toolOutput", ` [${plan.scope}]`),
+        fgCollapsed(theme, failed ? "error" : "toolOutput", kindLabel) +
+        fgCollapsed(theme, failed ? "error" : "toolOutput", ` [${plan.scope}]`),
     ),
   ];
   const shown = plan.steps.slice(0, 3);
   for (let index = 0; index < shown.length; index++) {
     const step = shown[index]!;
     const number =
-      plan.kind === "chain" ? `${theme.fg(color, `${index + 1}.`)} ` : "";
+      plan.kind === "chain"
+        ? `${fgCollapsed(theme, color, `${index + 1}.`)} `
+        : "";
     lines.push(`  ${number}${displayOf(step.agent)}${detailOf(step)}`);
   }
   if (plan.steps.length > shown.length) {
     lines.push(
-      `  ${theme.fg(color, `... +${plan.steps.length - shown.length} more`)}`,
+      `  ${fgCollapsed(theme, color, `... +${plan.steps.length - shown.length} more`)}`,
     );
   }
   return lines;
@@ -1182,7 +1200,7 @@ function imageResultLines(
       .join("\n");
     lines.push(
       ...wrapTextWithAnsi(
-        theme.fg("toolOutput", sanitized),
+        fgCollapsed(theme, "toolOutput", sanitized),
         Math.max(1, width),
       ),
     );
@@ -1238,7 +1256,7 @@ function groupedChildLabel(
     Math.max(0, visibleWidth(label) - prefixWidth),
     true,
   );
-  return child || theme.fg(color, "(no arguments)");
+  return child || fgCollapsed(theme, color, "(no arguments)");
 }
 
 function renderGroupedCallLines(
@@ -1252,17 +1270,17 @@ function renderGroupedCallLines(
     const toolName = row.toolName ?? "tool";
     if (toolName !== previousToolName) {
       lines.push(
-        `${theme.fg("muted", GROUP_MARKER)} ${theme.fg("toolTitle", theme.bold(toolName))}`,
+        `${fgCollapsed(theme, "muted", GROUP_MARKER)} ${fgCollapsed(theme, "toolTitle", toolName, true)}`,
       );
       previousToolName = toolName;
     }
 
     const color = rowHasFailed(row) ? "error" : "muted";
-    const prefix = `  ${theme.fg(color, "•")} `;
+    const prefix = `  ${fgCollapsed(theme, color, "•")} `;
     const budget = Math.max(1, width - visibleWidth(prefix));
     const label = groupedChildLabel(row, budget, theme, color);
     const outcome = collapsedOutcome(row, budget, theme);
-    const suffix = theme.fg(color, "…");
+    const suffix = fgCollapsed(theme, color, "…");
     lines.push(
       prefix +
         (outcome
@@ -1674,6 +1692,12 @@ export default function (pi: ExtensionAPI) {
   const bashPatch = installBashBlockPatch();
   installInfoVisibility(pi);
   let released = false;
+
+  pi.on("session_start", (_event, ctx) => {
+    if (patch) patch.theme = ctx.ui.theme;
+    if (bashPatch) bashPatch.theme = ctx.ui.theme;
+    ctx.ui.setToolsExpanded(false);
+  });
 
   pi.on("session_start", (_event, ctx) => {
     if (patch) patch.theme = ctx.ui.theme;

@@ -70,16 +70,25 @@ function startSession(theme?: unknown): void {
 
 // mdHeading resolves to cobalt2's orange (#ffb86c) in truecolor and muted to
 // a distinct gray; the mock hands back the ready sequence like a real Theme
-// would.
+// would — including throwing on unknown tokens.
+function fgAnsiStrict(known: Record<string, string>, color: string): string {
+  const ansi = known[color];
+  if (ansi === undefined) throw new Error(`Unknown theme color: ${color}`);
+  return ansi;
+}
+
 function mockTheme(colorMode = "truecolor"): unknown {
   return {
     getColorMode: () => colorMode,
     getFgAnsi: (color: string) =>
-      color === "mdHeading" || color === "thinkingMedium"
-        ? "\x1b[38;2;255;184;108m"
-        : color === "muted"
-          ? "\x1b[38;2;110;118;129m"
-          : "\x1b[39m",
+      fgAnsiStrict(
+        {
+          mdHeading: "\x1b[38;2;255;184;108m",
+          thinkingMedium: "\x1b[38;2;255;184;108m",
+          muted: "\x1b[38;2;110;118;129m",
+        },
+        color,
+      ),
   };
 }
 
@@ -316,7 +325,7 @@ describe("thinking block merger", () => {
     startSession({
       getColorMode: () => "256color",
       getFgAnsi: (color: string) =>
-        color === "mdHeading" ? "\x1b[38;5;215m" : "\x1b[39m",
+        fgAnsiStrict({ mdHeading: "\x1b[38;5;215m" }, color),
     });
     expect(visibleThoughtLabel("+ Thought")).toBe(
       "\x1b[23m\x1b[38;5;215m+ Thought\x1b[39m",
@@ -336,11 +345,13 @@ describe("thinking block merger", () => {
     startSession({
       getColorMode: () => "truecolor",
       getFgAnsi: (color: string) =>
-        color === "thinkingMedium"
-          ? "\x1b[38;5;67m"
-          : color === "muted"
-            ? "\x1b[38;5;244m"
-            : "\x1b[39m",
+        fgAnsiStrict(
+          {
+            thinkingMedium: "\x1b[38;5;67m",
+            muted: "\x1b[38;5;244m",
+          },
+          color,
+        ),
     });
     expect(visibleThoughtLabel("⠋ Thinking…")).toBe(
       "\x1b[23m\x1b[38;5;67m⠋ Thinking…\x1b[39m",

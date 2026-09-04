@@ -44,12 +44,22 @@ const extensionTheme = {
   // mdHeading value (#ffb86c) keeps that assertion stable, while muted
   // gets a distinct gray for the settled label.
   getFgAnsi: (color: string) =>
-    color === "mdHeading" || color === "thinkingMedium"
-      ? "\x1b[38;2;255;184;108m"
-      : color === "muted"
-        ? "\x1b[38;2;110;118;129m"
-        : "\x1b[39m",
+    // Mirrors Pi's Theme: unknown tokens throw rather than fall back.
+    fgAnsiStrict(
+      {
+        mdHeading: "\x1b[38;2;255;184;108m",
+        thinkingMedium: "\x1b[38;2;255;184;108m",
+        muted: "\x1b[38;2;110;118;129m",
+      },
+      color,
+    ),
 };
+
+function fgAnsiStrict(known: Record<string, string>, color: string): string {
+  const ansi = known[color];
+  if (ansi === undefined) throw new Error(`Unknown theme color: ${color}`);
+  return ansi;
+}
 
 function install(): void {
   const api = {
