@@ -92,7 +92,7 @@ const PERSISTED_GRAPHQL_QUERY_MARKER =
 /** Return the persisted GraphQL operation name, if the body has one. */
 export const persistedGraphQLOperationName = (
   postData: string | undefined,
- ): string | null => {
+): string | null => {
   if (!postData) return null;
   try {
     const parsed: unknown = JSON.parse(postData);
@@ -123,7 +123,7 @@ export const persistedGraphQLOperationName = (
  */
 export const markPersistedGraphQLExchange = (
   exchange: CapturedExchange,
- ): CapturedExchange => {
+): CapturedExchange => {
   if (!persistedGraphQLOperationName(exchange.request.postData)) {
     return exchange;
   }
@@ -146,7 +146,7 @@ export const markPersistedGraphQLExchange = (
 /** Remove the generator-only persisted GraphQL marker from a body template. */
 export const restorePersistedGraphQLBody = (
   endpoint: SkillEndpoint,
- ): SkillEndpoint => {
+): SkillEndpoint => {
   const requestBody = endpoint.requestBody;
   if (!requestBody) return endpoint;
 

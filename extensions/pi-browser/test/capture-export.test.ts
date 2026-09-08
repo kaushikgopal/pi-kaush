@@ -75,18 +75,22 @@ describe("persisted GraphQL compatibility", () => {
 
   it("detects persisted operation names without treating ordinary JSON as GraphQL", () => {
     expect(persistedGraphQLOperationName(postData)).toBe("getEpisodeList");
-    expect(persistedGraphQLOperationName(JSON.stringify({ operationName: "x" }))).toBe(
-      null,
-    );
+    expect(
+      persistedGraphQLOperationName(JSON.stringify({ operationName: "x" })),
+    ).toBe(null);
   });
 
   it("keeps the original persisted body while giving the generator an operation key", () => {
     const generator = new SkillGenerator({ scrub: true, enablePreview: false });
-    const endpoint = generator.addExchange(markPersistedGraphQLExchange(captured));
+    const endpoint = generator.addExchange(
+      markPersistedGraphQLExchange(captured),
+    );
     expect(endpoint?.id).toBe("post-graphql-getEpisodeList");
     expect(endpoint?.requestBody?.template).toEqual(expect.any(String));
     const restored = restorePersistedGraphQLBody(endpoint!);
-    expect(JSON.parse(restored.requestBody?.template as string)).toEqual(JSON.parse(postData));
+    expect(JSON.parse(restored.requestBody?.template as string)).toEqual(
+      JSON.parse(postData),
+    );
   });
 });
 
