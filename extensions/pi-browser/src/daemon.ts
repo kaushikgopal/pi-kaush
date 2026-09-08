@@ -39,6 +39,10 @@ import {
   type ConsoleQuery,
   type NetworkQuery,
 } from "./core/capture.ts";
+import {
+  runCaptureExport,
+  type CaptureExportParams,
+} from "./core/capture-export.ts";
 import { discoverEndpoint, type DiscoveredEndpoint } from "./core/discovery.ts";
 import {
   executableFor,
@@ -476,6 +480,29 @@ const handle = async (
       const page = await getPage();
       await cdpFor(page);
       return queryConsole(page, params as unknown as ConsoleQuery);
+    }
+    case "captureExport": {
+      const p = params as unknown as CaptureExportParams;
+      let page: Page;
+      if (p.session !== undefined && p.session !== "") {
+        const rec = sessions.get(p.session);
+        if (!rec)
+          throw new Error(`no session "${p.session}" — create it first`);
+        const b = await getBrowser();
+        const target = await findTargetById(b, rec.targetId);
+        if (!target)
+          throw new Error(
+            `session "${p.session}" tab is gone (browser restarted or tab closed) — recreate the session`,
+          );
+        const sessionPage = await target.page();
+        if (!sessionPage)
+          throw new Error(`session "${p.session}" tab is not attachable`);
+        page = sessionPage;
+      } else {
+        page = await getPage();
+      }
+      await cdpFor(page);
+      return runCaptureExport(page, p);
     }
     case "runScript":
       return runScript(

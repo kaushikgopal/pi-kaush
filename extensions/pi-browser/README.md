@@ -27,3 +27,23 @@ is available through `/browser-profile`; inspect connection and pin state with
 Enable remote debugging in the running browser once:
 `helium://inspect/#remote-debugging` (or `chrome://inspect` for Chrome/Brave/Edge)
 → tick the checkbox → Allow. Tools connect lazily on first use.
+
+## Capture export (ApiTap)
+
+`pi-browser capture-export` turns the captured network traffic of a tab into
+ApiTap skill files signed with the machine's own key, plus encrypted auth in
+`$APITAP_DIR` (default `~/.apitap`):
+
+```
+pi-browser capture-export [--session <name>] [--domain <d[,d...]>]
+                         [--since-seq <n>] [--min-status <n>] [--json]
+```
+
+- `--session` exports from a named session tab; omitted uses the current tab.
+- `--domain` restricts to exact domains and `*.example.com` style patterns.
+- `--since-seq` / `--min-status` filter by capture sequence / response status.
+- `--json` prints the bare summary JSON instead of the `{ok,value}` envelope.
+
+The output is aggregate metadata only (domain, skill path, endpoint ids,
+capture counts, auth-stored flags, errors) — never headers, cookies, tokens,
+post bodies, or response bodies. Raw traffic stays daemon-side.

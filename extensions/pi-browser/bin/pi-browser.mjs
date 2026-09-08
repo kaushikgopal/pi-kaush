@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /**
  * pi-browser CLI — harness-agnostic front-end for OpenCode/Codex skills.
- *
  *   pi-browser session new <name> [--read-only]
  *   pi-browser session list
  *   pi-browser session delete <name>
  *   pi-browser execute --session <name> [--params <json>] '<code>'
+ *   pi-browser capture-export [--session <name>] [--domain <d[,d...]>]
+ *                          [--since-seq <n>] [--min-status <n>] [--json]
  *   pi-browser status
- *
- * Sessions persist as tabs across CLI processes (daemon-owned). `execute`
  * runs the code as an async function body with { page, client, fs, params }
  * in scope and prints a JSON envelope: { ok: true, value } | { ok: false, error }.
  *
@@ -31,7 +30,7 @@ const envelope = (ok, payload) => {
 const usage = (msg) => {
   envelope(
     false,
-    `${msg}\ncommands: session new <name> [--read-only] | session list | session delete <name> | execute [--session <name>] [--params <json>] '<code>' | status`,
+    `${msg}\ncommands: session new <name> [--read-only] | session list | session delete <name> | execute [--session <name>] [--params <json>] '<code>' | capture-export [--session <name>] [--domain <d[,d...]>] [--since-seq <n>] [--min-status <n>] [--json] | status`,
   );
 };
 
@@ -76,6 +75,23 @@ const main = async () => {
     return usage(`unknown session subcommand: ${sub ?? "(missing)"}`);
   }
 
+  if (cmd === "capture-export") {
+    const { parseCaptureExportArgs } = await import(
+      new URL("../src/capture-export-args.ts", import.meta.url)
+    );
+    const parsed = parseCaptureExportArgs(args);
+    if (!parsed.ok) return usage(parsed.error);
+    const { json, ...params } = parsed.args;
+    const result = await client.request("captureExport", params, 300_000);
+    if (json) {
+      // Bare summary JSON for piping; no secret material is included.
+      process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+      process.exitCode = 0;
+    } else {
+      envelope(true, result);
+    }
+    return;
+  }
   if (cmd === "execute") {
     let sessionName = null;
     let paramsJson = null;
