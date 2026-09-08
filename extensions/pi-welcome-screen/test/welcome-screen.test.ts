@@ -27,7 +27,10 @@ vi.mock("@earendil-works/pi-tui", () => ({
     }
   },
   truncateToWidth(text: string, width: number, suffix = "") {
-    if (text.length <= width) return text;
+    // Mirror the real implementation, which measures visible width so ANSI
+    // escapes never count toward the clipping budget.
+    const visible = text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+    if (visible.length <= width) return text;
     const clippedSuffix = suffix.slice(0, Math.max(0, width));
     return (
       text.slice(0, Math.max(0, width - clippedSuffix.length)) + clippedSuffix
@@ -135,9 +138,45 @@ describe("welcome resource formatting", () => {
         "pi-web-access",
         "@scope/package",
       ],
+      projectSkills: [],
       packageExtensions: ["pi-web-access", "@scope/package"],
       sourceExtensions: [],
     });
+  });
+
+  test("flags project-scope skills from the expanded Skills listing", () => {
+    const resources = parseWelcomeResources(
+      `[Skills]\n  artifactor, research, librarian`,
+      new Set(),
+      undefined,
+      [
+        "[Skills]",
+        "  project",
+        "    /repo/.pi/skills/artifactor/SKILL.md",
+        "    /repo/.pi/skills/research/SKILL.md",
+        "  user",
+        "    ~/.pi/agent/skills/librarian/SKILL.md",
+      ].join("\n"),
+    );
+
+    expect(resources.projectSkills).toEqual(["artifactor", "research"]);
+  });
+
+  test("skips package-provided skills in the expanded project group", () => {
+    const resources = parseWelcomeResources(
+      `[Skills]\n  artifactor, bundled`,
+      new Set(),
+      undefined,
+      [
+        "[Skills]",
+        "  project",
+        "    npm:@scope/skill-pack",
+        "      bundled/SKILL.md",
+        "    /repo/.pi/skills/artifactor/SKILL.md",
+      ].join("\n"),
+    );
+
+    expect(resources.projectSkills).toEqual(["artifactor"]);
   });
 
   test("normalizes local and package extension labels without hiding index paths", () => {
@@ -595,6 +634,65 @@ describe("welcome resource formatting", () => {
         .filter(({ color }) => color === "accent")
         .every(({ text }) => text.includes("█")),
     ).toBe(true);
+  });
+
+  test("renders project skills in muted and other skills in dim", () => {
+    const colorCalls: Array<{ color: string; text: string }> = [];
+    const recordingTheme = {
+      bold: (text: string) => text,
+      fg(color: string, text: string) {
+        colorCalls.push({ color, text });
+        return text;
+      },
+    };
+
+    renderCenteredWelcome(
+      {
+        context: [],
+        skills: ["artifactor", "librarian"],
+        prompts: [],
+        extensions: ["welcome-screen"],
+        projectSkills: ["artifactor"],
+      },
+      recordingTheme as never,
+      80,
+    );
+
+    expect(colorCalls.find(({ text }) => text === "artifactor")?.color).toBe(
+      "muted",
+    );
+    expect(colorCalls.find(({ text }) => text === "librarian")?.color).toBe(
+      "dim",
+    );
+  });
+
+  test("keeps muted project-skill coloring across shared columns", () => {
+    const skills = Array.from(
+      { length: 14 },
+      (_, index) => `skill-${index + 1}`,
+    );
+    const escapeCodes: Record<string, string> = { muted: "35", dim: "90" };
+    const rendered = renderCenteredWelcome(
+      {
+        context: [],
+        skills,
+        prompts: [],
+        extensions: ["welcome-screen"],
+        projectSkills: ["skill-1", "skill-8"],
+      },
+      {
+        bold: (text: string) => text,
+        fg: (color: string, text: string) =>
+          `\x1B[${escapeCodes[color] ?? "39"}m${text}\x1B[0m`,
+      } as never,
+      104,
+    ).join("\n");
+
+    // Column-major striping puts skill-1 and skill-2 in the first column and
+    // skill-8 in the second, so these cover both cells of one row.
+    expect(rendered).toContain("\x1B[35m• skill-1\x1B[0m");
+    expect(rendered).toContain("\x1B[90m• skill-2\x1B[0m");
+    expect(rendered).toContain("\x1B[35m• skill-8\x1B[0m");
   });
 });
 

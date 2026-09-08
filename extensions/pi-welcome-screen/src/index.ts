@@ -3,6 +3,7 @@ import {
   VERSION,
   type ExtensionAPI,
   type Theme,
+  type ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -45,6 +46,8 @@ export interface WelcomeResources {
   skills: string[];
   prompts: string[];
   extensions: string[];
+  /** Skill names loaded from the project scope; rendered one step brighter. */
+  projectSkills?: string[];
   /** Extensions loaded from npm or git packages. */
   packageExtensions?: string[];
   /** Local extension entry points outside Pi's extension directories. */
@@ -411,6 +414,7 @@ interface ResourceBridge {
 interface ResourcePanelSnapshot {
   resourceText: string;
   expandedExtensionsText?: string;
+  expandedSkillsText?: string;
   knownChildren: Component[];
 }
 
@@ -440,6 +444,7 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
   const sections: string[] = [];
   const knownChildren: Component[] = [];
   let expandedExtensionsText: string | undefined;
+  let expandedSkillsText: string | undefined;
 
   for (const child of panel.children) {
     const collapsible = child as CollapsedTextComponent;
@@ -450,12 +455,15 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
     if (WELCOME_SECTIONS.some((section) => section === heading)) {
       knownChildren.push(child);
       sections.push(text);
-      if (
-        (heading === "Extensions" ||
-          /(?:^|\n)\s*\[Extensions\]\s*(?:\n|$)/.test(stripAnsi(text))) &&
-        typeof collapsible.getExpandedText === "function"
-      ) {
-        expandedExtensionsText = collapsible.getExpandedText();
+      if (typeof collapsible.getExpandedText === "function") {
+        if (
+          heading === "Extensions" ||
+          /(?:^|\n)\s*\[Extensions\]\s*(?:\n|$)/.test(stripAnsi(text))
+        ) {
+          expandedExtensionsText = collapsible.getExpandedText();
+        } else if (heading === "Skills") {
+          expandedSkillsText = collapsible.getExpandedText();
+        }
       }
     } else if (heading === "Themes") {
       knownChildren.push(child);
@@ -465,6 +473,7 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
   return {
     resourceText: sections.join("\n"),
     ...(expandedExtensionsText ? { expandedExtensionsText } : {}),
+    ...(expandedSkillsText ? { expandedSkillsText } : {}),
     knownChildren,
   };
 }
@@ -735,10 +744,51 @@ function getLocalExtensionNames(): Set<string> {
   }
 }
 
+/** Skill name for a displayed path; frontmatter names may differ from the directory. */
+function skillNameFromPath(path: string): string {
+  const segments = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  const file = segments[segments.length - 1] ?? "";
+  if (/^SKILL\.md$/i.test(file)) return segments[segments.length - 2] ?? "";
+  return file.replace(/\.md$/i, "");
+}
+
+/**
+ * Skill names Pi loaded from the project scope, parsed from the expanded
+ * Skills listing where direct paths sit under a `project` scope header.
+ * Package skills nested under an `npm:`/`git:` source are not project
+ * skills. Pi renders paths rather than names, so a frontmatter name that
+ * differs from its directory keeps the dim default instead of guessing.
+ */
+export function parseExpandedProjectSkills(text: string | undefined): string[] {
+  if (!text || getSectionHeading(text) !== "Skills") return [];
+
+  const projectNames: string[] = [];
+  let inProjectGroup = false;
+
+  for (const rawLine of text.split("\n").slice(1)) {
+    const line = stripAnsi(rawLine).replace(/\s+$/, "");
+    if (!line.trim()) continue;
+
+    if (/^ {2}\S/.test(line)) {
+      inProjectGroup = line.trim() === "project";
+      continue;
+    }
+    if (!inProjectGroup) continue;
+
+    const entry = /^ {4}(\S.*)$/.exec(line)?.[1];
+    if (!entry || isPackageSource(entry)) continue;
+    const name = skillNameFromPath(entry);
+    if (name) projectNames.push(name);
+  }
+
+  return unique(projectNames);
+}
+
 export function parseWelcomeResources(
   text: string,
   localExtensionNames = getLocalExtensionNames(),
   expandedExtensionsText?: string,
+  expandedSkillsText?: string,
 ): WelcomeResources {
   const bodies = new Map<WelcomeSection, string[]>();
   let currentSection: WelcomeSection | undefined;
@@ -774,6 +824,7 @@ export function parseWelcomeResources(
     skills,
     prompts,
     extensions,
+    projectSkills: parseExpandedProjectSkills(expandedSkillsText),
     packageExtensions: groups.packageExtensions,
     sourceExtensions: groups.sourceExtensions,
   };
@@ -867,17 +918,21 @@ function wrapPrefixed(prefix: string, text: string, width: number): string[] {
   );
 }
 
+type ItemColor = (item: string) => ThemeColor;
+
 function appendSingleColumnRows(
   lines: string[],
   items: string[],
   theme: Theme,
   columnWidth: number,
+  itemColor?: ItemColor,
 ): void {
   for (const item of items) {
+    const color = itemColor?.(item) ?? "dim";
     lines.push(
       ...wrapPrefixed(
-        theme.fg("dim", "  • "),
-        theme.fg("dim", item),
+        theme.fg(color, "  • "),
+        theme.fg(color, item),
         columnWidth,
       ),
     );
@@ -985,6 +1040,7 @@ function appendColumnRows(
   theme: Theme,
   columnWidth: number,
   sharedColumnCount?: 2 | 3,
+  itemColor?: ItemColor,
 ): void {
   const listWidth = Math.max(1, columnWidth - 2);
   const desiredColumns = Math.ceil(items.length / MAX_LIST_ROWS_PER_COLUMN);
@@ -1001,7 +1057,7 @@ function appendColumnRows(
   const columnCount = Math.min(requestedColumns, fittingColumns);
 
   if (columnCount === 1) {
-    appendSingleColumnRows(lines, items, theme, columnWidth);
+    appendSingleColumnRows(lines, items, theme, columnWidth, itemColor);
     return;
   }
 
@@ -1014,13 +1070,13 @@ function appendColumnRows(
       if (!item) return " ".repeat(cellWidth);
 
       // truncateToWidth inserts ANSI resets around its ellipsis. Strip those
-      // because the complete row receives its muted color afterward; otherwise
-      // one truncated cell resets the color of every following column.
+      // and color each cell individually so a highlighted item cannot reset
+      // the color of the cells that follow it.
       const cell = stripAnsi(truncateToWidth(`• ${item}`, cellWidth, "…"));
-      return cell + " ".repeat(Math.max(0, cellWidth - visibleWidth(cell)));
+      const padding = " ".repeat(Math.max(0, cellWidth - visibleWidth(cell)));
+      return theme.fg(itemColor?.(item) ?? "dim", cell) + padding;
     });
-    const rowText = `  ${cells.join(" ".repeat(LIST_COLUMN_GAP))}`.trimEnd();
-    lines.push(theme.fg("dim", rowText));
+    lines.push(`  ${cells.join(" ".repeat(LIST_COLUMN_GAP))}`.trimEnd());
   }
 }
 
@@ -1032,6 +1088,7 @@ function appendSection(
   columnWidth: number,
   singleColumn = false,
   sharedColumnCount?: 2 | 3,
+  itemColor?: ItemColor,
 ): void {
   if (lines.length > 0) lines.push("");
   lines.push(theme.fg("mdHeading", `[${title}]`));
@@ -1041,8 +1098,17 @@ function appendSection(
     return;
   }
 
-  if (singleColumn) appendSingleColumnRows(lines, body, theme, columnWidth);
-  else appendColumnRows(lines, body, theme, columnWidth, sharedColumnCount);
+  if (singleColumn)
+    appendSingleColumnRows(lines, body, theme, columnWidth, itemColor);
+  else
+    appendColumnRows(
+      lines,
+      body,
+      theme,
+      columnWidth,
+      sharedColumnCount,
+      itemColor,
+    );
 }
 
 function appendExtensionsSection(
@@ -1162,6 +1228,7 @@ function appendResourceSection(
       : title === "Skills"
         ? resources.skills
         : resources.prompts;
+  const projectSkills = new Set(resources.projectSkills ?? []);
   appendSection(
     lines,
     title,
@@ -1170,6 +1237,9 @@ function appendResourceSection(
     columnWidth,
     title === "Context",
     title === "Skills" ? sharedColumnCount : undefined,
+    title === "Skills"
+      ? (item) => (projectSkills.has(item) ? "muted" : "dim")
+      : undefined,
   );
 }
 
@@ -1401,15 +1471,18 @@ class WelcomeHeader implements Component {
       snapshot = undefined;
     }
 
-    const { resourceText, expandedExtensionsText } = snapshot ?? {
-      resourceText: "",
-      expandedExtensionsText: undefined,
-    };
+    const { resourceText, expandedExtensionsText, expandedSkillsText } =
+      snapshot ?? {
+        resourceText: "",
+        expandedExtensionsText: undefined,
+        expandedSkillsText: undefined,
+      };
     const candidateResources = resourceText
       ? parseWelcomeResources(
           resourceText,
           getLocalExtensionNames(),
           expandedExtensionsText,
+          expandedSkillsText,
         )
       : undefined;
     // Do not alter a partial panel: resource discovery may still be filling it.
