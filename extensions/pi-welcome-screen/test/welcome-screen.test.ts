@@ -138,10 +138,40 @@ describe("welcome resource formatting", () => {
         "pi-web-access",
         "@scope/package",
       ],
+      projectContext: ["AGENTS.md"],
       projectSkills: [],
+      projectPrompts: [],
       packageExtensions: ["pi-web-access", "@scope/package"],
       sourceExtensions: [],
     });
+  });
+
+  test("flags project-scope prompts from the expanded Prompts listing", () => {
+    const resources = parseWelcomeResources(
+      `[Prompts]\n  /implement, /review, /bundled`,
+      new Set(),
+      undefined,
+      undefined,
+      [
+        "[Prompts]",
+        "  project",
+        "    npm:@scope/prompt-pack",
+        "      /bundled",
+        "    /implement",
+        "  user",
+        "    /review",
+      ].join("\n"),
+    );
+
+    expect(resources.projectPrompts).toEqual(["/implement"]);
+  });
+
+  test("classifies cwd-relative context files as project scope", () => {
+    const resources = parseWelcomeResources(
+      `[Context]\n  AGENTS.md, ~/.pi/agent/AGENTS.md, .pi/rules.md, /etc/AGENTS.md`,
+    );
+
+    expect(resources.projectContext).toEqual(["AGENTS.md", ".pi/rules.md"]);
   });
 
   test("flags project-scope skills from the expanded Skills listing", () => {
@@ -662,6 +692,43 @@ describe("welcome resource formatting", () => {
       "muted",
     );
     expect(colorCalls.find(({ text }) => text === "librarian")?.color).toBe(
+      "dim",
+    );
+  });
+
+  test("tints project prompts and context files in muted", () => {
+    const colorCalls: Array<{ color: string; text: string }> = [];
+    const recordingTheme = {
+      bold: (text: string) => text,
+      fg(color: string, text: string) {
+        colorCalls.push({ color, text });
+        return text;
+      },
+    };
+
+    renderCenteredWelcome(
+      {
+        context: ["AGENTS.md", "~/.pi/agent/AGENTS.md"],
+        skills: [],
+        prompts: ["/implement", "/review"],
+        extensions: ["welcome-screen"],
+        projectContext: ["AGENTS.md"],
+        projectPrompts: ["/implement"],
+      },
+      recordingTheme as never,
+      80,
+    );
+
+    expect(colorCalls.find(({ text }) => text === "AGENTS.md")?.color).toBe(
+      "muted",
+    );
+    expect(
+      colorCalls.find(({ text }) => text === "~/.pi/agent/AGENTS.md")?.color,
+    ).toBe("dim");
+    expect(colorCalls.find(({ text }) => text === "/implement")?.color).toBe(
+      "muted",
+    );
+    expect(colorCalls.find(({ text }) => text === "/review")?.color).toBe(
       "dim",
     );
   });

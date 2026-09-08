@@ -4,6 +4,7 @@
 
 - Reserve two internal padding columns on both sides of the welcome layout at normal widths, degrading only when a tiny terminal needs the content space.
 - Tint project-scope skills one step brighter on the welcome screen (`muted` instead of `dim`); global, path, and package skills keep the dim default. Scope comes from Pi's expanded Skills listing, degrading to the dim default when it is unavailable.
+- Extend the project-scope tint to prompts and context files. Prompt scope comes from Pi's expanded Prompts listing; context files are classified by their display shape, since Pi renders working-directory files as relative paths and everything else as home-abbreviated or absolute paths.
 - Show the active theme name next to the Pi version in the brand header, e.g. `v0.84.0 [cobalt2]`.
 - Fix resource capture on Pi 0.84, where the loaded-resources panel moved inside a document container; both the nested 0.84 and flat 0.80–0.83 layouts are detected.
 - Keep Pi's resource panel mounted for fullscreen scrolling, wait for a complete snapshot, preserve diagnostic and third-party rows, and reconcile native rows rebuilt during `/reload`.

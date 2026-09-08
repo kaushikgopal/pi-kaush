@@ -6,7 +6,7 @@ import {
   type ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import {
   type Component,
   type Container,
@@ -46,8 +46,12 @@ export interface WelcomeResources {
   skills: string[];
   prompts: string[];
   extensions: string[];
+  /** Context files inside the working directory; rendered one step brighter. */
+  projectContext?: string[];
   /** Skill names loaded from the project scope; rendered one step brighter. */
   projectSkills?: string[];
+  /** Prompt names loaded from the project scope; rendered one step brighter. */
+  projectPrompts?: string[];
   /** Extensions loaded from npm or git packages. */
   packageExtensions?: string[];
   /** Local extension entry points outside Pi's extension directories. */
@@ -415,6 +419,7 @@ interface ResourcePanelSnapshot {
   resourceText: string;
   expandedExtensionsText?: string;
   expandedSkillsText?: string;
+  expandedPromptsText?: string;
   knownChildren: Component[];
 }
 
@@ -445,6 +450,7 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
   const knownChildren: Component[] = [];
   let expandedExtensionsText: string | undefined;
   let expandedSkillsText: string | undefined;
+  let expandedPromptsText: string | undefined;
 
   for (const child of panel.children) {
     const collapsible = child as CollapsedTextComponent;
@@ -463,6 +469,8 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
           expandedExtensionsText = collapsible.getExpandedText();
         } else if (heading === "Skills") {
           expandedSkillsText = collapsible.getExpandedText();
+        } else if (heading === "Prompts") {
+          expandedPromptsText = collapsible.getExpandedText();
         }
       }
     } else if (heading === "Themes") {
@@ -474,6 +482,7 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
     resourceText: sections.join("\n"),
     ...(expandedExtensionsText ? { expandedExtensionsText } : {}),
     ...(expandedSkillsText ? { expandedSkillsText } : {}),
+    ...(expandedPromptsText ? { expandedPromptsText } : {}),
     knownChildren,
   };
 }
@@ -753,16 +762,17 @@ function skillNameFromPath(path: string): string {
 }
 
 /**
- * Skill names Pi loaded from the project scope, parsed from the expanded
- * Skills listing where direct paths sit under a `project` scope header.
- * Package skills nested under an `npm:`/`git:` source are not project
- * skills. Pi renders paths rather than names, so a frontmatter name that
- * differs from its directory keeps the dim default instead of guessing.
+ * Visits the direct entries Pi lists under a `project` scope header in an
+ * expanded resource listing. Package skills or prompts nested under an
+ * `npm:`/`git:` source are not project entries.
  */
-export function parseExpandedProjectSkills(text: string | undefined): string[] {
-  if (!text || getSectionHeading(text) !== "Skills") return [];
+function forEachExpandedProjectEntry(
+  text: string | undefined,
+  heading: string,
+  visit: (entry: string) => void,
+): void {
+  if (!text || getSectionHeading(text) !== heading) return;
 
-  const projectNames: string[] = [];
   let inProjectGroup = false;
 
   for (const rawLine of text.split("\n").slice(1)) {
@@ -777,11 +787,46 @@ export function parseExpandedProjectSkills(text: string | undefined): string[] {
 
     const entry = /^ {4}(\S.*)$/.exec(line)?.[1];
     if (!entry || isPackageSource(entry)) continue;
-    const name = skillNameFromPath(entry);
-    if (name) projectNames.push(name);
+    visit(entry);
   }
+}
 
-  return unique(projectNames);
+/**
+ * Skill names Pi loaded from the project scope. Pi renders paths rather
+ * than names, so a frontmatter name that differs from its directory keeps
+ * the dim default instead of guessing.
+ */
+function parseExpandedProjectSkills(text: string | undefined): string[] {
+  const names: string[] = [];
+  forEachExpandedProjectEntry(text, "Skills", (entry) => {
+    const name = skillNameFromPath(entry);
+    if (name) names.push(name);
+  });
+  return unique(names);
+}
+
+/** Prompt names (`/name`) Pi loaded from the project scope. */
+function parseExpandedProjectPrompts(
+  text: string | undefined,
+  knownPrompts: readonly string[],
+): string[] {
+  const known = new Set(knownPrompts);
+  const names: string[] = [];
+  forEachExpandedProjectEntry(text, "Prompts", (entry) => {
+    // Pi renders templates as `/name`; unmatched display paths never equal
+    // a collapsed `/name` entry, so the known set filters them out.
+    if (known.has(entry)) names.push(entry);
+  });
+  return unique(names);
+}
+
+/**
+ * Pi renders context files inside the working directory as cwd-relative
+ * paths and everything else as home-abbreviated or absolute paths, so the
+ * display shape alone distinguishes project context from global context.
+ */
+function isProjectContextEntry(entry: string): boolean {
+  return !entry.startsWith("~") && !isAbsolute(entry);
 }
 
 export function parseWelcomeResources(
@@ -789,6 +834,7 @@ export function parseWelcomeResources(
   localExtensionNames = getLocalExtensionNames(),
   expandedExtensionsText?: string,
   expandedSkillsText?: string,
+  expandedPromptsText?: string,
 ): WelcomeResources {
   const bodies = new Map<WelcomeSection, string[]>();
   let currentSection: WelcomeSection | undefined;
@@ -824,7 +870,9 @@ export function parseWelcomeResources(
     skills,
     prompts,
     extensions,
+    projectContext: context.filter(isProjectContextEntry),
     projectSkills: parseExpandedProjectSkills(expandedSkillsText),
+    projectPrompts: parseExpandedProjectPrompts(expandedPromptsText, prompts),
     packageExtensions: groups.packageExtensions,
     sourceExtensions: groups.sourceExtensions,
   };
@@ -1228,7 +1276,14 @@ function appendResourceSection(
       : title === "Skills"
         ? resources.skills
         : resources.prompts;
-  const projectSkills = new Set(resources.projectSkills ?? []);
+  const projectEntries =
+    title === "Skills"
+      ? new Set(resources.projectSkills ?? [])
+      : title === "Prompts"
+        ? new Set(resources.projectPrompts ?? [])
+        : title === "Context"
+          ? new Set(resources.projectContext ?? [])
+          : undefined;
   appendSection(
     lines,
     title,
@@ -1237,8 +1292,8 @@ function appendResourceSection(
     columnWidth,
     title === "Context",
     title === "Skills" ? sharedColumnCount : undefined,
-    title === "Skills"
-      ? (item) => (projectSkills.has(item) ? "muted" : "dim")
+    projectEntries
+      ? (item) => (projectEntries.has(item) ? "muted" : "dim")
       : undefined,
   );
 }
@@ -1471,18 +1526,24 @@ class WelcomeHeader implements Component {
       snapshot = undefined;
     }
 
-    const { resourceText, expandedExtensionsText, expandedSkillsText } =
-      snapshot ?? {
-        resourceText: "",
-        expandedExtensionsText: undefined,
-        expandedSkillsText: undefined,
-      };
+    const {
+      resourceText,
+      expandedExtensionsText,
+      expandedSkillsText,
+      expandedPromptsText,
+    } = snapshot ?? {
+      resourceText: "",
+      expandedExtensionsText: undefined,
+      expandedSkillsText: undefined,
+      expandedPromptsText: undefined,
+    };
     const candidateResources = resourceText
       ? parseWelcomeResources(
           resourceText,
           getLocalExtensionNames(),
           expandedExtensionsText,
           expandedSkillsText,
+          expandedPromptsText,
         )
       : undefined;
     // Do not alter a partial panel: resource discovery may still be filling it.
