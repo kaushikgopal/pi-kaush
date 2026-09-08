@@ -6,8 +6,10 @@
  * sessions, so pinned-profile windows are seeded once, not per session.
  *
  * Transport: Unix socket, newline-delimited JSON { id, method, params } ->
- * { id, ok, result | error }. Owner-only (0600). Idle-stops after 30 min
- * without requests, closing owned tabs first.
+ * { id, ok, result | error }. Owner-only (0600). Idle-stops (default 12h,
+ * PI_BROWSER_IDLE_TIMEOUT_MS to override, 0 disables) without requests,
+ * closing owned tabs first. Keep the daemon alive when practical: every new
+ * daemon connection re-triggers the browser's CDP consent prompt.
  */
 
 import { spawn } from "node:child_process";
@@ -56,7 +58,15 @@ import { splitNdjsonFrames } from "./core/ndjson.ts";
 const SOCKET_PATH =
   process.env["PI_BROWSER_SOCKET"] ??
   `/tmp/pi-browser-daemon-${process.getuid?.() ?? 0}.sock`;
-const IDLE_TIMEOUT_MS = 30 * 60_000;
+const DEFAULT_IDLE_TIMEOUT_MS = 12 * 60 * 60_000;
+const IDLE_TIMEOUT_MS = (() => {
+  const raw = process.env["PI_BROWSER_IDLE_TIMEOUT_MS"];
+  if (raw === undefined || raw.trim() === "") return DEFAULT_IDLE_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0
+    ? parsed
+    : DEFAULT_IDLE_TIMEOUT_MS;
+})();
 const SESSIONS_PATH = join(
   process.env["PI_CODING_AGENT_DIR"] ?? join(homedir(), ".pi", "agent"),
   "pi-browser-cli.json",
@@ -624,6 +634,7 @@ const closeOwnedAndExit = async (reason: string): Promise<void> => {
 let idleTimer: NodeJS.Timeout | null = null;
 const resetIdle = (): void => {
   if (idleTimer) clearTimeout(idleTimer);
+  if (IDLE_TIMEOUT_MS === 0) return; // 0 disables idle exit
   idleTimer = setTimeout(() => {
     void closeOwnedAndExit("idle timeout");
   }, IDLE_TIMEOUT_MS);
