@@ -7,6 +7,7 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 | Package                                                                   | Description                                                                                              |
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | [`@pi-kaush/pi-agent-mode`](./extensions/pi-agent-mode)                   | Activate a configured Pi agent as a persistent mode in the current session.                              |
+| [`@pi-kaush/pi-model-profiles`](./extensions/pi-model-profiles)           | Shared machine-local model profiles (ordered model candidates with thinking levels) for Pi extensions.   |
 | [`@pi-kaush/pi-better-read-edit`](./extensions/pi-better-read-edit)       | Pair tagged local reads with strict, context-efficient hashline edits.                                   |
 | [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)               | Paste the same large block twice to expand Pi's paste markers into editable text.                        |
 | [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier)     | Highlight and route inline Pi skill, agent, and prompt-template references.                              |

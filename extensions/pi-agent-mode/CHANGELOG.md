@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add `profile` frontmatter: activate a named model profile from the shared machine-local `~/.pi/agent/profiles.yaml` (`@pi-kaush/pi-model-profiles`), walking candidates in order and applying the first available model and thinking level.
+- Reject agents declaring both `profile` and `model`; precedence is explicit: profile first, then model, then the session default.
+- Load `@pi-kaush/pi-model-profiles` lazily so a missing library degrades only profile support; `/agent` remains fully functional without it.
+
 ## 0.1.0
 
 - Add the `/agent` command for activating a configured Pi agent as a persistent mode in the current session.

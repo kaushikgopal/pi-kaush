@@ -14,6 +14,8 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { ModelProfilesConfig } from "@pi-kaush/pi-model-profiles";
 import {
   discoverAgents,
   formatAgentDisplayName,
@@ -32,7 +34,7 @@ interface ModelReference {
   id: string;
 }
 
-export { parseAgentModelSpec };
+export { isModuleUnavailable, parseAgentModelSpec };
 export type { AgentModelSpec } from "./model-spec.ts";
 
 // Durable session state is namespaced so it cannot collide with other
@@ -97,6 +99,15 @@ function isActiveAgentState(value: unknown): value is ActiveAgentState {
   }
 
   return true;
+}
+
+function isModuleUnavailable(error: unknown): boolean {
+  const code = (error as { code?: string } | undefined)?.code;
+  return (
+    code === "MODULE_NOT_FOUND" ||
+    code === "ERR_MODULE_NOT_FOUND" ||
+    (error instanceof Error && error.message.includes("Cannot find module"))
+  );
 }
 
 export function registerAgentMode(pi: ExtensionAPI) {
@@ -200,6 +211,67 @@ export function registerAgentMode(pi: ExtensionAPI) {
     pi.setActiveTools(valid);
   }
 
+  /**
+   * Walk the agent's profile candidates in order and switch to the first
+   * model that exists and is authenticated. Fallback happens only during
+   * activation; running sessions never switch models mid-request.
+   */
+  async function applyProfileModels(
+    agent: AgentConfig,
+    ctx: ExtensionContext,
+  ): Promise<{ thinkingLevel?: ThinkingLevel } | false> {
+    let profiles: ModelProfilesConfig;
+    try {
+      // Runtime-only import: a missing @pi-kaush/pi-model-profiles degrades
+      // just profile support instead of failing the whole extension load.
+      const profilesModule = await import("@pi-kaush/pi-model-profiles");
+      profiles = profilesModule.loadModelProfiles(
+        profilesModule.resolveProfilesPath(getAgentDir()),
+      );
+    } catch (error) {
+      if (isModuleUnavailable(error)) {
+        ctx.ui.notify(
+          `Agent ${formatAgentDisplayName(agent)}: profile support unavailable; install it with pi install npm:@pi-kaush/pi-model-profiles.`,
+          "warning",
+        );
+      } else {
+        ctx.ui.notify(
+          `Agent ${formatAgentDisplayName(agent)}: ${error instanceof Error ? error.message : error}`,
+          "error",
+        );
+      }
+      return false;
+    }
+
+    const profileName = agent.profile!.trim();
+    const profile = profiles.profiles[profileName];
+    if (!profile) {
+      ctx.ui.notify(
+        `Agent ${formatAgentDisplayName(agent)}: unknown profile "${profileName}". Available: ${Object.keys(profiles.profiles).join(", ")}.`,
+        "error",
+      );
+      return false;
+    }
+
+    for (const candidate of profile.candidates) {
+      const model = findModel(candidate.model, ctx);
+      if (!model) continue;
+      if (await pi.setModel(model)) {
+        return {
+          ...(candidate.thinkingLevel !== undefined
+            ? { thinkingLevel: candidate.thinkingLevel }
+            : {}),
+        };
+      }
+    }
+
+    ctx.ui.notify(
+      `Agent ${formatAgentDisplayName(agent)}: profile "${profileName}" has no available candidate models. Configured: ${profile.candidates.map((candidate) => candidate.model).join(", ")}.`,
+      "error",
+    );
+    return false;
+  }
+
   async function activateAgent(
     agent: AgentConfig,
     ctx: ExtensionContext,
@@ -211,7 +283,18 @@ export function registerAgentMode(pi: ExtensionAPI) {
       thinkingLevel: baseline.thinkingLevel ?? pi.getThinkingLevel(),
     };
     let thinkingLevel = baseline.thinkingLevel;
-    if (agent.model) {
+    if (agent.profile && agent.model) {
+      ctx.ui.notify(
+        `Agent ${formatAgentDisplayName(agent)}: declare either "profile" or "model" in frontmatter, not both.`,
+        "error",
+      );
+      return false;
+    }
+    if (agent.profile) {
+      const applied = await applyProfileModels(agent, ctx);
+      if (!applied) return false;
+      thinkingLevel = applied.thinkingLevel ?? baseline.thinkingLevel;
+    } else if (agent.model) {
       const modelSpec = parseAgentModelSpec(agent.model);
       const model = findModel(modelSpec.model, ctx);
       if (!model) {

@@ -33,6 +33,9 @@
       "./src/index.ts"
     ]
   },
+  "dependencies": {
+    "@pi-kaush/pi-model-profiles": "^0.1.0"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.80.6",
     "@earendil-works/pi-tui": ">=0.80.6"

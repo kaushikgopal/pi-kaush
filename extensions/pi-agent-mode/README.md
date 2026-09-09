@@ -36,10 +36,26 @@ description: ... # required
 emoji: 🔍 # optional, shown in the footer status
 tools: read, grep # optional allowlist; unavailable tools are reported and omitted
 model: provider/model:high # optional; thinking suffix may be :off/:low/:medium/:high/:max
+profile: coder # optional; named model candidates from ~/.pi/agent/profiles.yaml
 confirmProjectAgents: false # project agents default to requiring confirmation
 ---
 Prompt body appended to Pi's base instructions while the agent is active.
 ```
+
+## Model selection precedence
+
+Agent frontmatter may declare a `model` (exact model, optional thinking
+suffix) or a `profile` — a named entry in the shared machine-local
+`~/.pi/agent/profiles.yaml` maintained by
+[@pi-kaush/pi-model-profiles](../pi-model-profiles). An agent must not declare
+both. Profile candidates are walked in order at activation and the first
+model that exists and is authenticated wins; once the session is running,
+models never switch mid-request. Agents without either keep the current
+session model.
+
+`pi-agent-mode` loads `@pi-kaush/pi-model-profiles` lazily: if the library is
+missing, only agents that declare `profile:` fail (with an install hint) and
+every other `/agent` capability is unencumbered.
 
 ## Behavior
 

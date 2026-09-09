@@ -367,6 +367,161 @@ describe("pi-agent-mode", () => {
     }
   });
 
+  test("activates a profile from frontmatter, falling back to later candidates", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      mkdirSync(join(root, "home", ".pi"), { recursive: true });
+      writeFileSync(
+        join(root, "home", ".pi", "profiles.yaml"),
+        [
+          "version: 1",
+          "profiles:",
+          "  coder:",
+          "    description: Bounded coding work",
+          "    candidates:",
+          "      - model: provider/missing",
+          "        thinkingLevel: high",
+          "      - model: provider/target",
+          "        thinkingLevel: high",
+          "",
+        ].join("\n"),
+      );
+      const dir = join(root, "home", ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "builder.md"),
+        `---\nname: builder\ndescription: builder agent\nprofile: coder\ntools: read\n---\nBuild.\n`,
+      );
+      const harness = createHarness(root);
+
+      await harness.activate("builder");
+      expect(harness.state()).toMatchObject({
+        model: "target",
+        thinkingLevel: "high",
+        activeTools: ["read"],
+      });
+
+      await harness.activate("none");
+      expect(harness.state()).toMatchObject({
+        model: "baseline",
+        thinkingLevel: "medium",
+        activeTools: ["read", "bash"],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("classifies module-resolution failures for the profiles library", async () => {
+    const { isModuleUnavailable } = await import("../src/index.ts");
+    expect(
+      isModuleUnavailable(
+        new Error("Cannot find module '@pi-kaush/pi-model-profiles'"),
+      ),
+    ).toBe(true);
+    const coded = new Error("module not found");
+    (coded as NodeJS.ErrnoException).code = "MODULE_NOT_FOUND";
+    expect(isModuleUnavailable(coded)).toBe(true);
+    expect(
+      isModuleUnavailable(
+        new Error("Model profiles not found. Create ~/.pi/agent/profiles.yaml"),
+      ),
+    ).toBe(false);
+  });
+
+  test("degrades profile support when the shared profiles config is missing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      const dir = join(root, "home", ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "builder.md"),
+        `---\nname: builder\ndescription: builder agent\nprofile: coder\ntools: read\n---\nBuild.\n`,
+      );
+      const harness = createHarness(root);
+
+      await harness.activate("builder");
+      expect(harness.state()).toMatchObject({
+        model: "baseline",
+        activeTools: ["read", "bash"],
+      });
+      expect(
+        harness.notifications.some(
+          ([message, level]) =>
+            level === "error" && message.includes("Model profiles not found"),
+        ),
+      ).toBe(true);
+      // Non-profile functionality is unencumbered.
+      await harness.activate("none");
+      expect(harness.state()).toMatchObject({ model: "baseline" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an agent declaring both profile and model", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      const dir = join(root, "home", ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "conflicted.md"),
+        `---\nname: conflicted\ndescription: conflicted agent\nprofile: coder\nmodel: provider/target\n---\nAmbiguous.\n`,
+      );
+      const harness = createHarness(root);
+
+      await harness.activate("conflicted");
+      expect(harness.state()).toMatchObject({ model: "baseline" });
+      expect(
+        harness.notifications.some(
+          ([message, level]) =>
+            level === "error" && message.includes("not both"),
+        ),
+      ).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails activation when a profile has no available candidates", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      mkdirSync(join(root, "home", ".pi"), { recursive: true });
+      writeFileSync(
+        join(root, "home", ".pi", "profiles.yaml"),
+        [
+          "version: 1",
+          "profiles:",
+          "  coder:",
+          "    description: Bounded coding work",
+          "    candidates:",
+          "      - model: provider/target",
+          "",
+        ].join("\n"),
+      );
+      const dir = join(root, "home", ".pi", "agents");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "builder.md"),
+        `---\nname: builder\ndescription: builder agent\nprofile: coder\n---\nBuild.\n`,
+      );
+      const harness = createHarness(root);
+      harness.setAuthUnavailable(true);
+
+      await harness.activate("builder");
+      expect(harness.state()).toMatchObject({ model: "baseline" });
+      expect(
+        harness.notifications.some(
+          ([message, level]) =>
+            level === "error" &&
+            message.includes("no available candidate models"),
+        ),
+      ).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("applies an agent tool allowlist and reports unavailable tools", async () => {
     const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
     try {
