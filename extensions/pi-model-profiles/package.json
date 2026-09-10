@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-model-profiles",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared, machine-local model profiles (ordered model candidates with thinking levels) for Pi extensions.",
   "license": "MIT",
   "author": "Kaushik Gopal",
