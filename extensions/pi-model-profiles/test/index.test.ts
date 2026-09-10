@@ -133,7 +133,7 @@ describe("loadModelProfiles and resolveProfilesPath", () => {
     ).toThrow(/Failed to read/);
     expect(() =>
       resolveProfilesPath(mkdtempSync(join(tmpdir(), "pi-model-profiles-"))),
-    ).toThrow(/Model profiles not found/);
+    ).toThrow(/Model profiles not found[\s\S]*Minimal schema:/);
   });
 
   it("resolves profiles.yaml under the given agent dir", () => {

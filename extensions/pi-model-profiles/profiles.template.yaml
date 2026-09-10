@@ -1,0 +1,36 @@
+# Model profiles template — schema illustration only, never loaded.
+#
+# Versioned in the @pi-kaush/pi-model-profiles package
+# (extensions/pi-model-profiles in pi-kaush). The runtime file is
+# ~/.pi/agent/profiles.yaml — gitignored, maintained per machine; the loader
+# throws if it is absent. Author each machine's profiles.yaml with canonical
+# "provider/model" references that resolve against that machine's
+# authenticated providers. Candidates are retried in order at activation;
+# list a primary then cross-family fallbacks. thinkingLevel is optional
+# (off|minimal|low|medium|high|xhigh|max) and must be supported by the
+# model's thinkingLevelMap.
+version: 1
+profiles:
+  quick:
+    description: Fast, low-cost execution for straightforward, low-risk tasks.
+    candidates:
+      - model: openai-codex/gpt-5.6-luna
+        thinkingLevel: minimal
+  coder:
+    description: Fast, coding-specialized execution for bounded implementation and test tasks.
+    candidates:
+      - model: openrouter/moonshotai/kimi-k2.7-code
+  default:
+    description: Default profile for normal bounded engineering work.
+    candidates:
+      - model: openrouter/z-ai/glm-5.3-flash
+  thinker:
+    description: High-effort reasoning for ambiguous debugging, design, and complex implementation.
+    candidates:
+      - model: openrouter/anthropic/claude-opus-4.8
+        thinkingLevel: xhigh
+  deep-thinker:
+    description: Maximum reasoning for rare, high-stakes, or exceptionally difficult tasks.
+    candidates:
+      - model: openrouter/anthropic/claude-fable-5
+        thinkingLevel: xhigh

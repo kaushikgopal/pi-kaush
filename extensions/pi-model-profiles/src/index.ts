@@ -165,7 +165,19 @@ export function resolveProfilesPath(agentDir: string): string {
   const local = join(agentDir, "profiles.yaml");
   if (!fs.existsSync(local)) {
     throw new Error(
-      `Model profiles not found. Create ${local} with canonical provider/model references for this machine; see profiles.template.yaml in the same directory for the schema. profiles.yaml is gitignored and maintained per machine.`,
+      [
+        `Model profiles not found. Create ${local} with canonical provider/model references for this machine; profiles.yaml is per-machine and never committed. Minimal schema:`,
+        "",
+        "version: 1",
+        "profiles:",
+        "  quick:",
+        "    description: Fast, low-cost execution.",
+        "    candidates:",
+        "      - model: provider/model-id",
+        "        thinkingLevel: high",
+        "",
+        "Copy profiles.template.yaml from the @pi-kaush/pi-model-profiles package (or repo) for a full illustration.",
+      ].join("\n"),
     );
   }
   return local;
