@@ -29,6 +29,7 @@ import {
   formatHashlineHeader,
   HASHLINE_SNAPSHOT_CAP_BYTES,
   mergeRanges,
+  mapSeenRangesThroughEdit,
   rangesCover,
   throwIfAborted,
   type HashlineRecord,
@@ -56,6 +57,7 @@ type PlannedFile = {
   newLogicalText: string;
   changedSpans: ChangedSpan[];
   recoveryWarnings: string[];
+  recovered: boolean;
   firstChangedLine?: number;
   finalNewlineOverride?: boolean;
   device: number;
@@ -183,6 +185,7 @@ function prepareEdit(
   | "newLogicalText"
   | "changedSpans"
   | "recoveryWarnings"
+  | "recovered"
   | "firstChangedLine"
 > {
   const applied = applyHashlineOperations({
@@ -206,6 +209,7 @@ function prepareEdit(
       newLogicalText: applied.logicalText,
       changedSpans: applied.changedSpans,
       recoveryWarnings: [],
+      recovered: false,
       ...(applied.firstChangedLine !== undefined
         ? { firstChangedLine: applied.firstChangedLine }
         : {}),
@@ -229,6 +233,7 @@ function prepareEdit(
     recoveryWarnings: [
       `${displayPath}: preserved non-overlapping changes made after the tagged read.`,
     ],
+    recovered: true,
     ...(recovered.firstChangedLine !== undefined
       ? { firstChangedLine: recovered.firstChangedLine }
       : {}),
@@ -539,6 +544,17 @@ async function applyPlan(
         file.oldDocument.lineEnding,
       );
       const document = decodeEligibleText(Buffer.from(physical, "utf8"));
+      // Lines outside the changed spans are byte-identical to what the
+      // tagged read displayed, so their display authorization carries
+      // forward. A stale-recovered edit maps base ranges onto a live file
+      // that moved underneath — conservatively authorize only the window.
+      const inherited = !file.recovered
+        ? mapSeenRangesThroughEdit(
+            file.record.seenRanges,
+            file.operations,
+            file.baseDocument.lines.length,
+          )
+        : { ranges: [], eofSeen: false };
       const provisional = createHashlineRecord({
         canonicalPath: file.canonicalPath,
         displayPath: file.displayPath,
@@ -554,8 +570,8 @@ async function applyPlan(
       );
       const anchor: HashlineRecord = {
         ...provisional,
-        seenRanges: window.seenRanges,
-        eofSeen: window.eofSeen,
+        seenRanges: mergeRanges([...window.seenRanges, ...inherited.ranges]),
+        eofSeen: window.eofSeen || inherited.eofSeen,
       };
       anchors.push(anchor);
       newDocuments.push(document);

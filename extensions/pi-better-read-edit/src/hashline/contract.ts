@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { HashlineOperation } from "./parser.ts";
 
 export const HASHLINE_SCHEMA = "pi-better-read-edit/hashline/v1" as const;
 export const HASHLINE_TAG_LENGTH = 16;
@@ -104,6 +105,79 @@ export function joinLogicalLines(
 ): string {
   const body = lines.join("\n");
   return finalNewline ? `${body}\n` : body;
+}
+/**
+ * Map seen ranges from base coordinates through one applied edit, dropping
+ * the ranges the edit replaced and renumbering the survivors. Lines outside
+ * the changed spans are byte-identical to what the tagged read displayed, so
+ * their display authorization carries forward to the edit's anchor.
+ */
+export function mapSeenRangesThroughEdit(
+  seenRanges: readonly LineRange[],
+  operations: readonly HashlineOperation[],
+  baseLineCount: number,
+): { ranges: LineRange[]; eofSeen: boolean } {
+  type Event = { at: number; delta: number }; // at: 0-based boundary
+  const events: Event[] = [];
+  const removals: Array<{ from: number; to: number }> = []; // 0-based [from, to)
+
+  for (const operation of operations) {
+    if (operation.kind === "replace" || operation.kind === "cut") {
+      const from = operation.start - 1;
+      const to = operation.end;
+      removals.push({ from, to });
+      events.push({
+        at: from,
+        delta:
+          (operation.kind === "replace" ? operation.rows.length : 0) -
+          (to - from),
+      });
+      continue;
+    }
+    if (operation.kind === "append") {
+      events.push({ at: baseLineCount, delta: operation.rows.length });
+      continue;
+    }
+    const at =
+      operation.kind === "insert-before" ? operation.line - 1 : operation.line;
+    events.push({ at, delta: operation.rows.length });
+  }
+  events.sort((a, b) => a.at - b.at || a.delta - b.delta);
+
+  const shiftFor = (line0: number): number =>
+    events.reduce(
+      (total, event) => (event.at <= line0 ? total + event.delta : total),
+      0,
+    );
+
+  const mapped: LineRange[] = [];
+  for (const range of mergeRanges(seenRanges)) {
+    // Walk the 1-based range in 0-based half-open pieces, skipping removals.
+    let cursor = range.start - 1;
+    const end0 = range.end;
+    while (cursor < end0) {
+      const overlapping = removals
+        .filter((r) => r.from < end0 && r.to > cursor)
+        .sort((a, b) => a.from - b.from)[0];
+      const pieceEnd = overlapping ? Math.min(end0, overlapping.from) : end0;
+      if (pieceEnd > cursor) {
+        const newStart = cursor + shiftFor(cursor) + 1;
+        const newEnd = pieceEnd + shiftFor(pieceEnd - 1);
+        if (newEnd >= newStart && newStart >= 1)
+          mapped.push({ start: newStart, end: newEnd });
+      }
+      if (!overlapping) break;
+      cursor = Math.max(cursor, overlapping.to);
+    }
+  }
+
+  const merged = mergeRanges(mapped);
+  const newLineCount =
+    baseLineCount + events.reduce((total, event) => total + event.delta, 0);
+  return {
+    ranges: merged,
+    eofSeen: merged.some((range) => range.end >= newLineCount),
+  };
 }
 
 export function computeFullDigest(logicalText: string): string {

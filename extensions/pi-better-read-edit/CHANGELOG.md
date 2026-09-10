@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Inherit seen-range display authorization through successful edits: lines outside the changed spans carry their read authorization forward to the edit's anchor, so editing a second unchanged region no longer requires rereading the file first. Stale-recovered edits stay conservative (window-only).
 - Make mechanical structured-edit defaults optional and normalize bounded JSON-string array encodings before strict validation.
 - Explain full-range read authorization in the tool contract and return exact unread ranges after a rejected edit.
 - Preserve private failed-edit diagnostics in benchmark runs while keeping published bundles sanitized.
