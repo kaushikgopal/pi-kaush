@@ -332,7 +332,7 @@ describe("tool-call-markers grouping", () => {
     expect(lines.every((line) => !/[\x00-\x1f\x7f]/.test(line))).toBe(true);
   });
 
-  test("marks subagent calls with & instead of %", () => {
+  test("marks subagent calls with ↪ instead of %", () => {
     const chat = new MockContainer();
     const row = new MockToolExecutionComponent("subagent", "delegation");
     row.args = { agent: "lucien", task: "Consolidate the notes" };
@@ -340,7 +340,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const plain = chat.render(100).map(stripAnsi).join("\n");
-    expect(plain).toContain("& subagent lucien");
+    expect(plain).toContain("↪ [lucien]");
     expect(plain).not.toContain("% subagent");
   });
 
@@ -1058,10 +1058,10 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^  & subagent chain \(2 steps\) \[user\]/);
+    expect(lines[0]).toMatch(/^  ↪ subagent chain \(2 steps\) \[user\]/);
     expect(lines[0]).toContain("→ done");
-    expect(lines[1]).toBe("    1. reviewer [fast] Analyze the change.");
-    expect(lines[2]).toBe("    2. tester Use and validate it.");
+    expect(lines[1]).toBe("    1. [fast][reviewer] Analyze the change.");
+    expect(lines[2]).toBe("    2. [tester] Use and validate it.");
     expect(lines.join("\n")).not.toContain("▌");
     expect(lines.join("\n")).not.toContain("view subagents");
   });
@@ -1085,9 +1085,9 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(5);
-    expect(lines[0]).toContain("& subagent parallel (4 tasks) [user]");
-    expect(lines[1]).toBe("    alpha First task.");
-    expect(lines[3]).toBe("    gamma Third task.");
+    expect(lines[0]).toContain("↪ subagent parallel (4 tasks) [user]");
+    expect(lines[1]).toBe("    [alpha] First task.");
+    expect(lines[3]).toBe("    [gamma] Third task.");
     expect(lines[4]).toBe("    ... +1 more");
   });
 
@@ -1103,7 +1103,7 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("& subagent reviewer Inspect the renderer.");
+    expect(lines[0]).toContain("↪ [reviewer] Inspect the renderer.");
     expect(lines[0]).toContain("→ done");
   });
 
@@ -1129,8 +1129,45 @@ describe("tool-call-markers grouping", () => {
       .render(100)
       .map(stripAnsi)
       .filter((line) => line.trim());
-    expect(lines[1]).toBe("    1. 🏃 reviewer [fast] Analyze the change.");
-    expect(lines[2]).toBe("    2. 🐝 tester Validate it.");
+    expect(lines[1]).toBe("    1. 🏃 [fast][reviewer] Analyze the change.");
+    expect(lines[2]).toBe("    2. 🐝 [tester] Validate it.");
+  });
+
+  test("shows single-call emoji and profile badges in emoji-profile-name order", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = { agent: "c3po", profile: "coder", task: "Implement the fix." };
+    row.updateResult({ isError: false, output: "child result" });
+    row.callRendererComponent = new MockText(
+      "subagent 🤖 c3po [user]\n  Implement the fix.",
+    );
+    chat.addChild(row);
+
+    const lines = chat
+      .render(100)
+      .map(stripAnsi)
+      .filter((line) => line.trim());
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("↪ 🤖 [coder][c3po] Implement the fix.");
+  });
+
+  test("omits the emoji slot for plain-named single calls", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = { agent: "lucien", task: "Consolidate the notes" };
+    row.updateResult({ isError: false, output: "child result" });
+    row.callRendererComponent = new MockText(
+      "subagent lucien [user]\n  Consolidate the notes",
+    );
+    chat.addChild(row);
+
+    const lines = chat
+      .render(100)
+      .map(stripAnsi)
+      .filter((line) => line.trim());
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("↪ [lucien] Consolidate the notes");
+    expect(lines[0]).not.toContain("[ ");
   });
 
   test("keeps a live subagent plan in its warning state", () => {
@@ -1141,7 +1178,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain("& subagent reviewer Inspect the live result.");
+    expect(output).toContain("↪ [reviewer] Inspect the live result.");
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
     expect(output).not.toContain("partial child output");
@@ -1171,7 +1208,7 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      "& subagent reviewer Inspect the live result. → 1 turn · instacart-openai/gpt-5.6-luna",
+      "↪ [reviewer] Inspect the live result. → 1 turn · instacart-openai/gpt-5.6-luna",
     );
     expect(output).not.toContain("→ done");
   });
@@ -1236,7 +1273,7 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output.match(/& subagent/g)).toHaveLength(2);
+    expect(output.match(/↪ \[/g)).toHaveLength(2);
     expect(output).not.toContain("•");
     expect(output).not.toContain("▌");
   });
@@ -1246,7 +1283,7 @@ describe("tool-call-markers grouping", () => {
     const malformed = new MockToolExecutionComponent("subagent", "broken");
     malformed.args = { tasks: [{ task: 42 }] };
     malformedChat.addChild(malformed);
-    expect(renderPlain(malformedChat)).toContain("& subagent");
+    expect(renderPlain(malformedChat)).toContain("↪ subagent");
     expect(renderPlain(malformedChat)).not.toContain("▌");
 
     const narrowChat = new MockContainer();
@@ -1254,7 +1291,7 @@ describe("tool-call-markers grouping", () => {
     narrow.args = { agent: "reviewer", task: "Inspect a narrow terminal." };
     narrowChat.addChild(narrow);
     const narrowLines = narrowChat.render(20).map(stripAnsi);
-    expect(narrowLines.some((line) => line.includes("&"))).toBe(true);
+    expect(narrowLines.some((line) => line.includes("↪"))).toBe(true);
     expect(narrowLines.join("\n")).not.toContain("▌");
     expect(narrowLines.every((line) => line.length <= 20)).toBe(true);
   });

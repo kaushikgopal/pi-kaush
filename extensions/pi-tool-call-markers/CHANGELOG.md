@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Restyle subagent rows: the subagent marker is now `↪` (was `&`), and single
+  calls drop the `subagent` tool label — `↪ 🤖 [coder][c3po] Implement the…` —
+  with chain/parallel step lines reordered to emoji, profile badge, name badge
+  (`1. 🐝 [workhorse][bee] …`). Single-call headings are now scraped too, so
+  agent emojis appear on single rows, not just chain/parallel steps.
+
 - Color collapsed rows (tool calls, `+ Thought`, subagents) from the
   theme's `syntaxComment` token — which ships with every theme — instead of
   the louder muted/toolTitle/toolOutput split. The bolded tool name and the

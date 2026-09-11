@@ -34,19 +34,19 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 
 ## Subagent plans
 
-A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic, marked with `&` instead of the ordinary `%` tool marker:
+A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic, marked with `↪` instead of the ordinary `%` tool marker:
 
 ```text
-  & subagent chain (3 steps) [repo-review]
+  ↪ subagent chain (3 steps) [repo-review]
     1. 🐝 bee [workhorse] Challenge the compatibility conclusion…
     2. 🐝 bee …
 ```
 
-Single calls stay on one `& subagent <agent> [profile] <task preview>` row; chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers). Agent display names (emoji + name) are scraped from the native plan component with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
+Single calls stay on one `↪ [<emoji>] [<profile>][<agent>] <task preview>` row — no tool label; the `↪` marker identifies it. Chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers), with each step ordered emoji, profile badge, name badge. Agent display names (emoji + name) are scraped from the native plan component — including the single-call heading — with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
 
 While a subagent runs, the plan headline's tail shows live progress from the streamed result details — `→ 1 turn · provider/model` in the warning tone — and a settled call keeps the same `→ N turns · provider/model` summary in muted (turns aggregate across tasks; the model shows only when every task used the same one).
 
-Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `& subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
+Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `↪ subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
 
 ## Edit diffs
 

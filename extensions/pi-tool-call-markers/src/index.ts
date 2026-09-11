@@ -20,7 +20,7 @@ import { fgCollapsed } from "./muted.ts";
 
 const OUTER_INSET = 2;
 const GROUP_MARKER = "%";
-const SUBAGENT_MARKER = "&";
+const SUBAGENT_MARKER = "↪";
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
@@ -1028,6 +1028,19 @@ function parseStepContent(content: string): {
   };
 }
 
+// Splits a scraped "emoji name" display into its emoji prefix and bare name;
+// plain names pass through with no emoji.
+function splitEmojiName(
+  displayName: string,
+  bareName: string,
+): { emoji: string; name: string } {
+  const tokens = displayName.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length > 1 && tokens[tokens.length - 1] === bareName) {
+    return { emoji: tokens.slice(0, -1).join(" "), name: bareName };
+  }
+  return { emoji: "", name: bareName };
+}
+
 // Agent display names (emoji + name) come from the subagent extension's own
 // call component when available; args only carry the bare agent name.
 function scrapeSubagentDisplayNames(
@@ -1042,10 +1055,16 @@ function scrapeSubagentDisplayNames(
   try {
     for (const raw of component.render(120)) {
       const line = sanitizeInline(stripAnsi(raw)).trim();
-      if (!line || /^subagent\b/.test(line)) continue;
-      const { displayName, bareName } = parseStepContent(
-        line.replace(/^\d+\.\s*/, ""),
-      );
+      if (!line) continue;
+      // Single calls carry the agent name on their "subagent <name>" heading
+      // line; stripping the heading word (and step numbers) lets both shapes
+      // flow through the same parse. Heading remainders without an emoji
+      // (e.g. "chain (2 steps)") degrade to displayName === bareName and are
+      // skipped by the guard below.
+      const content = line
+        .replace(/^subagent\b\s*/, "")
+        .replace(/^\d+\.\s*/, "");
+      const { displayName, bareName } = parseStepContent(content);
       if (displayName && bareName && displayName !== bareName) {
         names.set(bareName, displayName);
       }
@@ -1091,10 +1110,11 @@ function subagentProgressText(row: ToolExecutionRow): string | undefined {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-// Subagents render as an ordinary unboxed tool block: a `%` heading with the
+// Subagents render as an ordinary unboxed tool block: a `↪` heading with the
 // plan kind/count/scope, then the numbered chain steps or parallel tasks with
-// agent names in accent. Everything else stays muted (or error on failure),
-// matching the shared tool-row aesthetic.
+// agent identities (emoji, profile badge, name badge) in accent. Single calls
+// collapse to one row: `↪ <emoji> [<profile>][<name>] <task preview>`. Everything
+// else stays muted (or error on failure), matching the shared tool-row aesthetic.
 function renderSubagentPlan(
   row: ToolExecutionRow,
   width: number,
@@ -1110,19 +1130,21 @@ function renderSubagentPlan(
   const displayNames = scrapeSubagentDisplayNames(row);
   // Agent/profile/task values are model-supplied; sanitize them like every
   // other collapsed-row text so control bytes cannot reach the terminal.
-  const displayOf = (agent: string) =>
-    fgCollapsed(
-      theme,
-      nameColor,
-      displayNames.get(agent) ?? sanitizeInline(agent),
-    );
+  // Identity order: emoji, then the profile and agent-name badges.
+  const identityOf = (step: SubagentStep) => {
+    const displayName =
+      displayNames.get(step.agent) ?? sanitizeInline(step.agent);
+    const { emoji, name } = splitEmojiName(displayName, step.agent);
+    const accentPart = (text: string) => fgCollapsed(theme, nameColor, text);
+    const emojiPart = emoji ? `${accentPart(emoji)} ` : "";
+    const profilePart = step.profile
+      ? accentPart(`[${sanitizeInline(step.profile)}]`)
+      : "";
+    return `${emojiPart}${profilePart}${accentPart(`[${sanitizeInline(name)}]`)}`;
+  };
   const detailColor = failed ? "error" : "toolOutput";
-  const detailOf = (step: SubagentStep) =>
-    fgCollapsed(
-      theme,
-      detailColor,
-      `${step.profile ? ` [${sanitizeInline(step.profile)}]` : ""} ${subagentStepPreview(step.task)}`,
-    );
+  const previewOf = (step: SubagentStep) =>
+    fgCollapsed(theme, detailColor, ` ${subagentStepPreview(step.task)}`);
 
   const marker = `${fgCollapsed(theme, color, SUBAGENT_MARKER, true)} `;
   const budget = Math.max(1, width - visibleWidth(marker));
@@ -1146,14 +1168,7 @@ function renderSubagentPlan(
 
   if (plan.kind === "single") {
     const step = plan.steps[0]!;
-    return [
-      headline(
-        fgCollapsed(theme, failed ? "error" : "toolTitle", "subagent", true) +
-          " " +
-          displayOf(step.agent) +
-          detailOf(step),
-      ),
-    ];
+    return [headline(identityOf(step) + previewOf(step))];
   }
 
   const kindLabel =
@@ -1175,7 +1190,7 @@ function renderSubagentPlan(
       plan.kind === "chain"
         ? `${fgCollapsed(theme, color, `${index + 1}.`)} `
         : "";
-    lines.push(`  ${number}${displayOf(step.agent)}${detailOf(step)}`);
+    lines.push(`  ${number}${identityOf(step)}${previewOf(step)}`);
   }
   if (plan.steps.length > shown.length) {
     lines.push(
