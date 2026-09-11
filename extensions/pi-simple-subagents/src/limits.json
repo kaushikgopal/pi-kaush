@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "maxDepth": 2,
+  "maxChildrenPerCall": 5,
+  "maxConcurrency": 5,
+  "maxRuntimeMs": 7200000,
+  "maxInactivityMs": 900000,
+  "persistChildSessions": true
+}

@@ -1,0 +1,69 @@
+{
+  "name": "@pi-kaush/pi-simple-subagents",
+  "version": "0.1.0",
+  "description": "Delegate bounded tasks to isolated Pi subagent processes, with execution profiles, bounded delegation, process-tree cleanup, and resumable child sessions.",
+  "license": "MIT",
+  "author": "Kaushik Gopal",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "types": "./src/index.ts",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "subagents",
+    "delegation"
+  ],
+  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-simple-subagents#readme",
+  "bugs": {
+    "url": "https://github.com/kaushikgopal/pi-kaush/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaushikgopal/pi-kaush.git",
+    "directory": "extensions/pi-simple-subagents"
+  },
+  "files": [
+    "src",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@pi-kaush/pi-model-profiles": "^0.1.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": ">=0.80.6",
+    "@earendil-works/pi-ai": ">=0.80.6",
+    "@earendil-works/pi-coding-agent": ">=0.80.6",
+    "@earendil-works/pi-tui": ">=0.80.6"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "package:check": "node ./scripts/check-package.mjs"
+  },
+  "sideEffects": false
+}
