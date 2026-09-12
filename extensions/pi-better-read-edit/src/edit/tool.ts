@@ -835,16 +835,15 @@ export default function registerEditTool(
     name: "edit",
     label: "edit",
     description:
-      "Edit tagged local text with structured line splices. Each file needs the path and 16-character tag returned by read/edit. A splice starts at an original line, deletes deleteCount lines, then inserts newLines. Omit edits, appendLines, newLines, and finalNewline when their defaults apply. Every replaced or deleted line must have been displayed by the tagged read; reading only range boundaries is insufficient. When line numbers are uncertain, add oldText with the exact current lines — the tool falls back to a unique text match when the coordinate splice fails. When many lines look identical, never count occurrences to get a line number — anchor by oldText including the nearest unique heading or neighbor. Every target is preflighted, and stale recovery requires unique unchanged neighboring context.",
+      "Edit tagged local text with structured line splices. Each file needs the path and the 16-character tag from read/edit. A splice starts at an original line, deletes deleteCount lines, then inserts newLines; omit unused fields. Replaced or deleted lines must have been displayed by the tagged read. When line numbers are uncertain or many lines look identical, anchor by oldText (exact current lines, unique in the file) with newText instead of counting.",
     promptSnippet:
       "Edit tagged text with structured original-coordinate line splices",
     promptGuidelines: [
-      "Use each file's own path and tag from read; a tag authorizes only original lines that read actually displayed.",
-      "Before replacing or deleting lines N-M, read must have displayed every line N through M. Reading only the first and last lines is insufficient.",
-      "For each edit, set startLine to the first original line and deleteCount to the number removed. Add newLines only for replacement/insertion; omit it for deletion-only edits.",
-      "Never count occurrences among identical or similar lines to derive a line number — line 29 and line 28 look the same and one of them is wrong. Anchor with oldText instead: the exact lines copied from the read, widened with the nearest unique heading or neighbor so they appear exactly once, plus newText as the replacement. A splice with both startLine and oldText tries coordinates first and falls back to the text match.",
-      "Omit appendLines and finalNewline unless appending or changing the terminal newline. Append and terminal-newline changes require a read that displayed EOF.",
-      "On an unseen-range error, read the exact suggested ranges and retry with the returned tag.",
+      "Use each file's own tag from read/edit; it authorizes only lines that read displayed.",
+      "Every replaced or deleted line must be displayed — reading only the range boundaries is insufficient.",
+      "Never count occurrences among identical lines: anchor by oldText (widened with a unique heading or neighbor) and newText; a splice with both tries coordinates first, then the text match.",
+      "Omit appendLines and finalNewline unless appending or changing the terminal newline; both require a read that displayed EOF.",
+      "On unseen-range errors, read the suggested ranges and retry with the returned tag.",
     ],
     parameters: editSchema,
     prepareArguments: normalizeEditArguments,

@@ -39,7 +39,7 @@ const lineEditSchema = Type.Object(
         minimum: 1,
         maximum: 100_001,
         description:
-          "First original line to replace/delete, or the insertion point. Use original lineCount + 1 to append. Every replaced/deleted line must have been displayed by the tagged read. When many lines look identical, do not count occurrences — omit startLine and anchor by oldText instead.",
+          "First original line to replace/delete, or the insertion point; lineCount + 1 appends. Must be displayed by the tagged read. Omit to anchor by oldText instead.",
       }),
     ),
     deleteCount: Type.Optional(
@@ -47,14 +47,14 @@ const lineEditSchema = Type.Object(
         minimum: 0,
         maximum: 100_000,
         description:
-          "Number of original lines to delete; use 0 to insert. The tagged read must have displayed the full deleted range, not only its boundaries. Defaults to 0.",
+          "Original lines to remove; 0 inserts. The full range must be displayed by the tagged read.",
       }),
     ),
     newLines: Type.Optional(
       Type.Array(Type.String(), {
         maxItems: 100_000,
         description:
-          "Replacement or inserted lines for a startLine splice. Omit or use [] to delete only.",
+          "Replacement or inserted lines; omit or [] to delete only.",
       }),
     ),
     oldText: Type.Optional(
@@ -62,14 +62,14 @@ const lineEditSchema = Type.Object(
         minItems: 1,
         maxItems: 100_000,
         description:
-          "Exact current lines to locate this splice when line numbers are uncertain. Must appear exactly once in the file; the splice then replaces those lines. Also used as a fallback when the startLine splice fails.",
+          "Exact current lines, appearing exactly once in the file; the splice replaces them. Also the fallback when the startLine splice fails.",
       }),
     ),
     newText: Type.Optional(
       Type.Array(Type.String(), {
         maxItems: 100_000,
         description:
-          "Replacement lines for an oldText splice. Omit or use [] to delete only.",
+          "Replacement lines for an oldText splice; omit or [] to delete only.",
       }),
     ),
   },
