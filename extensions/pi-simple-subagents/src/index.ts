@@ -9,8 +9,8 @@ const extensionDir = dirname(fileURLToPath(import.meta.url));
 // package; this extension now owns delegated subagent execution and profiles
 // only. There must never be two /agent registrations.
 export default async function (pi: ExtensionAPI) {
-	if (existsSync(join(extensionDir, "subagent.ts"))) {
-		const { registerSubagent } = await import("./subagent.ts");
-		registerSubagent(pi);
-	}
+  if (existsSync(join(extensionDir, "subagent.ts"))) {
+    const { registerSubagent } = await import("./subagent.ts");
+    registerSubagent(pi);
+  }
 }
