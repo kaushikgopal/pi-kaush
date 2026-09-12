@@ -145,6 +145,7 @@ describe("hashline parser and planner", () => {
         { kind: "insert-before", line: 2, rows: ["hello", ""] },
         { kind: "cut", start: 5, end: 6 },
       ],
+      textSplices: [],
     });
   });
 

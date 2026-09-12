@@ -95,12 +95,11 @@ describe("structured edit input", () => {
       "startLine",
       "deleteCount",
       "newLines",
+      "oldText",
+      "newText",
     ]);
     expect(file.required).toEqual(["path", "tag"]);
-    expect(file.properties.edits.items.required).toEqual([
-      "startLine",
-      "deleteCount",
-    ]);
+    expect(file.properties.edits.items.required).toBeUndefined();
   });
 
   test("replaces, inserts, and appends in original coordinates", async () => {

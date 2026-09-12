@@ -6,19 +6,22 @@ import {
   parseHashlineScript,
   type HashlineOperation,
   type HashlineSection,
+  type TextSplice,
 } from "../hashline/parser.ts";
 
 export type FinalNewlineMode = "preserve" | "present" | "absent";
 type LegacyInsertionAnchor = { kind: "before" | "after"; line: number };
 const legacyOperationAnchors = new WeakMap<object, LegacyInsertionAnchor>();
+const dualTextSplices = new WeakMap<object, TextSplice>();
 const legacyAnchorPrefix = `\u0000pi-better-read-edit:${randomUUID()}:`;
 
 export type StructuredLineEdit = {
-  startLine: number;
-  deleteCount: number;
-  newLines: string[];
+  startLine?: number;
+  deleteCount?: number;
+  newLines?: string[];
+  oldText?: string[];
+  newText?: string[];
 };
-
 export type StructuredFileEdit = {
   path: string;
   tag: string;
@@ -31,23 +34,42 @@ export type EditParams = { files: StructuredFileEdit[] };
 
 const lineEditSchema = Type.Object(
   {
-    startLine: Type.Integer({
-      minimum: 1,
-      maximum: 100_001,
-      description:
-        "First original line to replace/delete, or the insertion point. Use original lineCount + 1 to append. Every replaced/deleted line must have been displayed by the tagged read.",
-    }),
-    deleteCount: Type.Integer({
-      minimum: 0,
-      maximum: 100_000,
-      description:
-        "Number of original lines to delete; use 0 to insert. The tagged read must have displayed the full deleted range, not only its boundaries.",
-    }),
+    startLine: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        maximum: 100_001,
+        description:
+          "First original line to replace/delete, or the insertion point. Use original lineCount + 1 to append. Every replaced/deleted line must have been displayed by the tagged read. Omit when anchoring by oldText instead.",
+      }),
+    ),
+    deleteCount: Type.Optional(
+      Type.Integer({
+        minimum: 0,
+        maximum: 100_000,
+        description:
+          "Number of original lines to delete; use 0 to insert. The tagged read must have displayed the full deleted range, not only its boundaries. Defaults to 0.",
+      }),
+    ),
     newLines: Type.Optional(
       Type.Array(Type.String(), {
         maxItems: 100_000,
         description:
-          "Replacement or inserted lines. Omit or use [] to delete only.",
+          "Replacement or inserted lines for a startLine splice. Omit or use [] to delete only.",
+      }),
+    ),
+    oldText: Type.Optional(
+      Type.Array(Type.String(), {
+        minItems: 1,
+        maxItems: 100_000,
+        description:
+          "Exact current lines to locate this splice when line numbers are uncertain. Must appear exactly once in the file; the splice then replaces those lines. Also used as a fallback when the startLine splice fails.",
+      }),
+    ),
+    newText: Type.Optional(
+      Type.Array(Type.String(), {
+        maxItems: 100_000,
+        description:
+          "Replacement lines for an oldText splice. Omit or use [] to delete only.",
       }),
     ),
   },
@@ -173,6 +195,11 @@ function normalizeLineEdit(input: unknown): unknown {
       normalized[key] = Number(value.trim());
     }
   }
+  for (const key of ["newLines", "oldText", "newText"] as const) {
+    if (typeof edit[key] === "string") {
+      normalized[key] = parseJsonArray(edit[key], `edit ${key}`);
+    }
+  }
   if (edit.newLines === null || edit.newLines === undefined) {
     normalized.newLines = [];
   }
@@ -277,33 +304,101 @@ export function toHashlineSection(
   lineCount: number,
 ): HashlineSection {
   validateExactLines(file.appendLines, file.path, "appendLines");
-  const operations = file.edits.map((edit, index) => {
-    const decoded = decodeLegacyAnchor(edit.newLines);
-    validateExactLines(decoded.lines, file.path, `edit ${index + 1} newLines`);
-    const normalizedEdit = { ...edit, newLines: decoded.lines };
+  const operations: HashlineOperation[] = [];
+  const textSplices: TextSplice[] = [];
+  file.edits.forEach((edit, index) => {
+    const oldText = edit.oldText;
+    if (oldText !== undefined && oldText !== null) {
+      if (!Array.isArray(oldText) || oldText.length === 0) {
+        throw new Error(
+          `${file.path} edit ${index + 1} oldText must be a non-empty array of exact current lines.`,
+        );
+      }
+      validateExactLines(oldText, file.path, `edit ${index + 1} oldText`);
+    }
+    if (edit.newText !== undefined && edit.newText !== null) {
+      if (!Array.isArray(edit.newText)) {
+        throw new Error(
+          `${file.path} edit ${index + 1} newText must be an array of lines.`,
+        );
+      }
+      validateExactLines(edit.newText, file.path, `edit ${index + 1} newText`);
+    }
+    const anchorLines: readonly string[] | undefined = oldText;
+    const rows = edit.newText ?? edit.newLines ?? [];
+    if (!anchorLines && edit.startLine === undefined) {
+      throw new Error(
+        `${file.path} edit ${index + 1} needs startLine (original coordinates) or oldText (exact current lines to replace).`,
+      );
+    }
+    if (!anchorLines) {
+      const decoded = decodeLegacyAnchor(edit.newLines ?? []);
+      validateExactLines(
+        decoded.lines,
+        file.path,
+        `edit ${index + 1} newLines`,
+      );
+      const normalizedEdit = {
+        ...edit,
+        startLine: edit.startLine!,
+        deleteCount: edit.deleteCount ?? 0,
+        newLines: decoded.lines,
+      };
+      const operation = toHashlineOperation(
+        normalizedEdit,
+        lineCount,
+        file.path,
+        index,
+      );
+      if (decoded.anchor) {
+        const anchor = decoded.anchor;
+        const validLegacyInsertion =
+          normalizedEdit.deleteCount === 0 &&
+          normalizedEdit.newLines.length > 0 &&
+          ((anchor.kind === "before" &&
+            normalizedEdit.startLine === anchor.line) ||
+            (anchor.kind === "after" &&
+              normalizedEdit.startLine === anchor.line + 1));
+        if (!validLegacyInsertion) {
+          throw new Error(
+            `${file.path} edit ${index + 1} has invalid legacy insertion metadata.`,
+          );
+        }
+        legacyOperationAnchors.set(operation, anchor);
+      }
+      operations.push(operation);
+      return;
+    }
+    const splice: TextSplice = {
+      editIndex: index,
+      oldLines: [...anchorLines],
+      newLines: rows,
+    };
+    if (edit.startLine === undefined) {
+      textSplices.push(splice);
+      return;
+    }
+    // Dual splice: the coordinate path is tried first; the text match is the
+    // fallback. Replacement rows come from newText (or newLines) on both paths.
+    if ((edit.deleteCount ?? 0) === 0) {
+      throw new Error(
+        `${file.path} edit ${index + 1} pairs startLine with oldText, so the fallback replaces the oldText lines; set deleteCount to at least 1, or drop startLine and put the full replacement in newText.`,
+      );
+    }
     const operation = toHashlineOperation(
-      normalizedEdit,
+      {
+        ...edit,
+        startLine: edit.startLine,
+        deleteCount: edit.deleteCount ?? 0,
+        newLines: rows,
+      },
       lineCount,
       file.path,
       index,
+      true,
     );
-    if (decoded.anchor) {
-      const anchor = decoded.anchor;
-      const validLegacyInsertion =
-        normalizedEdit.deleteCount === 0 &&
-        normalizedEdit.newLines.length > 0 &&
-        ((anchor.kind === "before" &&
-          normalizedEdit.startLine === anchor.line) ||
-          (anchor.kind === "after" &&
-            normalizedEdit.startLine === anchor.line + 1));
-      if (!validLegacyInsertion) {
-        throw new Error(
-          `${file.path} edit ${index + 1} has invalid legacy insertion metadata.`,
-        );
-      }
-      legacyOperationAnchors.set(operation, anchor);
-    }
-    return operation;
+    dualTextSplices.set(operation, splice);
+    operations.push(operation);
   });
   if (file.appendLines.length > 0) {
     operations.push({ kind: "append", rows: file.appendLines });
@@ -312,6 +407,7 @@ export function toHashlineSection(
     displayPath: file.path,
     tag: file.tag.toUpperCase(),
     operations,
+    textSplices,
   };
 }
 
@@ -339,14 +435,25 @@ export function getLegacyInsertionAnchor(
   return legacyOperationAnchors.get(operation);
 }
 
+export function getDualTextSplice(
+  operation: HashlineOperation,
+): TextSplice | undefined {
+  return dualTextSplices.get(operation);
+}
+
 function toHashlineOperation(
-  edit: StructuredLineEdit,
+  edit: StructuredLineEdit & {
+    startLine: number;
+    deleteCount: number;
+    newLines: string[];
+  },
   lineCount: number,
   path: string,
   index: number,
+  skipBounds = false,
 ): HashlineOperation {
   const startLine = edit.startLine;
-  if (startLine > lineCount + 1) {
+  if (!skipBounds && startLine > lineCount + 1) {
     throw new Error(
       `${path} edit ${index + 1} starts at line ${startLine}, beyond the ${lineCount + 1} insertion boundary.`,
     );
@@ -363,7 +470,7 @@ function toHashlineOperation(
   }
 
   const end = startLine + edit.deleteCount - 1;
-  if (!Number.isSafeInteger(end) || end > lineCount) {
+  if (!skipBounds && (!Number.isSafeInteger(end) || end > lineCount)) {
     throw new Error(
       `${path} edit ${index + 1} deletes through line ${end}, beyond the ${lineCount}-line snapshot.`,
     );

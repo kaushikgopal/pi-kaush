@@ -6,11 +6,17 @@ export type HashlineOperation =
   | { kind: "insert-before"; line: number; rows: string[] }
   | { kind: "insert-after"; line: number; rows: string[] }
   | { kind: "append"; rows: string[] };
+export type TextSplice = {
+  editIndex: number;
+  oldLines: string[];
+  newLines: string[];
+};
 
 export type HashlineSection = {
   displayPath: string;
   tag: string;
   operations: HashlineOperation[];
+  textSplices: TextSplice[];
 };
 
 const POSITIVE_INTEGER = "([1-9][0-9]*)";
@@ -71,7 +77,7 @@ export function parseHashlineScript(script: string): HashlineSection[] {
           `Hashline section ${current.displayPath} has no operations.`,
         );
       }
-      current = { ...header, operations: [] };
+      current = { ...header, operations: [], textSplices: [] };
       sections.push(current);
       continue;
     }

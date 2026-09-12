@@ -11,6 +11,7 @@ import { constants } from "node:fs";
 import { access, realpath, stat, writeFile } from "node:fs/promises";
 import {
   editSchema,
+  getDualTextSplice,
   getLegacyInsertionAnchor,
   normalizeEditArguments,
   toHashlineSection,
@@ -36,13 +37,18 @@ import {
   type LineRange,
   type LogicalDocument,
 } from "../hashline/contract.ts";
-import { operationRange, type HashlineOperation } from "../hashline/parser.ts";
+import {
+  operationRange,
+  type HashlineOperation,
+  type HashlineSection,
+  type TextSplice,
+} from "../hashline/parser.ts";
 import { HashlineRegistry } from "../hashline/registry.ts";
 import { renderChangedHashline } from "../hashline/render.ts";
-import { recoverNonOverlappingEdit } from "../hashline/recovery.ts";
-import type { HashlineSnapshotStore } from "../hashline/snapshot-store.ts";
+import { matchUniqueLines, translateOperations } from "../hashline/recovery.ts";
 import { readBoundedFile } from "../read/bounded.ts";
 import { resolveLocalPath } from "../read/artifacts.ts";
+import type { HashlineSnapshotStore } from "../hashline/snapshot-store.ts";
 const MAX_EDIT_TARGETS = 16;
 const MAX_EDIT_OPERATIONS = 1_000;
 const MAX_AGGREGATE_PLAN_BYTES = 16 * 1024 * 1024;
@@ -51,6 +57,8 @@ type PlannedFile = {
   displayPath: string;
   canonicalPath: string;
   record: HashlineRecord;
+  seenRanges: LineRange[];
+  section: HashlineSection;
   operations: HashlineOperation[];
   baseDocument: LogicalDocument;
   oldDocument: LogicalDocument;
@@ -171,16 +179,96 @@ function finalNewlineOverride(mode: FinalNewlineMode): boolean | undefined {
   return mode === "preserve" ? undefined : mode === "present";
 }
 
+/**
+ * Validate one base-frame operation against the tagged snapshot: bounds plus
+ * seen-range display authorization. Thrown errors are the tool's ordinary
+ * rejection messages; dual splices catch them and fall back to text match.
+ */
+function validateCoordinateOperation(
+  displayPath: string,
+  operation: HashlineOperation,
+  lineCount: number,
+  seenRanges: readonly LineRange[],
+): void {
+  const legacyAnchor = getLegacyInsertionAnchor(operation);
+  if (legacyAnchor) {
+    const label = `legacy PUT ${legacyAnchor.kind === "before" ? "<" : ">"}${legacyAnchor.line}`;
+    if (legacyAnchor.line > lineCount) {
+      throw new Error(
+        `${label} is out of bounds for ${displayPath} (${lineCount} line(s)).`,
+      );
+    }
+    if (!rangesCover(seenRanges, legacyAnchor.line, legacyAnchor.line)) {
+      throw new Error(
+        `${label} targets an anchor line that was not displayed by the tagged read. Reread that range first.`,
+      );
+    }
+    return;
+  }
+  const target = operationRange(operation)!;
+  if (target.end > lineCount) {
+    throw new Error(
+      `${operationLabel(operation)} is out of bounds for ${displayPath} (${lineCount} line(s)).`,
+    );
+  }
+  const targetSeen = rangesCover(seenRanges, target.start, target.end);
+  const leftBoundarySeen =
+    operation.kind === "insert-before" &&
+    operation.line > 1 &&
+    rangesCover(seenRanges, operation.line - 1, operation.line - 1);
+  if (!targetSeen && !leftBoundarySeen) {
+    const missing = formatReadRanges(
+      uncoveredRanges(seenRanges, target.start, target.end),
+    );
+    throw new Error(
+      `${operationLabel(operation)} targets lines that were not displayed by the tagged read. ` +
+        `Read ${displayPath} with ranges "${missing}", then retry using the returned tag.`,
+    );
+  }
+}
+
+/**
+ * Resolve one exact-text splice against the current lines. A unique match
+ * replaces (or deletes) those lines; zero or multiple matches fail closed.
+ */
+function resolveTextSplice(
+  displayPath: string,
+  splice: TextSplice,
+  lines: readonly string[],
+): HashlineOperation {
+  const match = matchUniqueLines(lines, splice.oldLines);
+  if (!match) {
+    throw new Error(
+      `${displayPath} edit ${splice.editIndex + 1}: oldText does not appear in the current file. Copy the exact current lines from a fresh read.`,
+    );
+  }
+  if (match.count > 1) {
+    throw new Error(
+      `${displayPath} edit ${splice.editIndex + 1}: oldText appears more than once; include more surrounding lines so it is unique.`,
+    );
+  }
+  return splice.newLines.length === 0
+    ? { kind: "cut", start: match.start, end: match.end }
+    : {
+        kind: "replace",
+        start: match.start,
+        end: match.end,
+        rows: splice.newLines,
+      };
+}
+
 function prepareEdit(
   displayPath: string,
   tag: string,
   record: HashlineRecord,
+  seenRanges: readonly LineRange[],
   baseDocument: LogicalDocument,
   currentDocument: LogicalDocument,
-  operations: readonly HashlineOperation[],
+  section: HashlineSection,
   newlineOverride?: boolean,
 ): Pick<
   PlannedFile,
+  | "operations"
   | "oldDocument"
   | "newLogicalText"
   | "changedSpans"
@@ -188,27 +276,62 @@ function prepareEdit(
   | "recovered"
   | "firstChangedLine"
 > {
-  const applied = applyHashlineOperations({
-    lines: baseDocument.lines,
-    finalNewline: baseDocument.finalNewline,
-    operations,
-    label: formatHashlineHeader(displayPath, tag),
-    ...(newlineOverride !== undefined
-      ? { finalNewlineOverride: newlineOverride }
-      : {}),
-  });
-  if (applied.logicalText === baseDocument.logicalText) {
-    throw new Error(
-      `Hashline edit for ${displayPath} is a no-op; the file was not written.`,
-    );
-  }
+  const warnings: string[] = [];
+  const resolved: HashlineOperation[] = [];
+  const label = formatHashlineHeader(displayPath, tag);
 
   if (snapshotMatches(currentDocument, record)) {
+    // Matched frame: base snapshot coordinates equal live coordinates.
+    for (const operation of section.operations) {
+      const anchor = getDualTextSplice(operation);
+      if (!anchor) {
+        resolved.push(operation);
+        continue;
+      }
+      try {
+        validateCoordinateOperation(
+          displayPath,
+          operation,
+          record.lineCount,
+          seenRanges,
+        );
+        resolved.push(operation);
+      } catch (error) {
+        try {
+          resolved.push(
+            resolveTextSplice(displayPath, anchor, baseDocument.lines),
+          );
+        } catch {
+          throw error;
+        }
+        warnings.push(
+          `${displayPath}: edit ${anchor.editIndex + 1} used unique text match (line coordinates failed: ${error instanceof Error ? error.message : String(error)}).`,
+        );
+      }
+    }
+    for (const splice of section.textSplices) {
+      resolved.push(resolveTextSplice(displayPath, splice, baseDocument.lines));
+    }
+    const applied = applyHashlineOperations({
+      lines: baseDocument.lines,
+      finalNewline: baseDocument.finalNewline,
+      operations: resolved,
+      label,
+      ...(newlineOverride !== undefined
+        ? { finalNewlineOverride: newlineOverride }
+        : {}),
+    });
+    if (applied.logicalText === baseDocument.logicalText) {
+      throw new Error(
+        `Hashline edit for ${displayPath} is a no-op; the file was not written.`,
+      );
+    }
     return {
+      operations: resolved,
       oldDocument: currentDocument,
       newLogicalText: applied.logicalText,
       changedSpans: applied.changedSpans,
-      recoveryWarnings: [],
+      recoveryWarnings: warnings,
       recovered: false,
       ...(applied.firstChangedLine !== undefined
         ? { firstChangedLine: applied.firstChangedLine }
@@ -216,26 +339,68 @@ function prepareEdit(
     };
   }
 
-  const recovered = recoverNonOverlappingEdit(
+  // Stale frame: translate base operations onto the live document, with
+  // exact-text fallback for dual splices. Anything unresolvable fails closed.
+  if (newlineOverride !== undefined) throw staleError(displayPath);
+  const translated = translateOperations(
     baseDocument,
     currentDocument,
-    operations,
-    formatHashlineHeader(displayPath, tag),
-    newlineOverride,
+    section.operations,
   );
-  if (!recovered) {
+  section.operations.forEach((operation, index) => {
+    const translatedOperation = translated[index];
+    if (translatedOperation) {
+      resolved.push(translatedOperation);
+      return;
+    }
+    const anchor = getDualTextSplice(operation);
+    if (anchor) {
+      try {
+        resolved.push(
+          resolveTextSplice(displayPath, anchor, currentDocument.lines),
+        );
+      } catch {
+        throw staleError(displayPath);
+      }
+      warnings.push(
+        `${displayPath}: edit ${anchor.editIndex + 1} used unique text match after stale recovery failed.`,
+      );
+      return;
+    }
     throw staleError(displayPath);
+  });
+  for (const splice of section.textSplices) {
+    try {
+      resolved.push(
+        resolveTextSplice(displayPath, splice, currentDocument.lines),
+      );
+    } catch {
+      throw staleError(displayPath);
+    }
   }
+  const applied = applyHashlineOperations({
+    lines: currentDocument.lines,
+    finalNewline: currentDocument.finalNewline,
+    operations: resolved,
+    label,
+  });
+  if (applied.logicalText === currentDocument.logicalText) {
+    throw new Error(
+      `Hashline edit for ${displayPath} is a no-op; the file was not written.`,
+    );
+  }
+  warnings.push(
+    `${displayPath}: preserved non-overlapping changes made after the tagged read.`,
+  );
   return {
+    operations: resolved,
     oldDocument: currentDocument,
-    newLogicalText: recovered.logicalText,
-    changedSpans: recovered.changedSpans,
-    recoveryWarnings: [
-      `${displayPath}: preserved non-overlapping changes made after the tagged read.`,
-    ],
+    newLogicalText: applied.logicalText,
+    changedSpans: applied.changedSpans,
+    recoveryWarnings: warnings,
     recovered: true,
-    ...(recovered.firstChangedLine !== undefined
-      ? { firstChangedLine: recovered.firstChangedLine }
+    ...(applied.firstChangedLine !== undefined
+      ? { firstChangedLine: applied.firstChangedLine }
       : {}),
   };
 }
@@ -347,21 +512,18 @@ async function buildPlan(
     const newlineOverride = finalNewlineOverride(fileInput.finalNewline);
 
     for (const operation of section.operations) {
-      const legacyAnchor = getLegacyInsertionAnchor(operation);
-      if (legacyAnchor) {
-        const label = `legacy PUT ${legacyAnchor.kind === "before" ? "<" : ">"}${legacyAnchor.line}`;
-        if (legacyAnchor.line > found.record.lineCount) {
-          throw new Error(
-            `${label} is out of bounds for ${fileInput.path} (${found.record.lineCount} line(s)).`,
-          );
-        }
-        if (
-          !rangesCover(found.seenRanges, legacyAnchor.line, legacyAnchor.line)
-        ) {
-          throw new Error(
-            `${label} targets an anchor line that was not displayed by the tagged read. Reread that range first.`,
-          );
-        }
+      // Dual splices defer validation to prepareEdit, where a failed
+      // coordinate path can still fall back to the unique text match.
+      if (getDualTextSplice(operation)) continue;
+      if (getLegacyInsertionAnchor(operation)) {
+        // Legacy anchors keep their dedicated bounds check before the
+        // append branch, as they did before the text-fallback rework.
+        validateCoordinateOperation(
+          fileInput.path,
+          operation,
+          found.record.lineCount,
+          found.seenRanges,
+        );
         continue;
       }
       if (operation.kind === "append") {
@@ -372,30 +534,12 @@ async function buildPlan(
         }
         continue;
       }
-      const target = operationRange(operation)!;
-      if (target.end > found.record.lineCount) {
-        throw new Error(
-          `${operationLabel(operation)} is out of bounds for ${fileInput.path} (${found.record.lineCount} line(s)).`,
-        );
-      }
-      const targetSeen = rangesCover(
+      validateCoordinateOperation(
+        fileInput.path,
+        operation,
+        found.record.lineCount,
         found.seenRanges,
-        target.start,
-        target.end,
       );
-      const leftBoundarySeen =
-        operation.kind === "insert-before" &&
-        operation.line > 1 &&
-        rangesCover(found.seenRanges, operation.line - 1, operation.line - 1);
-      if (!targetSeen && !leftBoundarySeen) {
-        const missing = formatReadRanges(
-          uncoveredRanges(found.seenRanges, target.start, target.end),
-        );
-        throw new Error(
-          `${operationLabel(operation)} targets lines that were not displayed by the tagged read. ` +
-            `Read ${fileInput.path} with ranges "${missing}", then retry using the returned tag.`,
-        );
-      }
     }
     if (newlineOverride !== undefined && !found.eofSeen) {
       throw new Error(
@@ -414,9 +558,10 @@ async function buildPlan(
       fileInput.path,
       found.record.tag,
       found.record,
+      found.seenRanges,
       baseDocument,
       oldDocument,
-      section.operations,
+      section,
       newlineOverride,
     );
     const physical = encodePhysicalText(
@@ -441,7 +586,8 @@ async function buildPlan(
       displayPath: fileInput.path,
       canonicalPath,
       record: found.record,
-      operations: section.operations,
+      seenRanges: found.seenRanges,
+      section,
       baseDocument,
       ...prepared,
       ...(newlineOverride !== undefined
@@ -498,11 +644,13 @@ async function applyPlan(
         file.displayPath,
         file.record.tag,
         file.record,
+        file.seenRanges,
         file.baseDocument,
         document,
-        file.operations,
+        file.section,
         file.finalNewlineOverride,
       );
+      file.operations = prepared.operations;
       file.oldDocument = prepared.oldDocument;
       file.newLogicalText = prepared.newLogicalText;
       file.changedSpans = prepared.changedSpans;
@@ -687,15 +835,15 @@ export default function registerEditTool(
     name: "edit",
     label: "edit",
     description:
-      "Edit tagged local text with structured line splices. Each file needs the path and 16-character tag returned by read/edit. A splice starts at an original line, deletes deleteCount lines, then inserts newLines. Omit edits, appendLines, newLines, and finalNewline when their defaults apply. Every replaced or deleted line must have been displayed by the tagged read; reading only range boundaries is insufficient. Every target is preflighted, and stale recovery requires unique unchanged neighboring context.",
+      "Edit tagged local text with structured line splices. Each file needs the path and 16-character tag returned by read/edit. A splice starts at an original line, deletes deleteCount lines, then inserts newLines. Omit edits, appendLines, newLines, and finalNewline when their defaults apply. Every replaced or deleted line must have been displayed by the tagged read; reading only range boundaries is insufficient. When line numbers are uncertain, add oldText with the exact current lines — the tool falls back to a unique text match when the coordinate splice fails. Every target is preflighted, and stale recovery requires unique unchanged neighboring context.",
     promptSnippet:
       "Edit tagged text with structured original-coordinate line splices",
     promptGuidelines: [
       "Use each file's own path and tag from read; a tag authorizes only original lines that read actually displayed.",
       "Before replacing or deleting lines N-M, read must have displayed every line N through M. Reading only the first and last lines is insufficient.",
       "For each edit, set startLine to the first original line and deleteCount to the number removed. Add newLines only for replacement/insertion; omit it for deletion-only edits.",
+      "Unsure about line numbers? Add oldText (exact current lines copied from the read, appearing exactly once) with newText as the replacement; a splice with both startLine and oldText tries coordinates first and falls back to the text match.",
       "Omit appendLines and finalNewline unless appending or changing the terminal newline. Append and terminal-newline changes require a read that displayed EOF.",
-      "Combine disjoint changes and files in one call. Every coordinate refers to the original tagged read, not an earlier edit in the same call.",
       "On an unseen-range error, read the exact suggested ranges and retry with the returned tag.",
     ],
     parameters: editSchema,

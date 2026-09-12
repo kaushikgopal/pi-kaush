@@ -110,6 +110,53 @@ function translateOperation(
 
 /**
  * Translate each requested base operation through uniquely matching unchanged
+ * lines. Append operations have no stable stale-frame meaning and map to
+ * undefined; duplicate context, changed targets, and occupied insertion gaps
+ * map to undefined and fail closed at the caller.
+ */
+export function translateOperations(
+  base: LogicalDocument,
+  current: LogicalDocument,
+  operations: readonly HashlineOperation[],
+): (HashlineOperation | undefined)[] {
+  return operations.map((operation) =>
+    operation.kind === "append"
+      ? undefined
+      : translateOperation(base, current, operation),
+  );
+}
+
+export type UniqueLineMatch = { start: number; end: number; count: number };
+
+/**
+ * Find the exact `needle` line sequence in `lines`. The match must be unique:
+ * count 2 signals ambiguity (capped — any higher count fails the same way).
+ * Quoting a line sequence uniquely proves current-content knowledge, which is
+ * why exact-text splices need no separate display authorization.
+ */
+export function matchUniqueLines(
+  lines: readonly string[],
+  needle: readonly string[],
+): UniqueLineMatch | undefined {
+  if (needle.length === 0 || needle.length > lines.length) return undefined;
+  let match: UniqueLineMatch | undefined;
+  for (let start = 0; start + needle.length <= lines.length; start++) {
+    let equal = true;
+    for (let offset = 0; offset < needle.length; offset++) {
+      if (lines[start + offset] !== needle[offset]) {
+        equal = false;
+        break;
+      }
+    }
+    if (!equal) continue;
+    if (match) return { start: match.start, end: match.end, count: 2 };
+    match = { start: start + 1, end: start + needle.length, count: 1 };
+  }
+  return match;
+}
+
+/**
+ * Translate each requested base operation through uniquely matching unchanged
  * lines, then apply the translated operations to the live document. Duplicate
  * context, changed targets, and occupied insertion gaps fail closed.
  */
@@ -123,19 +170,14 @@ export function recoverNonOverlappingEdit(
   // A stale file cannot prove that its original EOF boundary is still the same
   // boundary. Newline-only changes therefore require an exact live snapshot.
   if (finalNewlineOverride !== undefined) return undefined;
-  const translated: HashlineOperation[] = [];
-  for (const operation of operations) {
-    const mapped = translateOperation(base, current, operation);
-    if (!mapped) return undefined;
-    translated.push(mapped);
-  }
+  const translated = translateOperations(base, current, operations);
+  if (translated.some((operation) => operation === undefined)) return undefined;
   try {
     return applyHashlineOperations({
       lines: current.lines,
       finalNewline: current.finalNewline,
-      operations: translated,
+      operations: translated as HashlineOperation[],
       label,
-      ...(finalNewlineOverride !== undefined ? { finalNewlineOverride } : {}),
     });
   } catch {
     return undefined;
