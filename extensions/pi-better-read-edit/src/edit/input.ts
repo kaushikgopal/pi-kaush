@@ -39,7 +39,7 @@ const lineEditSchema = Type.Object(
         minimum: 1,
         maximum: 100_001,
         description:
-          "First original line to replace/delete, or the insertion point. Use original lineCount + 1 to append. Every replaced/deleted line must have been displayed by the tagged read. Omit when anchoring by oldText instead.",
+          "First original line to replace/delete, or the insertion point. Use original lineCount + 1 to append. Every replaced/deleted line must have been displayed by the tagged read. When many lines look identical, do not count occurrences — omit startLine and anchor by oldText instead.",
       }),
     ),
     deleteCount: Type.Optional(
