@@ -1,0 +1,3573 @@
+{
+  "arms": [
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "ranged-read-tail",
+      "metrics": {
+        "editArgsBytes": 106,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 67,
+        "tokens": {
+          "cacheRead": 36864,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 25525,
+          "output": 130,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 62519
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 5246
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "ranged-read-tail",
+      "metrics": {
+        "editArgsBytes": 181,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 67,
+        "tokens": {
+          "cacheRead": 43008,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 23236,
+          "output": 202,
+          "reasoning": 43,
+          "source": "summed",
+          "total": 66446
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 6245
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 287,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2597,
+          "output": 210,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6903
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4052
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 198,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3858,
+          "output": 168,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4026
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4173
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 381,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 169,
+        "tokens": {
+          "cacheRead": 22528,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 29085,
+          "output": 364,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 51977
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 2,
+          "read": 4,
+          "total": 7
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 4
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 8961
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 20559,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 121,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 16647,
+          "output": 9897,
+          "reasoning": 212,
+          "source": "summed",
+          "total": 26544
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 3,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 64246
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "blank-heavy-repeats",
+      "metrics": {
+        "editArgsBytes": 592,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 46,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 7668,
+          "output": 417,
+          "reasoning": 75,
+          "source": "summed",
+          "total": 8085
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 6686
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "blank-heavy-repeats",
+      "metrics": {
+        "editArgsBytes": 3208,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 69,
+        "tokens": {
+          "cacheRead": 28672,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 18470,
+          "output": 2000,
+          "reasoning": 603,
+          "source": "summed",
+          "total": 49142
+        },
+        "toolCalls": {
+          "edit": 9,
+          "errors": 5,
+          "read": 3,
+          "total": 12
+        },
+        "toolCallsByTool": {
+          "edit": 9,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 302,
+            "actualSha256": "f035eaa36350d448823c4b26a1428cb2d56b464108ca21a179cec73b14195f91",
+            "expectedBytes": 302,
+            "expectedSha256": "618ee4119f0b2a1f2f2aa3840de0376b2597444443a522ad18a54d9548d10283",
+            "path": "checklist.md"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 1,
+      "wallMs": 23660
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "semantic-locate",
+      "metrics": {
+        "editArgsBytes": 266,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 27,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2695,
+          "output": 127,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6918
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 3164
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "semantic-locate",
+      "metrics": {
+        "editArgsBytes": 283,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 27,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3918,
+          "output": 109,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4027
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 2891
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "semantic-locate",
+      "metrics": {
+        "editArgsBytes": 283,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 27,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3921,
+          "output": 152,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4073
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 3197
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "semantic-locate",
+      "metrics": {
+        "editArgsBytes": 575,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 27,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 5170,
+          "output": 257,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 9523
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 1,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4593
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "multi-file-rotation",
+      "metrics": {
+        "editArgsBytes": 408,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 84,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2780,
+          "output": 281,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 7157
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 3,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 3964
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "multi-file-rotation",
+      "metrics": {
+        "editArgsBytes": 305,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 84,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3944,
+          "output": 237,
+          "reasoning": 7,
+          "source": "summed",
+          "total": 4181
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 3,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 3953
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "ranged-read-tail",
+      "metrics": {
+        "editArgsBytes": 145,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 68,
+        "tokens": {
+          "cacheRead": 47104,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 27941,
+          "output": 139,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 75184
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5920
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "ranged-read-tail",
+      "metrics": {
+        "editArgsBytes": 106,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 56,
+        "tokens": {
+          "cacheRead": 40960,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 28441,
+          "output": 119,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 69520
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5745
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "multi-file-rotation",
+      "metrics": {
+        "editArgsBytes": 305,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 84,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3930,
+          "output": 219,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4149
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 3,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 4008
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "multi-file-rotation",
+      "metrics": {
+        "editArgsBytes": 408,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 84,
+        "tokens": {
+          "cacheRead": 2048,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4825,
+          "output": 285,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 7158
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 3,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 4150
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "long-doc-repeated-edits",
+      "metrics": {
+        "editArgsBytes": 593,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 22,
+        "tokens": {
+          "cacheRead": 10240,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 8653,
+          "output": 344,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 19237
+        },
+        "toolCalls": {
+          "edit": 4,
+          "errors": 1,
+          "read": 1,
+          "total": 5
+        },
+        "toolCallsByTool": {
+          "edit": 4,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 8607
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "long-doc-repeated-edits",
+      "metrics": {
+        "editArgsBytes": 331,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 22,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 9405,
+          "output": 188,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 9593
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 1,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 5905
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-region-edits",
+      "metrics": {
+        "editArgsBytes": 510,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 6899,
+          "output": 274,
+          "reasoning": 4,
+          "source": "summed",
+          "total": 7173
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 1,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 258,
+            "actualSha256": "82d1656feba0ad75a1a5cdc2c2522fcecef63160dcdd8a9684a8a0c071c49aa4",
+            "expectedBytes": 290,
+            "expectedSha256": "e233b745145112314ce07ea9099bab878fef393b9125db80a1c8d4ecf3471287",
+            "path": "service.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 1,
+      "wallMs": 5635
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-region-edits",
+      "metrics": {
+        "editArgsBytes": 806,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 8192,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 6769,
+          "output": 402,
+          "reasoning": 3,
+          "source": "summed",
+          "total": 15363
+        },
+        "toolCalls": {
+          "edit": 4,
+          "errors": 1,
+          "read": 1,
+          "total": 5
+        },
+        "toolCallsByTool": {
+          "edit": 4,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 258,
+            "actualSha256": "82d1656feba0ad75a1a5cdc2c2522fcecef63160dcdd8a9684a8a0c071c49aa4",
+            "expectedBytes": 290,
+            "expectedSha256": "e233b745145112314ce07ea9099bab878fef393b9125db80a1c8d4ecf3471287",
+            "path": "service.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 1,
+      "wallMs": 9580
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "no-trailing-newline-append",
+      "metrics": {
+        "editArgsBytes": 119,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 42,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 5085,
+          "output": 112,
+          "reasoning": 6,
+          "source": "summed",
+          "total": 5197
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 3463
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "no-trailing-newline-append",
+      "metrics": {
+        "editArgsBytes": 139,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 2048,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4463,
+          "output": 99,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6610
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 2776
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "append-eof-newline",
+      "metrics": {
+        "editArgsBytes": 148,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 23,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3916,
+          "output": 135,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4051
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 3489
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "append-eof-newline",
+      "metrics": {
+        "editArgsBytes": 212,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 23,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2730,
+          "output": 230,
+          "reasoning": 88,
+          "source": "summed",
+          "total": 7056
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 3899
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "no-trailing-newline-append",
+      "metrics": {
+        "editArgsBytes": 139,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2412,
+          "output": 105,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6613
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 3167
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "no-trailing-newline-append",
+      "metrics": {
+        "editArgsBytes": 208,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 42,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 6723,
+          "output": 279,
+          "reasoning": 104,
+          "source": "summed",
+          "total": 7002
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 5678
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 1669,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 8192,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4677,
+          "output": 593,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 13462
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 2,
+          "read": 1,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 7033
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 340,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3844,
+          "output": 147,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 3991
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 3957
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 773,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 12288,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 6119,
+          "output": 478,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 18885
+        },
+        "toolCalls": {
+          "edit": 5,
+          "errors": 4,
+          "read": 1,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 5,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 163,
+            "actualSha256": "221531bd4151f92e3de7e054f49e7bd11c30072e9902a7bcf27672af6d093c6f",
+            "expectedBytes": 179,
+            "expectedSha256": "97164ca2cb5601da09191dd763032721fdb4cb60033104e5b2681b246b8b14bc",
+            "path": "data.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 1,
+      "wallMs": 19152
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 203,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3919,
+          "output": 174,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4093
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 3401
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "long-doc-repeated-edits",
+      "metrics": {
+        "editArgsBytes": 335,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 22,
+        "tokens": {
+          "cacheRead": 2048,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 7363,
+          "output": 191,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 9602
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 1,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 4922
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "long-doc-repeated-edits",
+      "metrics": {
+        "editArgsBytes": 810,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 22,
+        "tokens": {
+          "cacheRead": 10240,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 12721,
+          "output": 425,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 23386
+        },
+        "toolCalls": {
+          "edit": 5,
+          "errors": 2,
+          "read": 1,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 5,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 7856
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 198,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3855,
+          "output": 168,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4023
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 4227
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 287,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2600,
+          "output": 209,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6905
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 3978
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 340,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3847,
+          "output": 147,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 3994
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 3132
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 846,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 6144,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3065,
+          "output": 344,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 9553
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 1,
+          "read": 1,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 6979
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "no-trailing-newline-append",
+      "metrics": {
+        "editArgsBytes": 119,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3734,
+          "output": 109,
+          "reasoning": 11,
+          "source": "summed",
+          "total": 3843
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 2914
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "no-trailing-newline-append",
+      "metrics": {
+        "editArgsBytes": 139,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 2048,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4460,
+          "output": 105,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6613
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 2946
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "append-eof-newline",
+      "metrics": {
+        "editArgsBytes": 146,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 23,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4005,
+          "output": 209,
+          "reasoning": 87,
+          "source": "summed",
+          "total": 4214
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 102,
+            "actualSha256": "b70b7ea2f80931f4817ec1311548f1210c2b9a274148de5560e02bd61f8987a3",
+            "expectedBytes": 101,
+            "expectedSha256": "37ecb11b9bcc8e6fb6062adb0651bb35f3352219ced9f0a17fc525ec62b2f5af",
+            "path": "changelog.md"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 2,
+      "wallMs": 4272
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "append-eof-newline",
+      "metrics": {
+        "editArgsBytes": 212,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 23,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2642,
+          "output": 160,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6898
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 102,
+            "actualSha256": "b70b7ea2f80931f4817ec1311548f1210c2b9a274148de5560e02bd61f8987a3",
+            "expectedBytes": 101,
+            "expectedSha256": "37ecb11b9bcc8e6fb6062adb0651bb35f3352219ced9f0a17fc525ec62b2f5af",
+            "path": "changelog.md"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 2,
+      "wallMs": 3772
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 167,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3902,
+          "output": 150,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4052
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 16679
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 183,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2687,
+          "output": 181,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6964
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 163,
+            "actualSha256": "cb6654b2b4a50f2ac37617af88efc43724cc45707ac9997e79d76fbd64d75013",
+            "expectedBytes": 179,
+            "expectedSha256": "97164ca2cb5601da09191dd763032721fdb4cb60033104e5b2681b246b8b14bc",
+            "path": "data.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 2,
+      "wallMs": 3588
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 20717,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 190,
+        "tokens": {
+          "cacheRead": 10240,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 21557,
+          "output": 10000,
+          "reasoning": 197,
+          "source": "summed",
+          "total": 41797
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 1,
+          "read": 5,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 5
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 94684
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 312,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 201,
+        "tokens": {
+          "cacheRead": 172032,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 45355,
+          "output": 472,
+          "reasoning": 118,
+          "source": "summed",
+          "total": 217859
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 3,
+          "read": 4,
+          "total": 7
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 4
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 12534
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 129,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 36,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 5519,
+          "output": 251,
+          "reasoning": 86,
+          "source": "summed",
+          "total": 5770
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5065
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-context",
+      "metrics": {
+        "editArgsBytes": 183,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 18,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2690,
+          "output": 165,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6951
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 163,
+            "actualSha256": "cb6654b2b4a50f2ac37617af88efc43724cc45707ac9997e79d76fbd64d75013",
+            "expectedBytes": 179,
+            "expectedSha256": "97164ca2cb5601da09191dd763032721fdb4cb60033104e5b2681b246b8b14bc",
+            "path": "data.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 3869
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "long-doc-repeated-edits",
+      "metrics": {
+        "editArgsBytes": 924,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 22,
+        "tokens": {
+          "cacheRead": 12288,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 10651,
+          "output": 472,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 23411
+        },
+        "toolCalls": {
+          "edit": 5,
+          "errors": 2,
+          "read": 1,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 5,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 9172
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "long-doc-repeated-edits",
+      "metrics": {
+        "editArgsBytes": 335,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 22,
+        "tokens": {
+          "cacheRead": 2048,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 7382,
+          "output": 214,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 9644
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 1,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5078
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "multi-file-rotation",
+      "metrics": {
+        "editArgsBytes": 305,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 84,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3933,
+          "output": 225,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4158
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 3,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 3944
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "multi-file-rotation",
+      "metrics": {
+        "editArgsBytes": 408,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 84,
+        "tokens": {
+          "cacheRead": 2048,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4825,
+          "output": 242,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 7115
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 3,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 4087
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "ranged-read-tail",
+      "metrics": {
+        "editArgsBytes": 181,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 67,
+        "tokens": {
+          "cacheRead": 43008,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 23018,
+          "output": 154,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 66180
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 6394
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "ranged-read-tail",
+      "metrics": {
+        "editArgsBytes": 106,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 67,
+        "tokens": {
+          "cacheRead": 38912,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 23673,
+          "output": 130,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 62715
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 5539
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 20717,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 123,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 18740,
+          "output": 9761,
+          "reasoning": 33,
+          "source": "summed",
+          "total": 28501
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 3,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 66374
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "large-delete",
+      "metrics": {
+        "editArgsBytes": 361,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 133,
+        "tokens": {
+          "cacheRead": 32768,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 20886,
+          "output": 325,
+          "reasoning": 36,
+          "source": "summed",
+          "total": 53979
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 2,
+          "read": 3,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 10657
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "blank-heavy-repeats",
+      "metrics": {
+        "editArgsBytes": 2596,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 69,
+        "tokens": {
+          "cacheRead": 24576,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 13041,
+          "output": 2034,
+          "reasoning": 927,
+          "source": "summed",
+          "total": 39651
+        },
+        "toolCalls": {
+          "edit": 6,
+          "errors": 4,
+          "read": 3,
+          "total": 9
+        },
+        "toolCallsByTool": {
+          "edit": 6,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 39288
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "blank-heavy-repeats",
+      "metrics": {
+        "editArgsBytes": 308,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 23,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 4074,
+          "output": 288,
+          "reasoning": 93,
+          "source": "summed",
+          "total": 4362
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 4580
+    },
+    {
+      "arm": "better",
+      "exitCode": 143,
+      "fixture": "blank-heavy-repeats",
+      "metrics": {
+        "editArgsBytes": 41214,
+        "firstEdit": {
+          "status": "error"
+        },
+        "readArgsBytes": 69,
+        "tokens": {
+          "cacheRead": 3207168,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 273279,
+          "output": 18449,
+          "reasoning": 2078,
+          "source": "summed",
+          "total": 3498896
+        },
+        "toolCalls": {
+          "edit": 141,
+          "errors": 138,
+          "read": 3,
+          "total": 144
+        },
+        "toolCallsByTool": {
+          "edit": 141,
+          "read": 3
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "timeout",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 269,
+            "actualSha256": "44453044bcec963a745f036a3a803e68a66ba81124327f4bc407bf23bbfcb9a3",
+            "expectedBytes": 302,
+            "expectedSha256": "618ee4119f0b2a1f2f2aa3840de0376b2597444443a522ad18a54d9548d10283",
+            "path": "checklist.md"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 300012
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "blank-heavy-repeats",
+      "metrics": {
+        "editArgsBytes": 292,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 46,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 5803,
+          "output": 286,
+          "reasoning": 84,
+          "source": "summed",
+          "total": 6089
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 5782
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 287,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2600,
+          "output": 218,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6914
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 2,
+          "total": 3
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 4978
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-files",
+      "metrics": {
+        "editArgsBytes": 150,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 38,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3836,
+          "output": 151,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 3987
+        },
+        "toolCalls": {
+          "edit": 2,
+          "errors": 0,
+          "read": 2,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 2,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 3646
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-region-edits",
+      "metrics": {
+        "editArgsBytes": 1517,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 16384,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 8618,
+          "output": 700,
+          "reasoning": 33,
+          "source": "summed",
+          "total": 25702
+        },
+        "toolCalls": {
+          "edit": 7,
+          "errors": 4,
+          "read": 1,
+          "total": 8
+        },
+        "toolCallsByTool": {
+          "edit": 7,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 258,
+            "actualSha256": "82d1656feba0ad75a1a5cdc2c2522fcecef63160dcdd8a9684a8a0c071c49aa4",
+            "expectedBytes": 290,
+            "expectedSha256": "e233b745145112314ce07ea9099bab878fef393b9125db80a1c8d4ecf3471287",
+            "path": "service.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 10213
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-region-edits",
+      "metrics": {
+        "editArgsBytes": 439,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 42,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 8650,
+          "output": 412,
+          "reasoning": 122,
+          "source": "summed",
+          "total": 9062
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 2,
+          "total": 5
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 245,
+            "actualSha256": "2aae31ce84e536769c94b6044faa06fc3620d390142359b7ea3e2ee2d5f4cf11",
+            "expectedBytes": 290,
+            "expectedSha256": "e233b745145112314ce07ea9099bab878fef393b9125db80a1c8d4ecf3471287",
+            "path": "service.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 0,
+      "wallMs": 6612
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "repeated-region-edits",
+      "metrics": {
+        "editArgsBytes": 981,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 10240,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 7844,
+          "output": 479,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 18563
+        },
+        "toolCalls": {
+          "edit": 5,
+          "errors": 2,
+          "read": 1,
+          "total": 6
+        },
+        "toolCallsByTool": {
+          "edit": 5,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 258,
+            "actualSha256": "82d1656feba0ad75a1a5cdc2c2522fcecef63160dcdd8a9684a8a0c071c49aa4",
+            "expectedBytes": 290,
+            "expectedSha256": "e233b745145112314ce07ea9099bab878fef393b9125db80a1c8d4ecf3471287",
+            "path": "service.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 2,
+      "wallMs": 7532
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "repeated-region-edits",
+      "metrics": {
+        "editArgsBytes": 510,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 21,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 6920,
+          "output": 280,
+          "reasoning": 11,
+          "source": "summed",
+          "total": 7200
+        },
+        "toolCalls": {
+          "edit": 3,
+          "errors": 0,
+          "read": 1,
+          "total": 4
+        },
+        "toolCallsByTool": {
+          "edit": 3,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 258,
+            "actualSha256": "82d1656feba0ad75a1a5cdc2c2522fcecef63160dcdd8a9684a8a0c071c49aa4",
+            "expectedBytes": 290,
+            "expectedSha256": "e233b745145112314ce07ea9099bab878fef393b9125db80a1c8d4ecf3471287",
+            "path": "service.js"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 2,
+      "wallMs": 5243
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "semantic-locate",
+      "metrics": {
+        "editArgsBytes": 283,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 27,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3927,
+          "output": 109,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4036
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 2765
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "semantic-locate",
+      "metrics": {
+        "editArgsBytes": 266,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 27,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2695,
+          "output": 155,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 6946
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 2,
+      "wallMs": 3517
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 1284,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 52,
+        "tokens": {
+          "cacheRead": 16384,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 8614,
+          "output": 748,
+          "reasoning": 30,
+          "source": "summed",
+          "total": 25746
+        },
+        "toolCalls": {
+          "edit": 6,
+          "errors": 3,
+          "read": 2,
+          "total": 8
+        },
+        "toolCallsByTool": {
+          "edit": 6,
+          "read": 2
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 11539
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "two-splices",
+      "metrics": {
+        "editArgsBytes": 340,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 26,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3844,
+          "output": 160,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4004
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 0,
+      "wallMs": 3657
+    },
+    {
+      "arm": "better",
+      "exitCode": 0,
+      "fixture": "append-eof-newline",
+      "metrics": {
+        "editArgsBytes": 150,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 23,
+        "tokens": {
+          "cacheRead": 4096,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 2607,
+          "output": 252,
+          "reasoning": 93,
+          "source": "summed",
+          "total": 6955
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 1,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": true,
+      "trial": 1,
+      "wallMs": 4522
+    },
+    {
+      "arm": "builtin",
+      "exitCode": 0,
+      "fixture": "append-eof-newline",
+      "metrics": {
+        "editArgsBytes": 146,
+        "firstEdit": {
+          "status": "success"
+        },
+        "readArgsBytes": 23,
+        "tokens": {
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "costTotal": 0,
+          "input": 3918,
+          "output": 141,
+          "reasoning": 0,
+          "source": "summed",
+          "total": 4059
+        },
+        "toolCalls": {
+          "edit": 1,
+          "errors": 0,
+          "read": 1,
+          "total": 2
+        },
+        "toolCallsByTool": {
+          "edit": 1,
+          "read": 1
+        }
+      },
+      "model": "open-weights/glm-5.3-flash",
+      "outcome": "completed",
+      "reported": {
+        "model": "glm-5.3-flash",
+        "provider": "open-weights"
+      },
+      "score": 0,
+      "thinking": "low",
+      "treeDiff": {
+        "changed": [
+          {
+            "actualBytes": 102,
+            "actualSha256": "b70b7ea2f80931f4817ec1311548f1210c2b9a274148de5560e02bd61f8987a3",
+            "expectedBytes": 101,
+            "expectedSha256": "37ecb11b9bcc8e6fb6062adb0651bb35f3352219ced9f0a17fc525ec62b2f5af",
+            "path": "changelog.md"
+          }
+        ],
+        "extra": [],
+        "missing": []
+      },
+      "treeMatch": false,
+      "trial": 1,
+      "wallMs": 3511
+    }
+  ],
+  "schema": "pi-better-read-edit-bench/v1"
+}
