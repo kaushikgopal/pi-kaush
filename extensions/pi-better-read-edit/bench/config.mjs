@@ -38,6 +38,10 @@ export const DEFAULT_FIXTURES = [
   "repeated-context",
   "two-files",
   "large-delete",
+  "long-doc-repeated-edits",
+  "semantic-locate",
+  "blank-heavy-repeats",
+  "append-eof-newline",
 ];
 
 export const DEFAULT_TRIALS = 1;

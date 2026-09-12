@@ -1,0 +1,11 @@
+{
+  "name": "append-eof-newline",
+  "description": "Append a new section at end-of-file AND delete the trailing blank line after '- packaging fixes' in one call. Probes EOF authorization (append requires a read that displayed EOF) and precise handling of the file's terminal region.",
+  "prompt": "Edit changelog.md using ONLY the read and edit tools. Make two changes in ONE edit call: (1) append a new section at the very end of the file consisting of the lines '## 1.1.0', '', '- append probe', '- newline probe'; (2) the file currently ends with a blank line after '- packaging fixes' - exactly one blank line must remain between '- packaging fixes' and the '## 1.1.0' heading, and the file must end after '- newline probe' with a single trailing newline and no blank line at the end. Do not use any other tool.",
+  "files": {
+    "changelog.md": "# Changelog\n\n## 1.0.0\n\n- initial release\n- packaging fixes\n\n"
+  },
+  "expectedFiles": {
+    "changelog.md": "# Changelog\n\n## 1.0.0\n\n- initial release\n- packaging fixes\n\n## 1.1.0\n\n- append probe\n- newline probe\n"
+  }
+}

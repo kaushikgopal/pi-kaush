@@ -1,0 +1,11 @@
+{
+  "name": "blank-heavy-repeats",
+  "description": "A checklist with 24 identical '- TODO' lines separated by blank lines. The task edits only the 15th and 24th occurrences. Probes disambiguation of heavy repeated context, blank-line handling, and one-line-per-item discipline in newLines.",
+  "prompt": "Edit checklist.md using ONLY the read and edit tools. The file has 24 identical '- TODO' lines. Change ONLY the 15th '- TODO' (in Stage 4) to '- TODO (blocked on design review)' and ONLY the 24th (the last one, in Stage 6) to '- TODO (final signoff)'. Every other '- TODO' must stay exactly as it is. Do not use any other tool.",
+  "files": {
+    "checklist.md": "# Checklist\n\n## Stage 1\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 2\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 3\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 4\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 5\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 6\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n"
+  },
+  "expectedFiles": {
+    "checklist.md": "# Checklist\n\n## Stage 1\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 2\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 3\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 4\n\n- TODO\n- TODO\n- TODO (blocked on design review)\n- TODO\n\n## Stage 5\n\n- TODO\n- TODO\n- TODO\n- TODO\n\n## Stage 6\n\n- TODO\n- TODO\n- TODO\n- TODO (final signoff)\n\n"
+  }
+}

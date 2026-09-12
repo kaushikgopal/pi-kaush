@@ -1,0 +1,11 @@
+{
+  "name": "semantic-locate",
+  "description": "Fix typos described by meaning, not by line number ('the deployment sentence', 'the retries line'). Probes locating edits by content: the better arm can anchor by exact text when line numbers fail; builtin matches exact text natively.",
+  "prompt": "Edit release-notes.md using ONLY the read and edit tools. Make exactly these two changes: (1) fix the misspelled words in the sentence about deployments in the Deployment section so it reads 'Deployments now roll out gradually across regions.'; (2) fix the line about retries in the Troubleshooting section so it reads 'Retries are automatic and never exceed three.'. Change nothing else. Do not use any other tool.",
+  "files": {
+    "release-notes.md": "# Release Notes\n\n## Deployment\n\nDeployements now roll out gradualy across regions.\nEach wave waits for health checks before continuing.\n\n## Rollback\n\nRollbacks restore the previous release imediately.\n\n## Troubleshooting\n\nCheck the event log when a wave stalls.\nretries are automatic and never exceed three.\n\n## Credits\n\nBuilt by the platform team.\n"
+  },
+  "expectedFiles": {
+    "release-notes.md": "# Release Notes\n\n## Deployment\n\nDeployments now roll out gradually across regions.\nEach wave waits for health checks before continuing.\n\n## Rollback\n\nRollbacks restore the previous release imediately.\n\n## Troubleshooting\n\nCheck the event log when a wave stalls.\nRetries are automatic and never exceed three.\n\n## Credits\n\nBuilt by the platform team.\n"
+  }
+}
