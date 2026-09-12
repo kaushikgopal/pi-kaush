@@ -13,18 +13,14 @@ import {
 } from "../fixtures.mjs";
 import { snapshotTree } from "../workspace.mjs";
 import { benchDir } from "../util.mjs";
+import { DEFAULT_FIXTURES } from "../config.mjs";
 
 const fixturesDir = join(benchDir(), "fixtures");
 
 describe("fixture loading", () => {
   test("all default fixtures load and match their file names", async () => {
     const names = await fixtureNames(fixturesDir);
-    expect(names).toEqual([
-      "large-delete",
-      "repeated-context",
-      "two-files",
-      "two-splices",
-    ]);
+    expect(names).toEqual([...DEFAULT_FIXTURES].sort());
     const fixtures = await loadFixtures(names, fixturesDir);
     expect(fixtures.map((fixture) => fixture.name)).toEqual(names);
     for (const fixture of fixtures) {
