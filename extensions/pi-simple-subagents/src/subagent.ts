@@ -1284,12 +1284,14 @@ export function registerSubagent(
           isError: true,
         };
       }
+      // Pi's ExtensionContext does not expose scopedModels (as of 0.85.x);
+      // an absent scope means every available model is a candidate.
       const delegationModels = delegationModelCandidates(
         (
           ctx as ExtensionContext & {
-            scopedModels: Parameters<typeof delegationModelCandidates>[0];
+            scopedModels?: Parameters<typeof delegationModelCandidates>[0];
           }
-        ).scopedModels,
+        ).scopedModels ?? [],
         ctx.modelRegistry.getAvailable(),
       );
       let availableModelReferences: Promise<ReadonlySet<string>> | undefined;

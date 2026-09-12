@@ -142,6 +142,19 @@ describe("subagent model selection", () => {
     );
   });
 
+  test("serves every available model when the parent scope is empty", () => {
+    const available = [
+      { provider: "provider-a", id: "glm-5.2-fast", name: "GLM 5.2 Fast" },
+      { provider: "provider-b", id: "glm-5.6", name: "GLM 5.6" },
+    ];
+    const resolveModel = createModelResolver(
+      delegationModelCandidates([], available),
+    );
+    expect(resolveRequestedModel("GLM 5.6", undefined, resolveModel)).toBe(
+      "provider-b/glm-5.6",
+    );
+  });
+
   test("does not cross model families when the requested version is absent", () => {
     const scoped = [
       {

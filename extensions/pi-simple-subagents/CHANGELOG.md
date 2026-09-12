@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
 
 - Advertise user agents discovered at extension load in the model-facing tool
   guidance, distinguish agent behavior from profile compute, and treat agent/profile
   names as order-independent in natural-language requests.
+- Fix a runtime crash on every subagent execution: the host Pi's extension
+  context does not expose `scopedModels`, so delegation now falls back to all
+  models available to the session.
 
 ## 0.1.0
 
