@@ -189,6 +189,7 @@ function validateCoordinateOperation(
   operation: HashlineOperation,
   lineCount: number,
   seenRanges: readonly LineRange[],
+  baseLines: readonly string[],
 ): void {
   const legacyAnchor = getLegacyInsertionAnchor(operation);
   if (legacyAnchor) {
@@ -225,7 +226,24 @@ function validateCoordinateOperation(
         `Read ${displayPath} with ranges "${missing}", then retry using the returned tag.`,
     );
   }
+  // Ambiguity guard: a coordinate splice whose target content repeats cannot
+  // prove which occurrence the model meant — one miscount silently edits the
+  // wrong twin. Force the text anchor (or a wider unique span) instead.
+  if (operation.kind === "replace" || operation.kind === "cut") {
+    const span = baseLines.slice(target.start - 1, target.end);
+    const occurrences = matchUniqueLines(baseLines, span)?.count ?? 0;
+    if (occurrences > 1) {
+      throw new Error(
+        `${operationLabel(operation)} targets lines whose exact content appears more than once in ${displayPath}; a line number cannot prove which occurrence is meant. Widen the splice to include unique neighboring lines, or add oldText with that unique context and newText so the splice anchors by text.`,
+      );
+    }
+  }
 }
+
+/**
+ * Resolve one exact-text splice against the current lines. A unique match
+ * replaces (or deletes) those lines; zero or multiple matches fail closed.
+ */
 
 /**
  * Resolve one exact-text splice against the current lines. A unique match
@@ -294,6 +312,7 @@ function prepareEdit(
           operation,
           record.lineCount,
           seenRanges,
+          baseDocument.lines,
         );
         resolved.push(operation);
       } catch (error) {
@@ -301,7 +320,7 @@ function prepareEdit(
           resolved.push(
             resolveTextSplice(displayPath, anchor, baseDocument.lines),
           );
-        } catch {
+        } catch (e2) {
           throw error;
         }
         warnings.push(
@@ -511,6 +530,16 @@ async function buildPlan(
     const section = toHashlineSection(fileInput, found.record.lineCount);
     const newlineOverride = finalNewlineOverride(fileInput.finalNewline);
 
+    // Resolve the tagged base snapshot before validation: the ambiguity guard
+    // checks target content against what the tagged read displayed.
+    const baseDocument = snapshotMatches(oldDocument, found.record)
+      ? oldDocument
+      : snapshots.lookup(found.record)?.document;
+    if (!baseDocument) {
+      throw staleError(fileInput.path);
+    }
+    snapshots.record(found.record, baseDocument);
+
     for (const operation of section.operations) {
       // Dual splices defer validation to prepareEdit, where a failed
       // coordinate path can still fall back to the unique text match.
@@ -523,6 +552,7 @@ async function buildPlan(
           operation,
           found.record.lineCount,
           found.seenRanges,
+          baseDocument.lines,
         );
         continue;
       }
@@ -539,6 +569,7 @@ async function buildPlan(
         operation,
         found.record.lineCount,
         found.seenRanges,
+        baseDocument.lines,
       );
     }
     if (newlineOverride !== undefined && !found.eofSeen) {
@@ -547,13 +578,6 @@ async function buildPlan(
       );
     }
 
-    const baseDocument = snapshotMatches(oldDocument, found.record)
-      ? oldDocument
-      : snapshots.lookup(found.record)?.document;
-    if (!baseDocument) {
-      throw staleError(fileInput.path);
-    }
-    snapshots.record(found.record, baseDocument);
     const prepared = prepareEdit(
       fileInput.path,
       found.record.tag,
