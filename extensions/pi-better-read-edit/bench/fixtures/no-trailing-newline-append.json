@@ -1,0 +1,11 @@
+{
+  "name": "no-trailing-newline-append",
+  "description": "A file with NO terminal newline must gain an appended section ending with a proper newline. Probes EOF authorization plus explicit finalNewline control on a file that lacks one.",
+  "prompt": "Edit runbook.md using ONLY the read and edit tools. Append a new section at the end so the final file reads exactly: the existing lines unchanged, then '', '## Post-check', '', '- verify health', with the file ending in a single trailing newline (it currently has none). Do not use any other tool.",
+  "files": {
+    "runbook.md": "# Runbook\n\n## Steps\n\n- stop the service\n- upgrade the binary\n- last line"
+  },
+  "expectedFiles": {
+    "runbook.md": "# Runbook\n\n## Steps\n\n- stop the service\n- upgrade the binary\n- last line\n\n## Post-check\n\n- verify health\n"
+  }
+}

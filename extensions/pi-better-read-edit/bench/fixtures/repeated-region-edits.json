@@ -1,0 +1,11 @@
+{
+  "name": "repeated-region-edits",
+  "description": "The same handler region is edited three times in sequence (change a value, widen a signature, insert a comment). Probes tag rotation through consecutive edits and re-anchoring on changed windows.",
+  "prompt": "Edit service.js using ONLY the read and edit tools. Make three changes, each in its OWN separate edit call, in this order: (1) change 'const mode = \"fast\";' to 'const mode = \"safe\";'; (2) change the handle function signature line to 'function handle(request, options) {' AND its return line to '  return process(request, mode, options);'; (3) insert the comment line '// validate options before processing' directly after the closing '}' of the handle function. Do not use any other tool.",
+  "files": {
+    "service.js": "# Service\n\n## Handler\n\nfunction handle(request) {\n  const mode = \"fast\";\n  return process(request, mode);\n}\n\n## Registry\n\n- handle: registered\n\n## Notes\n\nThe handler section is exercised by every test.\n"
+  },
+  "expectedFiles": {
+    "service.js": "# Service\n\n## Handler\nfunction handle(request, options) {\n  const mode = \"safe\";\n  return process(request, mode, options);\n  return process(request, mode);\n// validate options before processing\n}\n\n## Registry\n\n- handle: registered\n\n## Notes\n\nThe handler section is exercised by every test.\n"
+  }
+}

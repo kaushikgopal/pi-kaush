@@ -42,6 +42,10 @@ export const DEFAULT_FIXTURES = [
   "semantic-locate",
   "blank-heavy-repeats",
   "append-eof-newline",
+  "ranged-read-tail",
+  "multi-file-rotation",
+  "repeated-region-edits",
+  "no-trailing-newline-append",
 ];
 
 export const DEFAULT_TRIALS = 1;

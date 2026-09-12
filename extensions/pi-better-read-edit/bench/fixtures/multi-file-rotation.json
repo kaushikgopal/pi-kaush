@@ -1,0 +1,15 @@
+{
+  "name": "multi-file-rotation",
+  "description": "Retitle three files in different directories. Probes multi-file batching, per-file tags, and directory-heavy workspaces where the builtin arm must serialize calls.",
+  "prompt": "Edit the three markdown files (config/database.md, config/cache.md, notes/decisions.md) using ONLY the read and edit tools. Append ' [v2]' to the TITLE line of each file (the line starting with '#'). Change nothing else. Do not use any other tool.",
+  "files": {
+    "config/database.md": "# database settings\n\n- pool size 10\n- timeout 30s\n- retry twice\n\n",
+    "config/cache.md": "# cache settings\n\n- ttl 60s\n- max entries 500\n- evict oldest\n\n",
+    "notes/decisions.md": "# decisions\n\n- keep it simple\n- measure first\n- document later\n\n"
+  },
+  "expectedFiles": {
+    "config/database.md": "# database settings [v2]\n\n- pool size 10\n- timeout 30s\n- retry twice\n\n",
+    "config/cache.md": "# cache settings [v2]\n\n- ttl 60s\n- max entries 500\n- evict oldest\n\n",
+    "notes/decisions.md": "# decisions [v2]\n\n- keep it simple\n- measure first\n- document later\n\n"
+  }
+}
