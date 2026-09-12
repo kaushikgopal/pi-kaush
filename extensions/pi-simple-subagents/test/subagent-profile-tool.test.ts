@@ -39,6 +39,12 @@ function makeTestExtensionDir(): string {
 	const agentDir = join(tmpdir(), "pi-agent");
 	mkdirSync(agentDir, { recursive: true });
 	copyFileSync(join(dir, "profiles.yaml"), join(agentDir, "profiles.yaml"));
+	const agentsDir = join(agentDir, "agents");
+	mkdirSync(agentsDir, { recursive: true });
+	writeFileSync(
+		join(agentsDir, "redteam.md"),
+		"---\nname: redteam\ndescription: Independent adversarial reviewer.\n---\nReview adversarially.\n",
+	);
 	return dir;
 }
 
@@ -72,6 +78,21 @@ describe("subagent profile tool surface", () => {
 		expect(tool.parameters.properties.chain.maxItems).toBe(5);
 		expect(tool.parameters.properties.context.optional).toBe(true);
 		expect(tool.parameters.properties.context.description).toContain("every task in parallel mode");
+		expect(tool.description).toContain("Agents select behavior and tools; profiles select compute");
+		expect(tool.description).toContain("their order in the user's wording does not matter");
+		expect(tool.description).toContain("Available user agents:");
+		expect(tool.description).toContain("redteam (user): Independent adversarial reviewer.");
+		expect(tool.description).toContain(
+			'Phrases "thinker redteam" and "redteam thinker" both mean agent "redteam" with profile "thinker".',
+		);
+		expect(tool.parameters.properties.agent.description).toContain(
+			"Agent name; selects behavior and tools. Profile separately selects compute.",
+		);
+		expect(tool.parameters.properties.tasks.items.properties.agent.description).toContain(
+			"Profile separately selects compute.",
+		);
+		expect(tool.promptGuidelines.join(" ")).toContain("When the user names both in either order, preserve both");
+		expect(tool.promptGuidelines.join(" ")).toContain('"thinker redteam" and "redteam thinker"');
 		expect(tool.description).toContain("Execution profiles: quick:");
 		expect(tool.description).toContain("5 active child processes per Pi session");
 		expect(tool.description).toContain("2 hours total runtime");

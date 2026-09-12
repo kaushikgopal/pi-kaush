@@ -47,6 +47,7 @@ import {
 	type AgentConfig,
 	type AgentScope,
 	discoverAgents,
+	formatAgentList,
 	shouldConfirmProjectAgent,
 } from "./_definition.ts";
 import {
@@ -958,8 +959,12 @@ function createSubagentParams(profiles: SubagentProfilesConfig, limits: Subagent
 			Type.String({ description: `Model pattern for ${scope}; overrides profile and agent configuration` }),
 		);
 
+	const agentSchema = () =>
+		Type.String({
+			description: "Agent name; selects behavior and tools. Profile separately selects compute.",
+		});
 	const TaskItem = Type.Object({
-		agent: Type.String({ description: "Name of the agent to invoke" }),
+		agent: agentSchema(),
 		task: Type.String({ description: "Task to delegate to the agent" }),
 		profile: profileSchema(),
 		model: modelSchema("this task"),
@@ -967,7 +972,7 @@ function createSubagentParams(profiles: SubagentProfilesConfig, limits: Subagent
 	});
 
 	const ChainItem = Type.Object({
-		agent: Type.String({ description: "Name of the agent to invoke" }),
+		agent: agentSchema(),
 		task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
 		profile: profileSchema(),
 		model: modelSchema("this step"),
@@ -975,7 +980,7 @@ function createSubagentParams(profiles: SubagentProfilesConfig, limits: Subagent
 	});
 
 	return Type.Object({
-		agent: Type.Optional(Type.String({ description: "Name of the agent to invoke (for single mode)" })),
+		agent: Type.Optional(agentSchema()),
 		task: Type.Optional(Type.String({ description: "Task to delegate (for single mode)" })),
 		profile: profileSchema(),
 		model: modelSchema("single mode"),
@@ -1024,6 +1029,15 @@ export function registerSubagent(pi: ExtensionAPI, extensionDir = path.dirname(f
 		concurrency.close();
 		await activeProcesses.terminateAll();
 	});
+	const initialUserAgents = discoverAgents(process.cwd(), "user").agents;
+	const listedAgents = formatAgentList(initialUserAgents, 20);
+	const agentGuidance = `${listedAgents.text}${listedAgents.remaining > 0 ? `; and ${listedAgents.remaining} more` : ""}`;
+	const exampleAgent = initialUserAgents.find((agent) => agent.name === "redteam") ?? initialUserAgents[0];
+	const exampleProfile = profiles.profiles.thinker ? "thinker" : Object.keys(profiles.profiles)[0];
+	const compositionExample =
+		exampleAgent && exampleProfile
+			? ` Phrases "${exampleProfile} ${exampleAgent.name}" and "${exampleAgent.name} ${exampleProfile}" both mean agent "${exampleAgent.name}" with profile "${exampleProfile}".`
+			: "";
 	const SubagentParams = createSubagentParams(profiles, limits);
 	const profileGuidance = formatProfileGuidance(profiles);
 	const maxTreeChildren =
@@ -1036,6 +1050,8 @@ export function registerSubagent(pi: ExtensionAPI, extensionDir = path.dirname(f
 		label: "Subagent",
 		description: [
 			"Delegate bounded tasks to specialized subagents with isolated context; use agent \"bee\" (🐝) for general execution.",
+			`Agents select behavior and tools; profiles select compute. They compose independently, and their order in the user's wording does not matter.${compositionExample}`,
+			`Available user agents: ${agentGuidance}.`,
 			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
 			"Parallel tasks may share one immutable context string that is prepended to every child task.",
 			`Execution profiles: ${profileGuidance}`,
@@ -1049,6 +1065,7 @@ export function registerSubagent(pi: ExtensionAPI, extensionDir = path.dirname(f
 		].join(" "),
 		promptSnippet: "Delegate bounded work with isolated agents and optional execution profiles",
 		promptGuidelines: [
+			`For subagent, agent and profile are independent: agent selects behavior and tools; profile selects compute. When the user names both in either order, preserve both.${compositionExample}`,
 			`When invoking subagent, select the least expensive profile that safely fits the task: ${profileGuidance}`,
 			`Subagent delegation is capped at depth ${limits.maxDepth}, ${limits.maxConcurrency} active children per Pi session, and ${limits.maxChildrenPerCall} children per call. Completed children release their slots.`,
 			"Use subagent model only for an exact model override; model takes precedence over profile.",

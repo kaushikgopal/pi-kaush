@@ -19,6 +19,11 @@ the contract: bounded tasks in, structured result out.
   `~/.pi/agent/profiles.yaml`, shared with `@pi-kaush/pi-agent-mode` and
   `@pi-kaush/pi-model-profiles`. Profiles reload on file change — ladder edits
   apply to long-running sessions without a restart.
+- **Model-facing discovery**: user agents are read from
+  `~/.pi/agent/agents/*.md` when the extension loads and listed alongside the
+  execution profiles in the tool guidance. Agent names select behavior and tools;
+  profile names select compute. When both appear in a request, their order does
+  not matter: `thinker redteam` and `redteam thinker` select the same pair.
 - **Bounded delegation**: depth 2, five children per call, five active children
   per Pi session, at most thirty simultaneously active descendants. Completed
   children release their slots.
@@ -49,6 +54,9 @@ Profiles of agents are Markdown files with optional frontmatter (`emoji`,
 1. user: `~/.pi/agent/agents/*.md`
 2. project: nearest `.pi/agents/*.md`, with `agentScope: "project" | "both"`
 
+User agents are advertised to the parent model at extension load. Additions or
+renames need `/reload` to refresh that catalog. Project agents remain dynamically
+discoverable by exact name without being embedded in the global catalog.
 Project-controlled agents prompt for confirmation before first use.
 
 ## Configuration

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Advertise user agents discovered at extension load in the model-facing tool
+  guidance, distinguish agent behavior from profile compute, and treat agent/profile
+  names as order-independent in natural-language requests.
+
 ## 0.1.0
 
 - Initial package release, migrated from the user-local subagent extension:
