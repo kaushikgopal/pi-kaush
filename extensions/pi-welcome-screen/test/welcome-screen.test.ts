@@ -1124,6 +1124,18 @@ import("ci-sleep");
     ]);
   });
 
+  test("does not read from-quotes inside strings as imports", () => {
+    const source = `
+import {
+  helper,
+} from "chalk";
+task_id: Type.String({ description: "The task ID to get output from" }),
+const hint = "copied from";
+// import { ignored } from "commented-out-package";
+`;
+    expect(findUndeclaredImports(source, new Set())).toEqual(["chalk"]);
+  });
+
   test("scores severity: blocked pin, behind, odd imports, ok", () => {
     expect(
       assessHealthSeverity({
