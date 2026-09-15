@@ -11,6 +11,7 @@
 - Warn in the header when Pi's startup layout is unrecognized (`unrecognized Pi layout — using native panel`) instead of degrading silently. Incomplete resource snapshots stay native without being mislabeled as layout failures.
 - Check installed package extensions against the npm registry after load: packages pinned behind the latest major (e.g. `^1.20.0` excluding 2.x) turn red, packages behind within range turn yellow, and unresolved or undeclared imports and missing store dependencies are flagged. Rows get a compact `↻ installed→latest` suffix and a notification summarizes the findings once the check settles. Lookups are async, timeout-guarded, and degrade silently offline.
 - Stop reading `from "…"` inside string literals as an import in that check, which flagged `@tintinweb/pi-tasks` as having one undeclared import. Multi-line named imports still match.
+- Recognize bare Node builtin specifiers (`import { readFile } from "fs/promises"`, not just `node:`-prefixed ones) in that check, so they stop counting as undeclared imports.
 
 ## 0.1.4
 

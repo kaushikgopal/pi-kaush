@@ -1109,6 +1109,8 @@ describe("extension health", () => {
   test("flags bare imports not covered by declared deps, peers, or the loader", () => {
     const source = `
 import { existsSync } from "node:fs";
+import { readFile } from "fs/promises";
+import { tmpdir } from "os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Spacer } from "@earendil-works/pi-tui";
 import { something } from "@pi-kaush/pi-agent-mode";

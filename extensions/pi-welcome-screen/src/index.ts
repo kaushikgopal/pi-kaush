@@ -6,6 +6,7 @@ import {
   type ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { isBuiltin } from "node:module";
 import { isAbsolute, join } from "node:path";
 import {
   type Component,
@@ -162,7 +163,7 @@ export function findUndeclaredImports(
 ): string[] {
   return unique(
     extractImportSpecifiers(source).filter((specifier) => {
-      if (specifier.startsWith("node:")) return false;
+      if (specifier.startsWith("node:") || isBuiltin(specifier)) return false;
       if (isRelativeSpecifier(specifier)) return false;
       if (
         LOADER_BACKED_SCOPES.some(
