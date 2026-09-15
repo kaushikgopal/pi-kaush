@@ -6,6 +6,7 @@ import {
   type ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { isBuiltin } from "node:module";
 import { isAbsolute, join } from "node:path";
 import {
   type Component,
@@ -134,7 +135,12 @@ export function extractImportSpecifiers(source: string): string[] {
     .map((line) => line.replace(/\/\/.*$/, ""))
     .join("\n");
   const specifiers: string[] = [];
-  const staticImport = /\bfrom\s*["']([^"']+)["']/g;
+  // Anchored to a statement start so a `from "…"` inside a string literal or
+  // an object property is not read as an import (pi-tasks ships the tool
+  // description `The task ID to get output from`). Brace groups may span
+  // lines, so multi-line named imports still match.
+  const staticImport =
+    /^[ \t]*(?:import|export)\b(?:[^"'`;\n]|\{[^}]*\})*?\bfrom\s*["']([^"']+)["']/gm;
   let match: RegExpExecArray | null;
   while ((match = staticImport.exec(withoutComments))) {
     specifiers.push(match[1] ?? "");
@@ -157,7 +163,7 @@ export function findUndeclaredImports(
 ): string[] {
   return unique(
     extractImportSpecifiers(source).filter((specifier) => {
-      if (specifier.startsWith("node:")) return false;
+      if (specifier.startsWith("node:") || isBuiltin(specifier)) return false;
       if (isRelativeSpecifier(specifier)) return false;
       if (
         LOADER_BACKED_SCOPES.some(
