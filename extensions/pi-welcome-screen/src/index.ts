@@ -85,9 +85,10 @@ export interface ExtensionHealth {
 
 export type ExtensionHealthMap = ReadonlyMap<string, ExtensionHealth>;
 
-// Pi's extension loader makes the SDK scope importable without those packages
+// Pi's extension loader makes the SDK scopes importable without those packages
 // being materialized in the npm store, so they never count as oddities.
-const LOADER_BACKED_SCOPES = ["@earendil-works"];
+// @mariozechner is the pre-rename alias still wired in the loader.
+const LOADER_BACKED_SCOPES = ["@earendil-works", "@mariozechner"];
 
 const NPM_PACKAGE_NAME = /^(?:@[^/]+\/)?[^/@\s]+$/;
 
@@ -156,7 +157,7 @@ function isRelativeSpecifier(specifier: string): boolean {
   return /^(?:\.\.?\/|\/|~\/|[A-Za-z]:\\)/.test(specifier);
 }
 
-/** Bare specifiers neither relative, node builtins, loader-backed, nor declared. */
+/** Bare specifiers neither relative, package-internal, node builtins, loader-backed, nor declared. */
 export function findUndeclaredImports(
   source: string,
   declared: ReadonlySet<string>,
@@ -164,7 +165,9 @@ export function findUndeclaredImports(
   return unique(
     extractImportSpecifiers(source).filter((specifier) => {
       if (specifier.startsWith("node:") || isBuiltin(specifier)) return false;
-      if (isRelativeSpecifier(specifier)) return false;
+      // `#src/...` is a package.json `imports` subpath, not an npm package.
+      if (isRelativeSpecifier(specifier) || specifier.startsWith("#"))
+        return false;
       if (
         LOADER_BACKED_SCOPES.some(
           (scope) => specifier === scope || specifier.startsWith(`${scope}/`),

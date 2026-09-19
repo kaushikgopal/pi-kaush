@@ -1126,6 +1126,15 @@ import("ci-sleep");
     ]);
   });
 
+  test("skips the legacy SDK scope and package-internal hash imports", () => {
+    const source = `
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
+import { impl } from "#src/internal.js";
+import { marker } from "chalk";
+`;
+    expect(findUndeclaredImports(source, new Set())).toEqual(["chalk"]);
+  });
+
   test("does not read from-quotes inside strings as imports", () => {
     const source = `
 import {
