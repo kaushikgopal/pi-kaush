@@ -64,6 +64,8 @@ type ToolExecutionRow = {
   imageSpacers?: unknown[];
   getRenderShell?(): "default" | "self";
   getTextOutput?(): string;
+  setExpanded?(expanded: boolean): void;
+  handleMouse?(event: unknown): unknown;
 };
 
 type PresentationPatchState = {
@@ -76,8 +78,10 @@ type PresentationPatchState = {
   rowGroups: WeakMap<ToolExecutionRow, ToolExecutionRow[]>;
   originalRender: (width: number) => string[];
   originalUpdateDisplay: () => void;
+  originalHandleMouse?: (this: ToolExecutionRow, event: unknown) => unknown;
   patchedRender?: (width: number) => string[];
   patchedUpdateDisplay?: () => void;
+  patchedHandleMouse?: (this: ToolExecutionRow, event: unknown) => unknown;
 };
 
 type GroupingPatchState = {
@@ -90,6 +94,10 @@ type GroupingPatchState = {
 
 type GroupRenderCache = {
   lines: string[];
+  // Per-member click-routing accounting for the group block: the first
+  // member absorbs the leading blank and the tool-name header, later
+  // members carry their own line (plus edit diffs).
+  heights: Array<{ component: ToolExecutionRow; height: number }>;
   members: ToolExecutionRow[];
   memberVersions: number[];
   themeSample: string;
@@ -1278,10 +1286,11 @@ function renderGroupedCallLines(
   rows: ToolExecutionRow[],
   width: number,
   theme: ThemeLike,
-): string[] {
-  const lines: string[] = [];
+): Array<{ row: ToolExecutionRow; lines: string[] }> {
+  const segments: Array<{ row: ToolExecutionRow; lines: string[] }> = [];
   let previousToolName: string | undefined;
   for (const row of rows) {
+    const lines: string[] = [];
     const toolName = row.toolName ?? "tool";
     if (toolName !== previousToolName) {
       lines.push(
@@ -1304,8 +1313,9 @@ function renderGroupedCallLines(
     );
     if (row.toolName === "edit")
       lines.push(...renderedEditDiffLines(row, theme));
+    segments.push({ row, lines });
   }
-  return lines;
+  return segments;
 }
 
 function sameMembers(
@@ -1331,14 +1341,24 @@ function sameMemberVersions(
   );
 }
 
+type GroupBlock = {
+  lines: string[];
+  // Click-routing accounting aligned with `lines`: one entry per drawn row
+  // segment, so mouse events land on the member that owns the line.
+  heights: Array<{ component: ToolExecutionRow; height: number }>;
+};
+
 function renderGroupedToolRows(
   row: ToolExecutionRow,
   rows: ToolExecutionRow[],
   width: number,
   state: PresentationPatchState,
-): string[] {
+): GroupBlock {
   const theme = state.theme;
-  if (!theme) return state.originalRender.call(row, width);
+  if (!theme) {
+    const lines = state.originalRender.call(row, width);
+    return { lines, heights: [{ component: row, height: lines.length }] };
+  }
   const themeSample = themeSampleFor(theme);
   const cached = state.groupCache.get(row);
   const hasLiveMembers = rows.some(isLiveRow);
@@ -1350,32 +1370,52 @@ function renderGroupedToolRows(
     sameMembers(cached.members, rows) &&
     sameMemberVersions(rows, cached.memberVersions, state)
   ) {
-    return cached.lines;
+    return { lines: cached.lines, heights: cached.heights };
   }
 
   const layout = insetLayout(width);
-  const body = renderGroupedCallLines(rows, layout.contentWidth, theme);
-  const lines = ["", ...insetLines(body, width)];
+  const segments = renderGroupedCallLines(rows, layout.contentWidth, theme);
+  const lines = [
+    "",
+    ...insetLines(
+      segments.flatMap((s) => s.lines),
+      width,
+    ),
+  ];
+  // The leading blank and the first segment (tool-name header + call line)
+  // both belong to the first member; every later member owns its lines.
+  const heights = segments.map((segment, index) => ({
+    component: segment.row,
+    height: index === 0 ? segment.lines.length + 1 : segment.lines.length,
+  }));
   if (hasLiveMembers) {
     state.groupCache.delete(row);
   } else {
     state.groupCache.set(row, {
       lines,
+      heights,
       members: [...rows],
       memberVersions: rows.map((member) => state.rowVersions.get(member) ?? 0),
       themeSample,
       width,
     });
   }
-  return lines;
+  return { lines, heights };
 }
+
+type ContainerRender = {
+  lines: string[];
+  // Click-routing accounting aligned with `lines`.
+  heights: Array<{ component: unknown; height: number }>;
+};
 
 function renderContainerWithToolGroups(
   children: unknown[],
   width: number,
   presentation: PresentationPatchState,
-): string[] {
+): ContainerRender {
   const lines: string[] = [];
+  const heights: Array<{ component: unknown; height: number }> = [];
   const rendered = new Map<number, string[]>();
   const renderAt = (index: number): string[] => {
     const cached = rendered.get(index);
@@ -1391,7 +1431,9 @@ function renderContainerWithToolGroups(
       !isToolExecutionRow(child) ||
       !isGroupableToolRow(child, children, index, renderAt, presentation)
     ) {
-      lines.push(...renderAt(index));
+      const drawn = renderAt(index);
+      lines.push(...drawn);
+      heights.push({ component: child, height: drawn.length });
       continue;
     }
 
@@ -1426,7 +1468,9 @@ function renderContainerWithToolGroups(
     }
 
     if (group.length === 1) {
-      lines.push(...renderAt(index));
+      const drawn = renderAt(index);
+      lines.push(...drawn);
+      heights.push({ component: child, height: drawn.length });
       continue;
     }
 
@@ -1434,11 +1478,13 @@ function renderContainerWithToolGroups(
     // Use a live member while any call is pending, then the first member once
     // settled. Either way, the grouped row keeps the same number of lines.
     const shellRow = group.find(isLiveRow) ?? child;
-    lines.push(...renderGroupedToolRows(shellRow, group, width, presentation));
+    const block = renderGroupedToolRows(shellRow, group, width, presentation);
+    lines.push(...block.lines);
+    heights.push(...block.heights);
     index = lastMemberIndex;
   }
 
-  return lines;
+  return { lines, heights };
 }
 
 // TODO: Replace prototype patching with a public Pi tool/transcript rendering API when available.
@@ -1483,11 +1529,20 @@ function installGroupingPatch(
         // inset) decorate children through the shared hooks before grouping
         // rewrites the rows; delegation alone cannot reach them from here.
         restoreHooks = runChatContainerHooks(this, children, width);
-        return renderContainerWithToolGroups(
+        const drawn = renderContainerWithToolGroups(
           children,
           width,
           state.presentation,
         );
+        // The grouping path bypasses the native render that refreshes the
+        // container's mouse-layout cache. Publish the drawn accounting so
+        // click-to-expand (Pi routes by per-child line heights) keeps landing
+        // on the row that actually owns the line, including grouped members.
+        (this as { mouseLayout?: unknown }).mouseLayout = {
+          width,
+          children: drawn.heights,
+        };
+        return drawn.lines;
       } catch {
         return state.originalRender.call(this, width);
       } finally {
@@ -1574,6 +1629,34 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       state.collapsedCache.delete(this);
       state.originalUpdateDisplay.call(this);
     };
+    // Pi 0.85 wraps settled tool results in a click-to-expand MouseRegion.
+    // The custom collapsed row replaces those lines with a single summary, so
+    // the region never receives the click; toggle expansion here instead.
+    let patchedHandleMouse:
+      | ((this: ToolExecutionRow, event: unknown) => unknown)
+      | undefined;
+    if (typeof proto.handleMouse === "function") {
+      state.originalHandleMouse = proto.handleMouse;
+      patchedHandleMouse = function handleMouseWithCollapsedToggle(
+        this: ToolExecutionRow,
+        event: unknown,
+      ): unknown {
+        const mouseEvent = event as { type?: unknown; button?: unknown };
+        if (
+          state.theme &&
+          this.expanded === false &&
+          !!this.result &&
+          mouseEvent?.type === "click" &&
+          mouseEvent.button === "left" &&
+          typeof this.setExpanded === "function"
+        ) {
+          this.setExpanded(true);
+          return { handled: true };
+        }
+        return state.originalHandleMouse?.call(this, event);
+      };
+      proto.handleMouse = patchedHandleMouse;
+    }
     const patchedRender = function renderWithToolPresentation(
       this: ToolExecutionRow,
       width: number,
@@ -1680,6 +1763,7 @@ function uninstallPresentationPatch(
       [PRESENTATION_PATCHED]?: PresentationPatchState;
       render?: (width: number) => string[];
       updateDisplay?: () => void;
+      handleMouse?: (event: unknown) => unknown;
     };
   if (
     proto[PRESENTATION_PATCHED] !== state ||
@@ -1690,6 +1774,16 @@ function uninstallPresentationPatch(
   }
   proto.render = state.originalRender;
   proto.updateDisplay = state.originalUpdateDisplay;
+  if (
+    state.patchedHandleMouse &&
+    proto.handleMouse === state.patchedHandleMouse
+  ) {
+    if (state.originalHandleMouse) {
+      proto.handleMouse = state.originalHandleMouse;
+    } else {
+      delete proto.handleMouse;
+    }
+  }
   delete proto[PRESENTATION_PATCHED];
 }
 

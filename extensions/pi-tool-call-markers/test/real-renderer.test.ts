@@ -519,6 +519,35 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).not.toContain("lint passed");
   });
 
+  test("publishes mouse accounting that matches the drawn grouped lines", () => {
+    const chat = new Container();
+    const first = createBashRow("npm test");
+    const second = createBashRow("npm run lint");
+    chat.addChild(first);
+    chat.addChild(second);
+    settle(first, "tests passed");
+    settle(second, "lint passed");
+
+    const width = 36;
+    const lines = chat.render(width);
+    const layout = (
+      chat as unknown as {
+        mouseLayout?: {
+          width: number;
+          children: Array<{ component: unknown; height: number }>;
+        };
+      }
+    ).mouseLayout;
+    // The grouping path bypasses Pi's native render that normally refreshes
+    // the container's mouse-layout cache; publish the drawn accounting so
+    // Pi's click-to-expand routes by the lines actually drawn.
+    expect(layout).toBeDefined();
+    expect(layout?.width).toBe(width);
+    const entries = layout?.children ?? [];
+    expect(entries.map((e) => e.component)).toEqual([first, second]);
+    expect(entries.reduce((sum, e) => sum + e.height, 0)).toBe(lines.length);
+  });
+
   test("runs chat container hooks during grouped renders and restores after", () => {
     const chat = new Container();
     const first = createBashRow("npm test");

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Restore Pi 0.85's click-to-expand under the custom collapsed rows. Pi routes
+  mouse clicks by per-child rendered line heights, and the grouping render
+  bypassed the native render that refreshes that cache, so clicks on anything
+  drawn after the first tool call landed nowhere (or one line off after a
+  resize). The grouped render now publishes the drawn accounting, and a
+  collapsed tool row toggles expansion on left-click like Pi's native result
+  region.
+
 - Restyle subagent rows: the subagent marker is now `↪` (was `&`), and single
   calls drop the `subagent` tool label — `↪ 🤖 [coder][c3po] Implement the…` —
   with chain/parallel step lines reordered to emoji, profile badge, name badge
