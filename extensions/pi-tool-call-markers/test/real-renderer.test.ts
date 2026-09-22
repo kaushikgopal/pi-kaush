@@ -489,16 +489,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const liveHeight = chat.render(100).length;
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
     expect(renderPlain(chat).match(/%/g)).toHaveLength(1);
-    expect(renderPlain(chat).match(/•/g)).toHaveLength(2);
-    expect(renderPlain(chat)).toContain("• $: npm run lint");
+    expect(renderPlain(chat).match(/│/g)).toHaveLength(2);
+    expect(renderPlain(chat)).toContain("│ $: npm run lint");
 
     settle(second, "lint passed");
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(output.match(/%/g)).toHaveLength(1);
-    expect(output.match(/•/g)).toHaveLength(2);
-    expect(output).toContain("• $: npm test → done");
-    expect(output).toContain("• $: npm run lint → done");
+    expect(output.match(/│/g)).toHaveLength(2);
+    expect(output).toContain("│ $: npm test → done");
+    expect(output).toContain("│ $: npm run lint → done");
   });
 
   test("groups real settled rows with one-line outcome bullets", () => {
@@ -512,9 +512,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat, 36);
     expect(output.match(/%/g)).toHaveLength(1);
-    expect(output.match(/•/g)).toHaveLength(2);
-    expect(output).toContain("• $: npm test → done");
-    expect(output).toContain("• $: npm run lint → done");
+    expect(output.match(/│/g)).toHaveLength(2);
+    expect(output).toContain("│ $: npm test → done");
+    expect(output).toContain("│ $: npm run lint → done");
     expect(output).not.toContain("tests passed");
     expect(output).not.toContain("lint passed");
   });
@@ -569,8 +569,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     try {
       const output = renderPlain(chat);
       expect(output.match(/%/g)).toHaveLength(1);
-      expect(output.match(/•/g)).toHaveLength(2);
-      expect(output).toContain("• $: npm test → done");
+      expect(output.match(/│/g)).toHaveLength(2);
+      expect(output).toContain("│ $: npm test → done");
       expect(calls).toEqual([{ container: chat, width: 100 }]);
       expect(restores).toBe(1);
     } finally {
@@ -594,8 +594,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     try {
       const output = renderPlain(chat);
       expect(output.match(/%/g)).toHaveLength(1);
-      expect(output.match(/•/g)).toHaveLength(2);
-      expect(output).toContain("• $: npm test → done");
+      expect(output.match(/│/g)).toHaveLength(2);
+      expect(output).toContain("│ $: npm test → done");
     } finally {
       chatContainerHooks().delete(badHook);
     }
@@ -723,8 +723,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain("% edit");
-    expect(output).toContain("• a.ts → +1/-1");
-    expect(output).toContain("• b.ts → +1/-1");
+    expect(output).toContain("│ a.ts → +1/-1");
+    expect(output).toContain("│ b.ts → +1/-1");
     expect(output).toContain("  +x");
     expect(output).toContain("  -y");
     expect(output).not.toContain("edited");
@@ -993,8 +993,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat);
     expect(output).not.toContain("(details omitted)");
     expect(output).toContain("% glean_search");
-    expect(output).toContain('• {"query":"alpha"}');
-    expect(output).toContain('• {"query":"beta"}');
+    expect(output).toContain('│ {"query":"alpha"}');
+    expect(output).toContain('│ {"query":"beta"}');
     expect(output).toContain("→ done");
     expect(output).not.toContain("alpha results");
   });
@@ -1009,16 +1009,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output).toContain('• {"query":"alpha"}');
-    expect(output).toContain('• {"query":"beta"}');
+    expect(output).toContain('│ {"query":"alpha"}');
+    expect(output).toContain('│ {"query":"beta"}');
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
 
     settle(first, "alpha results");
     settle(second, "beta results");
     const settled = renderPlain(chat);
-    expect(settled).toContain('• {"query":"alpha"}');
-    expect(settled).toContain('• {"query":"beta"}');
+    expect(settled).toContain('│ {"query":"alpha"}');
+    expect(settled).toContain('│ {"query":"beta"}');
     expect(settled).toContain("→ done");
   });
 
@@ -1061,9 +1061,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output.match(/%/g)).toHaveLength(1);
-    expect(output.match(/•/g)).toHaveLength(2);
-    expect(output).toContain('• {"query":"alpha"}');
-    expect(output).toContain('• {"query":"beta"}');
+    expect(output.match(/│/g)).toHaveLength(2);
+    expect(output).toContain('│ {"query":"alpha"}');
+    expect(output).toContain('│ {"query":"beta"}');
   });
 
   test("keeps a literal call-label prefix when the error line is long", () => {
@@ -1489,9 +1489,9 @@ describe("composition with pi-content-layout", () => {
 
   function expectGroupedAndInset(output: string): void {
     expect(output.match(/%/g)).toHaveLength(1);
-    expect(output.match(/•/g)).toHaveLength(2);
-    expect(output).toContain("• $: npm test → done");
-    expect(output).toContain("• $: npm run lint → done");
+    expect(output.match(/│/g)).toHaveLength(2);
+    expect(output).toContain("│ $: npm test → done");
+    expect(output).toContain("│ $: npm run lint → done");
     expect(output).toMatch(/^ {2}Reloaded keybindings/m);
   }
 
@@ -1521,7 +1521,7 @@ describe("composition with pi-content-layout", () => {
       shutdownNext();
       const output = renderPlain(buildTranscript());
       expect(output).not.toContain("% $");
-      expect(output).not.toContain("• npm test");
+      expect(output).not.toContain("│ npm test");
 
       // Content-layout's shutdown then restores the wrapper it captured —
       // the now-inert grouping wrapper — so system text loses its inset too.

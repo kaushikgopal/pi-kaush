@@ -16,11 +16,12 @@ import {
 } from "./bash-block.ts";
 import { runChatContainerHooks } from "./container-hooks.ts";
 import { installInfoVisibility } from "./info-visibility.ts";
-import { fgCollapsed } from "./muted.ts";
+import { fgCollapsed, fgCollapsedRail } from "./muted.ts";
 
 const OUTER_INSET = 2;
 const GROUP_MARKER = "%";
 const SUBAGENT_MARKER = "↪";
+const GROUP_CALL_MARKER = "│";
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
@@ -1293,6 +1294,11 @@ function renderGroupedCallLines(
     const lines: string[] = [];
     const toolName = row.toolName ?? "tool";
     if (toolName !== previousToolName) {
+      // One blank line between tool-name subgroups, mirroring the block's
+      // leading blank so each `%` heading starts its own visual run. The
+      // blank belongs to the new run's first row, keeping the per-member
+      // click-routing heights aligned with the drawn lines.
+      if (previousToolName !== undefined) lines.push("");
       lines.push(
         `${fgCollapsed(theme, "muted", GROUP_MARKER)} ${fgCollapsed(theme, "toolTitle", toolName, true)}`,
       );
@@ -1300,7 +1306,7 @@ function renderGroupedCallLines(
     }
 
     const color = rowHasFailed(row) ? "error" : "muted";
-    const prefix = `  ${fgCollapsed(theme, color, "•")} `;
+    const prefix = `  ${fgCollapsedRail(theme, color, GROUP_CALL_MARKER)} `;
     const budget = Math.max(1, width - visibleWidth(prefix));
     const label = groupedChildLabel(row, budget, theme, color);
     const outcome = collapsedOutcome(row, budget, theme);

@@ -4,6 +4,7 @@ import {
   collapsedThinkingAnsi,
   collapsedToolAnsi,
   fgCollapsed,
+  fgCollapsedRail,
 } from "../src/muted.ts";
 
 // Pi's Theme throws on unknown tokens; themes without getFgAnsi have no
@@ -92,5 +93,20 @@ describe("fgCollapsed", () => {
       "toolTitle",
       "toolOutput",
     ]);
+  });
+});
+
+describe("fgCollapsedRail", () => {
+  test("wraps non-error colors in the faint attribute so the rail recedes", () => {
+    const theme = themeWith({ syntaxComment: COMMENT });
+    expect(fgCollapsedRail(theme, "muted", "│")).toBe(
+      `\x1b[2m${COMMENT}│\x1b[39m\x1b[22m`,
+    );
+  });
+
+  test("error rails keep their full-strength semantic color", () => {
+    const theme = themeWith({ syntaxComment: COMMENT });
+    expect(fgCollapsedRail(theme, "error", "│")).toBe(theme.fg("error", "│"));
+    expect(fgCollapsedRail(theme, "error", "│")).not.toContain("\x1b[2m");
   });
 });

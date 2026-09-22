@@ -78,3 +78,17 @@ export function fgCollapsed(
   }
   return theme.fg(color, bold && theme.bold ? theme.bold(text) : text);
 }
+
+// Decoration rails recede further than collapsed text. No palette token is
+// guaranteed lighter than the collapsed color (e.g. catppuccin-latte's `dim`
+// resolves to the same overlay0 as syntaxComment), so apply the terminal's
+// faint attribute: it lightens toward the background on light themes and
+// darkens on dark ones. Error rails keep their full-strength semantic red.
+export function fgCollapsedRail(
+  theme: CollapsedTheme,
+  color: string,
+  text: string,
+): string {
+  const styled = fgCollapsed(theme, color, text);
+  return color === "error" ? styled : `\x1b[2m${styled}\x1b[22m`;
+}
