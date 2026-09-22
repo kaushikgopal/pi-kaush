@@ -331,7 +331,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "all tests passed");
 
     const output = renderPlain(chat);
-    expect(output).toContain("% $: npm test → done");
+    expect(output).toContain("│ $: npm test → done");
     expect(output).not.toContain("all tests passed");
   });
 
@@ -365,7 +365,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const collapsed = renderPlain(chat);
     expect(collapsed).toContain(
-      "% $: printf one · printf two · printf three · … → done",
+      "│ $: printf one · printf two · printf three · … → done",
     );
     expect(collapsed.split("\n")).toHaveLength(1);
     expect(collapsed).not.toContain("printf four");
@@ -397,7 +397,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const settled = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(settled).toContain(
-      "% $: sleep 1 · printf finished (timeout 30s) → done",
+      "│ $: sleep 1 · printf finished (timeout 30s) → done",
     );
     expect(settled.split("\n")).toHaveLength(1);
   });
@@ -481,24 +481,24 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chat.addChild(first);
     settle(first, "tests passed");
     const singletonHeight = chat.render(100).length;
-    expect(renderPlain(chat)).toContain("% $: npm test → done");
+    expect(renderPlain(chat)).toContain("│ $: npm test → done");
 
     chat.addChild(new AssistantMessageComponent());
     const second = createBashRow("npm run lint");
     chat.addChild(second);
     const liveHeight = chat.render(100).length;
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
-    expect(renderPlain(chat).match(/%/g)).toHaveLength(1);
-    expect(renderPlain(chat).match(/│/g)).toHaveLength(2);
-    expect(renderPlain(chat)).toContain("│ $: npm run lint");
+    expect(renderPlain(chat)).not.toContain("%");
+    expect(renderPlain(chat).match(/│/g)).toHaveLength(3);
+    expect(renderPlain(chat)).toContain("│    $: npm run lint");
 
     settle(second, "lint passed");
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
-    expect(output.match(/%/g)).toHaveLength(1);
-    expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain("│ $: npm test → done");
-    expect(output).toContain("│ $: npm run lint → done");
+    expect(output).not.toContain("%");
+    expect(output.match(/│/g)).toHaveLength(3);
+    expect(output).toContain("│    $: npm test → done");
+    expect(output).toContain("│    $: npm run lint → done");
   });
 
   test("groups real settled rows with one-line outcome bullets", () => {
@@ -511,10 +511,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(second, "lint passed");
 
     const output = renderPlain(chat, 36);
-    expect(output.match(/%/g)).toHaveLength(1);
-    expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain("│ $: npm test → done");
-    expect(output).toContain("│ $: npm run lint → done");
+    expect(output).not.toContain("%");
+    expect(output.match(/│/g)).toHaveLength(3);
+    expect(output).toContain("│    $: npm test → done");
+    expect(output).toContain("│    $: npm run lint → done");
     expect(output).not.toContain("tests passed");
     expect(output).not.toContain("lint passed");
   });
@@ -568,9 +568,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chatContainerHooks().add(hook);
     try {
       const output = renderPlain(chat);
-      expect(output.match(/%/g)).toHaveLength(1);
-      expect(output.match(/│/g)).toHaveLength(2);
-      expect(output).toContain("│ $: npm test → done");
+      expect(output).not.toContain("%");
+      expect(output.match(/│/g)).toHaveLength(3);
+      expect(output).toContain("│    $: npm test → done");
       expect(calls).toEqual([{ container: chat, width: 100 }]);
       expect(restores).toBe(1);
     } finally {
@@ -593,9 +593,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chatContainerHooks().add(badHook);
     try {
       const output = renderPlain(chat);
-      expect(output.match(/%/g)).toHaveLength(1);
-      expect(output.match(/│/g)).toHaveLength(2);
-      expect(output).toContain("│ $: npm test → done");
+      expect(output).not.toContain("%");
+      expect(output.match(/│/g)).toHaveLength(3);
+      expect(output).toContain("│    $: npm test → done");
     } finally {
       chatContainerHooks().delete(badHook);
     }
@@ -677,7 +677,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "# Search Results (1 found)\n\n## 1. vibecheck");
 
     const output = renderPlain(chat);
-    expect(output).toContain('% glean_search: {"query":"vibecheck"} → done');
+    expect(output).toContain('│ glean_search: {"query":"vibecheck"} → done');
     expect(output.split("\n")).toHaveLength(1);
     expect(output).not.toContain("Search Results");
   });
@@ -722,9 +722,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain("% edit");
-    expect(output).toContain("│ a.ts → +1/-1");
-    expect(output).toContain("│ b.ts → +1/-1");
+    expect(output).toContain("│ edit");
+    expect(output).toContain("│    a.ts → +1/-1");
+    expect(output).toContain("│    b.ts → +1/-1");
     expect(output).toContain("  +x");
     expect(output).toContain("  -y");
     expect(output).not.toContain("edited");
@@ -748,8 +748,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "alpha\nbeta\ngamma\n");
 
     const output = renderPlain(chat);
-    expect(output).toContain("% read: tools/kb_mcp/README.md:1-400 → 3 lines");
-    expect(output).not.toContain("% read: :1-400");
+    expect(output).toContain("│ read: tools/kb_mcp/README.md:1-400 → 3 lines");
+    expect(output).not.toContain("│ read: :1-400");
     expect(output).not.toMatch(/\x1b\]/);
   });
 
@@ -760,8 +760,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "one\ntwo\n");
 
     const output = renderPlain(chat);
-    expect(output).toContain("% read: package.json:1-400 → 2 lines");
-    expect(output).not.toContain("% read: :1-400");
+    expect(output).toContain("│ read: package.json:1-400 → 2 lines");
+    expect(output).not.toContain("│ read: :1-400");
   });
 
   test("caps a long edit diff block with a folded tail", () => {
@@ -992,9 +992,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).not.toContain("(details omitted)");
-    expect(output).toContain("% glean_search");
-    expect(output).toContain('│ {"query":"alpha"}');
-    expect(output).toContain('│ {"query":"beta"}');
+    expect(output).toContain("│ glean_search");
+    expect(output).toContain('│    {"query":"alpha"}');
+    expect(output).toContain('│    {"query":"beta"}');
     expect(output).toContain("→ done");
     expect(output).not.toContain("alpha results");
   });
@@ -1009,16 +1009,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output).toContain('│ {"query":"alpha"}');
-    expect(output).toContain('│ {"query":"beta"}');
+    expect(output).toContain('│    {"query":"alpha"}');
+    expect(output).toContain('│    {"query":"beta"}');
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
 
     settle(first, "alpha results");
     settle(second, "beta results");
     const settled = renderPlain(chat);
-    expect(settled).toContain('│ {"query":"alpha"}');
-    expect(settled).toContain('│ {"query":"beta"}');
+    expect(settled).toContain('│    {"query":"alpha"}');
+    expect(settled).toContain('│    {"query":"beta"}');
     expect(settled).toContain("→ done");
   });
 
@@ -1041,7 +1041,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     );
 
     const output = renderPlain(chat);
-    expect(output.match(/%/g)).toHaveLength(2);
+    expect(output.match(/│/g)).toHaveLength(2);
     expect(output).toContain('glean_search: {"query":"x"} → done');
     expect(output).toContain(
       'glean_search: {"query":"y"} → Error: not connected to server "glean"',
@@ -1060,10 +1060,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output.match(/%/g)).toHaveLength(1);
-    expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain('│ {"query":"alpha"}');
-    expect(output).toContain('│ {"query":"beta"}');
+    expect(output).not.toContain("%");
+    expect(output.match(/│/g)).toHaveLength(3);
+    expect(output).toContain('│    {"query":"alpha"}');
+    expect(output).toContain('│    {"query":"beta"}');
   });
 
   test("keeps a literal call-label prefix when the error line is long", () => {
@@ -1083,7 +1083,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       // The call label keeps at least one literal character (never just the
       // ellipsis) and the error tail keeps its arrow even at tiny widths;
       // only tail text beyond the budget gets cut.
-      expect(output.match(/^\s*%\s+(\S)/)?.[1]).toBe("g");
+      expect(output.match(/^\s*│\s+(\S)/)?.[1]).toBe("g");
       expect(output).toContain("→");
       expect(output).not.toContain("glean_employee_search");
       expect(output.length).toBeLessThanOrEqual(width);
@@ -1488,10 +1488,10 @@ describe("composition with pi-content-layout", () => {
   }
 
   function expectGroupedAndInset(output: string): void {
-    expect(output.match(/%/g)).toHaveLength(1);
-    expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain("│ $: npm test → done");
-    expect(output).toContain("│ $: npm run lint → done");
+    expect(output).not.toContain("%");
+    expect(output.match(/│/g)).toHaveLength(3);
+    expect(output).toContain("│    $: npm test → done");
+    expect(output).toContain("│    $: npm run lint → done");
     expect(output).toMatch(/^ {2}Reloaded keybindings/m);
   }
 
@@ -1520,14 +1520,14 @@ describe("composition with pi-content-layout", () => {
       // content-layout and cannot be uninstalled, so it must go inert.
       shutdownNext();
       const output = renderPlain(buildTranscript());
-      expect(output).not.toContain("% $");
-      expect(output).not.toContain("│ npm test");
+      expect(output).not.toContain("│ bash");
+      expect(output).not.toContain("│    $: npm test");
 
       // Content-layout's shutdown then restores the wrapper it captured —
       // the now-inert grouping wrapper — so system text loses its inset too.
       shutdownNext();
       const restored = renderPlain(buildTranscript());
-      expect(restored).not.toContain("% $");
+      expect(restored).not.toContain("│");
       expect(restored).not.toMatch(/^ {2}Reloaded keybindings/m);
       expect(restored).toMatch(/^ Reloaded keybindings/m);
     } finally {

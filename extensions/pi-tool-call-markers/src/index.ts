@@ -19,7 +19,6 @@ import { installInfoVisibility } from "./info-visibility.ts";
 import { fgCollapsed, fgCollapsedRail } from "./muted.ts";
 
 const OUTER_INSET = 2;
-const GROUP_MARKER = "%";
 const SUBAGENT_MARKER = "↪";
 const GROUP_CALL_MARKER = "│";
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
@@ -933,11 +932,10 @@ function collapsedHeadline(
   // Failed rows render entirely in error so the row reads as the one that
   // failed, not just its outcome tail. Only the tool name is bold.
   const tone = rowHasFailed(row) ? "error" : "muted";
-  const marker = `${fgCollapsed(
-    theme,
-    tone,
-    row.toolName === "subagent" ? SUBAGENT_MARKER : GROUP_MARKER,
-  )} `;
+  const marker =
+    row.toolName === "subagent"
+      ? `${fgCollapsed(theme, tone, SUBAGENT_MARKER)} `
+      : `${fgCollapsedRail(theme, tone, GROUP_CALL_MARKER)} `;
   const budget = Math.max(1, width - visibleWidth(marker));
   const label = collapsedCallLabel(row, budget, theme, tone);
   const outcome = collapsedOutcome(row, budget, theme);
@@ -1294,19 +1292,20 @@ function renderGroupedCallLines(
     const lines: string[] = [];
     const toolName = row.toolName ?? "tool";
     if (toolName !== previousToolName) {
-      // One blank line between tool-name subgroups, mirroring the block's
-      // leading blank so each `%` heading starts its own visual run. The
-      // blank belongs to the new run's first row, keeping the per-member
-      // click-routing heights aligned with the drawn lines.
-      if (previousToolName !== undefined) lines.push("");
+      // Keep the rail unbroken across subgroup spacing and put each bold
+      // tool name beside it. The separator belongs to the new row so
+      // click-routing heights stay aligned with the rendered lines.
+      if (previousToolName !== undefined) {
+        lines.push(fgCollapsedRail(theme, "muted", GROUP_CALL_MARKER));
+      }
       lines.push(
-        `${fgCollapsed(theme, "muted", GROUP_MARKER)} ${fgCollapsed(theme, "toolTitle", toolName, true)}`,
+        `${fgCollapsedRail(theme, "muted", GROUP_CALL_MARKER)} ${fgCollapsed(theme, "toolTitle", toolName, true)}`,
       );
       previousToolName = toolName;
     }
 
     const color = rowHasFailed(row) ? "error" : "muted";
-    const prefix = `  ${fgCollapsedRail(theme, color, GROUP_CALL_MARKER)} `;
+    const prefix = `${fgCollapsedRail(theme, color, GROUP_CALL_MARKER)}    `;
     const budget = Math.max(1, width - visibleWidth(prefix));
     const label = groupedChildLabel(row, budget, theme, color);
     const outcome = collapsedOutcome(row, budget, theme);

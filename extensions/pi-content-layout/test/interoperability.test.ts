@@ -277,9 +277,9 @@ describe.each(["inline-first", "layout-first"] as const)(
       const toolLine = chat
         .render(50)
         .map(stripControls)
-        .find((line) => line.includes("%"));
-      expect(toolLine).toMatch(/^  %/);
-      expect(toolLine).not.toMatch(/^    %/);
+        .find((line) => line.includes("│"));
+      expect(toolLine).toMatch(/^  │/);
+      expect(toolLine).not.toMatch(/^    │/);
 
       const footer = harness.footerFactory?.(
         { requestRender() {} } as unknown as TUI,
