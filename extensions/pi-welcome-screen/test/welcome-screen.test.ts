@@ -1109,6 +1109,8 @@ describe("extension health", () => {
   test("flags bare imports not covered by declared deps, peers, or the loader", () => {
     const source = `
 import { existsSync } from "node:fs";
+import { readFile } from "fs/promises";
+import { tmpdir } from "os";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Spacer } from "@earendil-works/pi-tui";
 import { something } from "@pi-kaush/pi-agent-mode";
@@ -1122,6 +1124,27 @@ import("ci-sleep");
       "chalk",
       "ci-sleep",
     ]);
+  });
+
+  test("skips the legacy SDK scope and package-internal hash imports", () => {
+    const source = `
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
+import { impl } from "#src/internal.js";
+import { marker } from "chalk";
+`;
+    expect(findUndeclaredImports(source, new Set())).toEqual(["chalk"]);
+  });
+
+  test("does not read from-quotes inside strings as imports", () => {
+    const source = `
+import {
+  helper,
+} from "chalk";
+task_id: Type.String({ description: "The task ID to get output from" }),
+const hint = "copied from";
+// import { ignored } from "commented-out-package";
+`;
+    expect(findUndeclaredImports(source, new Set())).toEqual(["chalk"]);
   });
 
   test("scores severity: blocked pin, behind, odd imports, ok", () => {
