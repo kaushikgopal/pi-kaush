@@ -15,19 +15,16 @@ Restart Pi or run `/reload`.
 Collapsed tool rows use semantic theme colors with no gear, background fill, box padding, or filled blank rows:
 
 ```text
-  │ Read
-  │    src/a.ts                         42 lines
-  │    src/b.ts                         18 lines
-  │
-  │ Bash
-  │    $: npm test → done
+  │ ●: src/a.ts                         42 lines
+  │ ●: src/b.ts                         18 lines
+  │ $: npm test → done
 ```
 
 - **Two-column outer inset.** Tool markers and image output align with an inset conversation surface. Very narrow terminals reduce the decoration before useful content.
-- **`│` tool-call rail.** Single calls use a rail beside the summary. Multi-call groups extend it through bold tool-name headings, indented call summaries, and separators between tool types.
+- **`│` tool-call rail.** Every collapsed call anchors on a glyph instead of its tool name: `●` read, `+` write, `±` edit, `○` local search, `≡` ls, `↗` web search and fetch, and `$` bash; unmapped tools fall back to `*`. Grouped rows flow directly across tool types.
 - **Semantic, low-contrast status.** Tool names are emphasized, summaries and settled metadata are muted, pending state is warning-colored, and failures remain error-colored. Ordinary tool states have no background.
 - **Width-safe outcome tails.** Long summaries truncate before useful tails such as `→ done`, `→ 42 lines`, `→ +2/-1`, or a `bash` duration.
-- **Stable running groups.** Adjacent calls group as they appear. Pending state and elapsed `bash` time settle into the final outcome without changing the row count.
+- **Stable running groups.** Adjacent calls group as they appear, including settled failures, which stay error-colored inside the group. Pending state and elapsed `bash` time settle into the final outcome without changing the row count.
 - **Quiet-turn grouping.** Sequential calls can join across an assistant row with no visible prose or thinking. Visible assistant content remains a boundary.
 - **MCP and self-rendered tools.** Their stable call labels, compact arguments, pending state, success, and first error line use the same collapsed shell. Native self-rendered details return when expanded.
 - **Images remain visible.** Image fallback text and terminal image components render below the corresponding marker with the same inset.
@@ -36,7 +33,7 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 
 ## Subagent plans
 
-A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic, marked with `↪` instead of the ordinary `%` tool marker:
+A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic, marked with `↪` instead of the ordinary `│` tool-call rail:
 
 ```text
   ↪ subagent chain (3 steps) [repo-review]
@@ -52,7 +49,7 @@ Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `↪
 
 ## Edit diffs
 
-Settled `edit` calls keep their change visible without expanding: the call line gains a `+added/-removed` outcome stat, and the hunk renders as a bounded diff block underneath (`+` lines in the added tone, `-` in the removed tone, context muted, folded regions as `...`, capped at 12 lines with a count tail). The full native diff — line numbers, intra-line word highlights — still returns with `Ctrl+O`.
+Settled `edit` calls collapse like every other row: the call line keeps its path and a `+added/-removed` outcome stat, and the hunk itself stays out of the collapsed row. `Ctrl+O` restores Pi's full native diff, including line numbers and intra-line word highlights. To keep edits expanded without pressing `Ctrl+O`, list `edit` in `PI_ALWAYS_EXPANDED_TOOL_CALL_MARKERS` (see Configuration).
 
 Files and paths in collapsed rows are preserved as displayed by Pi: hyperlink-wrapped paths (Pi wraps `read` call paths in OSC 8 hyperlinks) keep their visible text when sanitized for one-line rows.
 
@@ -102,9 +99,18 @@ pi
 
 `0`, `false`, `no`, and `off` disable parallel grouping. `1`, `true`, `yes`, and `on` enable it. The value is read when the extension loads.
 
+To render chosen tools as Pi's native expanded block by default — full result and diff without `Ctrl+O` — list their names:
+
+```fish
+set -lx PI_ALWAYS_EXPANDED_TOOL_CALL_MARKERS edit,write
+pi
+```
+
+Names are comma-separated and matched exactly. Listed rows never join a group, and the list stays authoritative: collapsing the transcript with `Ctrl+O` re-expands them. The value is read when the extension loads.
+
 ### Collapsed-row colors
 
-Collapsed rows (tool calls, `+ Thought`, subagents) default to the theme's `syntaxComment` color — it ships with every Pi theme and reads as a muted tone — with the bolded tool name and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
+Collapsed rows (tool calls, `+ Thought`, subagents) default to the theme's `syntaxComment` color — it ships with every Pi theme and reads as a muted tone — with the bolded glyph anchor and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
 
 A theme can override each collapsed kind independently with optional color tokens:
 

@@ -21,11 +21,28 @@ import { fgCollapsed, fgCollapsedRail } from "./muted.ts";
 const OUTER_INSET = 2;
 const SUBAGENT_MARKER = "↪";
 const GROUP_CALL_MARKER = "│";
+// Collapsed rows anchor with a glyph instead of repeating the tool name;
+// tools that read as one family share a glyph, and unmapped tools fall back
+// to `*`.
+const TOOL_CALL_GLYPHS: ReadonlyMap<string, string> = new Map([
+  ["read", "●"],
+  ["write", "+"],
+  ["edit", "±"],
+  ["grep", "○"],
+  ["ffgrep", "○"],
+  ["find", "○"],
+  ["fffind", "○"],
+  ["ls", "≡"],
+  ["web_search", "↗"],
+  ["fetch_content", "↗"],
+  ["get_search_content", "↗"],
+]);
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
 const ANSI_RE = /\u001b\[[0-9;]*m/g;
 const COLLAPSE_PARALLEL_ENV = "PI_TOOL_CALL_MARKERS_COLLAPSE_PARALLEL";
+const EXPANDED_TOOLS_ENV = "PI_ALWAYS_EXPANDED_TOOL_CALL_MARKERS";
 
 type ThemeLike = {
   bold(text: string): string;
@@ -72,6 +89,7 @@ type PresentationPatchState = {
   owners: number;
   theme?: ThemeLike;
   collapseParallel: boolean;
+  expandedTools: ReadonlySet<string>;
   groupCache: WeakMap<ToolExecutionRow, GroupRenderCache>;
   collapsedCache: WeakMap<ToolExecutionRow, CollapsedRenderCache>;
   rowVersions: WeakMap<ToolExecutionRow, number>;
@@ -94,9 +112,7 @@ type GroupingPatchState = {
 
 type GroupRenderCache = {
   lines: string[];
-  // Per-member click-routing accounting for the group block: the first
-  // member absorbs the leading blank and the tool-name header, later
-  // members carry their own line (plus edit diffs).
+  // The first member absorbs the leading blank; each member owns its line.
   heights: Array<{ component: ToolExecutionRow; height: number }>;
   members: ToolExecutionRow[];
   memberVersions: number[];
@@ -118,6 +134,19 @@ function envEnabled(name: string, defaultValue: boolean): boolean {
   if (["1", "true", "yes", "on"].includes(value)) return true;
   if (["0", "false", "no", "off"].includes(value)) return false;
   return defaultValue;
+}
+
+// Comma-separated tool names, e.g. `edit,write`. Blank entries and padding
+// are ignored; an unset or empty variable yields no names.
+function envToolNames(name: string): ReadonlySet<string> {
+  const value = process.env[name]?.trim();
+  if (!value) return new Set();
+  return new Set(
+    value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
 }
 
 function stripAnsi(text: string): string {
@@ -497,6 +526,18 @@ function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
   );
 }
 
+// Settled failures join groups like settled successes; the row's error
+// color carries the failure, so the group stays visually unbroken.
+function isCollapsibleFailure(row: ToolExecutionRow): boolean {
+  return (
+    row.expanded === false &&
+    row.isPartial === false &&
+    !!row.result &&
+    rowHasFailed(row) &&
+    !hasImageResult(row)
+  );
+}
+
 function hasToolSiblingInAssistantBatch(
   children: unknown[],
   index: number,
@@ -525,7 +566,12 @@ function isGroupableToolRow(
   state: PresentationPatchState,
 ): boolean {
   if (row.toolName === "subagent") return false;
-  if (!isLiveRow(row) && !isCollapsibleSuccess(row)) return false;
+  if (
+    !isLiveRow(row) &&
+    !isCollapsibleSuccess(row) &&
+    !isCollapsibleFailure(row)
+  )
+    return false;
   return (
     state.collapseParallel ||
     !hasToolSiblingInAssistantBatch(children, index, renderAt)
@@ -612,15 +658,8 @@ function diffCounts(diff: string): { added: number; removed: number } {
 }
 
 // Pi's edit tool (renderShell "self") stores its display diff in
-// result.details.diff — lines like `+27 <content>`, `-27 <content>`,
-// ` 28 <context>`, plus `...` for folded regions. Self-rendered rows
-// normally keep only their one-line call label; edits additionally show
-// the change as a bounded diff block under the summary and a +a/-b stat in
-// the outcome tail, so the hunk stays visible without Ctrl+O while
-// expanded rows keep Pi's native rendering.
-const EDIT_DIFF_LINE_RE = /^([+\-\s])(\s*\d*)(.*)$/;
-const MAX_EDIT_DIFF_LINES = 12;
-
+// result.details.diff; collapsed rows show only its +a/-b stat, while the
+// full hunk returns with Ctrl+O.
 function editDiffText(row: ToolExecutionRow): string | undefined {
   if (row.toolName !== "edit") return undefined;
   if (!row.result || row.isPartial !== false || rowHasFailed(row))
@@ -634,43 +673,6 @@ function renderedEditDiffStat(row: ToolExecutionRow): string | undefined {
   if (diff === undefined) return undefined;
   const { added, removed } = diffCounts(diff);
   return added + removed === 0 ? "applied" : `+${added}/-${removed}`;
-}
-
-function renderedEditDiffLines(
-  row: ToolExecutionRow,
-  theme: ThemeLike,
-): string[] {
-  const diff = editDiffText(row);
-  if (diff === undefined) return [];
-  const raw = diff.split("\n");
-  if (raw[raw.length - 1] === "") raw.pop();
-  const lines: string[] = [];
-  for (const line of raw.slice(0, MAX_EDIT_DIFF_LINES)) {
-    const clean = sanitizeInline(line).trimEnd();
-    if (clean.trim() === "...") {
-      lines.push(fgCollapsed(theme, "muted", "  ..."));
-      continue;
-    }
-    const match = EDIT_DIFF_LINE_RE.exec(clean);
-    if (!match) continue;
-    const color =
-      match[1] === "+"
-        ? "toolDiffAdded"
-        : match[1] === "-"
-          ? "toolDiffRemoved"
-          : "toolDiffContext";
-    lines.push(theme.fg(color, `  ${match[1]}${match[2]}${match[3]}`));
-  }
-  if (raw.length > MAX_EDIT_DIFF_LINES) {
-    lines.push(
-      fgCollapsed(
-        theme,
-        "muted",
-        `  ... +${raw.length - MAX_EDIT_DIFF_LINES} more`,
-      ),
-    );
-  }
-  return lines;
 }
 
 function outcomeSummary(row: ToolExecutionRow): string | undefined {
@@ -722,22 +724,6 @@ function renderedOutcome(
   const summary = outcomeSummary(row);
   if (!summary) return undefined;
   return fgCollapsed(theme, "toolOutput", `→ ${summary}`);
-}
-
-function renderedGroupedOutcome(
-  row: ToolExecutionRow,
-  theme: ThemeLike,
-): string | undefined {
-  const outcome = renderedOutcome(row, theme);
-  if (outcome) return outcome;
-  if (isLiveRow(row)) {
-    const elapsed = liveElapsedText(row);
-    return theme.fg("warning", elapsed ? `… · ${elapsed}` : "…");
-  }
-  // Self-rendered tools have no per-tool outcome summary; keep the group's
-  // settled tail consistent with collapsed singletons.
-  if (row.getRenderShell?.() === "self") return renderedGenericOutcome(theme);
-  return undefined;
 }
 
 // A budget too small for the suffix keeps literal styled text instead, so a
@@ -900,6 +886,23 @@ function collapsedCallLabel(
   return styledCallLabel(label, theme, color);
 }
 
+// Collapsed rows anchor their call text with a glyph instead of repeating
+// the tool name, grouped or not. Bash carries `$:` inside its own label and
+// the subagent fallback keeps its `↪ subagent` heading, so neither takes a
+// glyph.
+function collapsedCallMarker(
+  row: ToolExecutionRow,
+  theme: ThemeLike,
+  color: string,
+): string {
+  if (row.toolName === "bash" || row.toolName === "subagent") return "";
+  return fgCollapsed(
+    theme,
+    color,
+    `${TOOL_CALL_GLYPHS.get(row.toolName ?? "") ?? "*"}: `,
+  );
+}
+
 function collapsedOutcome(
   row: ToolExecutionRow,
   width: number,
@@ -930,14 +933,18 @@ function collapsedHeadline(
   theme: ThemeLike,
 ): string {
   // Failed rows render entirely in error so the row reads as the one that
-  // failed, not just its outcome tail. Only the tool name is bold.
+  // failed, not just its outcome tail. Only the row's anchor stays bold.
   const tone = rowHasFailed(row) ? "error" : "muted";
   const marker =
     row.toolName === "subagent"
       ? `${fgCollapsed(theme, tone, SUBAGENT_MARKER)} `
       : `${fgCollapsedRail(theme, tone, GROUP_CALL_MARKER)} `;
-  const budget = Math.max(1, width - visibleWidth(marker));
-  const label = collapsedCallLabel(row, budget, theme, tone);
+  const glyph = collapsedCallMarker(row, theme, tone);
+  const budget = Math.max(
+    1,
+    width - visibleWidth(marker) - visibleWidth(glyph),
+  );
+  const label = glyph + collapsedChildLabel(row, budget, theme, tone);
   const outcome = collapsedOutcome(row, budget, theme);
   // The truncation suffix inherits the row tone; pi-tui's truncation resets
   // around a plain suffix, which would render it in the terminal default
@@ -1248,20 +1255,20 @@ function renderCollapsedToolRow(
       ? renderSubagentPlan(row, layout.contentWidth, theme)
       : undefined;
   const body = plan ?? [collapsedHeadline(row, layout.contentWidth, theme)];
-  if (row.toolName === "edit") {
-    body.push(...renderedEditDiffLines(row, theme));
-  }
   body.push(...imageResultLines(row, layout.contentWidth, theme));
   return ["", ...insetLines(body, width)];
 }
 
-function groupedChildLabel(
+// Drops the call label's tool-name token: the row's glyph anchors the call
+// instead. The `↪` subagent fallback keeps its own heading.
+function collapsedChildLabel(
   row: ToolExecutionRow,
   width: number,
   theme: ThemeLike,
   color: string = "muted",
 ): string {
   const label = collapsedCallLabel(row, width, theme, color);
+  if (row.toolName === "subagent") return label;
   const plain = stripAnsi(label);
   const toolName = row.toolName ?? "tool";
   let prefix = "";
@@ -1287,37 +1294,26 @@ function renderGroupedCallLines(
   theme: ThemeLike,
 ): Array<{ row: ToolExecutionRow; lines: string[] }> {
   const segments: Array<{ row: ToolExecutionRow; lines: string[] }> = [];
-  let previousToolName: string | undefined;
   for (const row of rows) {
     const lines: string[] = [];
-    const toolName = row.toolName ?? "tool";
-    if (toolName !== previousToolName) {
-      // Keep the rail unbroken across subgroup spacing and put each bold
-      // tool name beside it. The separator belongs to the new row so
-      // click-routing heights stay aligned with the rendered lines.
-      if (previousToolName !== undefined) {
-        lines.push(fgCollapsedRail(theme, "muted", GROUP_CALL_MARKER));
-      }
-      lines.push(
-        `${fgCollapsedRail(theme, "muted", GROUP_CALL_MARKER)} ${fgCollapsed(theme, "toolTitle", toolName, true)}`,
-      );
-      previousToolName = toolName;
-    }
 
     const color = rowHasFailed(row) ? "error" : "muted";
-    const prefix = `${fgCollapsedRail(theme, color, GROUP_CALL_MARKER)}    `;
-    const budget = Math.max(1, width - visibleWidth(prefix));
-    const label = groupedChildLabel(row, budget, theme, color);
+    const prefix = `${fgCollapsedRail(theme, color, GROUP_CALL_MARKER)} `;
+    const marker = collapsedCallMarker(row, theme, color);
+    const budget = Math.max(
+      1,
+      width - visibleWidth(prefix) - visibleWidth(marker),
+    );
+    const label = collapsedChildLabel(row, budget, theme, color);
     const outcome = collapsedOutcome(row, budget, theme);
     const suffix = fgCollapsed(theme, color, "…");
     lines.push(
       prefix +
+        marker +
         (outcome
           ? fitSummaryTail(label, outcome, budget, suffix)
           : fitSummary(label, budget, suffix)),
     );
-    if (row.toolName === "edit")
-      lines.push(...renderedEditDiffLines(row, theme));
     segments.push({ row, lines });
   }
   return segments;
@@ -1387,8 +1383,7 @@ function renderGroupedToolRows(
       width,
     ),
   ];
-  // The leading blank and the first segment (tool-name header + call line)
-  // both belong to the first member; every later member owns its lines.
+  // The first member owns the leading blank; every member owns its call line.
   const heights = segments.map((segment, index) => ({
     component: segment.row,
     height: index === 0 ? segment.lines.length + 1 : segment.lines.length,
@@ -1616,6 +1611,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     const state: PresentationPatchState = {
       owners: 1,
       collapseParallel: envEnabled(COLLAPSE_PARALLEL_ENV, true),
+      expandedTools: envToolNames(EXPANDED_TOOLS_ENV),
       groupCache: new WeakMap(),
       collapsedCache: new WeakMap(),
       rowVersions: new WeakMap(),
@@ -1623,7 +1619,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       originalRender: proto.render,
       originalUpdateDisplay: proto.updateDisplay,
     };
-    const patchedUpdateDisplay = function updateDisplayWithCollapsedResult(
+    const patchedUpdateDisplay = function updateDisplayWithToolPresentation(
       this: ToolExecutionRow,
     ): void {
       // Transcript rerenders reuse settled caches, but a real component
@@ -1633,6 +1629,17 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       state.groupCache.delete(this);
       state.collapsedCache.delete(this);
       state.originalUpdateDisplay.call(this);
+      // Rows for an always-expanded tool skip the collapsed presentation.
+      // Forcing the flag here, before grouping decides whether the row is
+      // eligible, keeps Pi's native expanded block authoritative; it also
+      // re-expands the row after a global collapse.
+      if (
+        this.expanded === false &&
+        state.expandedTools.has(this.toolName ?? "") &&
+        typeof this.setExpanded === "function"
+      ) {
+        this.setExpanded(true);
+      }
     };
     // Pi 0.85 wraps settled tool results in a click-to-expand MouseRegion.
     // The custom collapsed row replaces those lines with a single summary, so
