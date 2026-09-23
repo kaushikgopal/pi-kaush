@@ -10,6 +10,7 @@ import {
   type EditorComponent,
   type EditorTheme,
   Loader,
+  TruncatedText,
   type TUI,
   visibleWidth,
 } from "@earendil-works/pi-tui";
@@ -34,6 +35,9 @@ const SYSTEM_CONTAINER_RENDER_PATCH = Symbol.for(
 );
 const STATUS_LOADER_RENDER_PATCH = Symbol.for(
   "kg.pi.contentLayout.statusLoaderRender.v1",
+);
+const STEERING_MESSAGE_RENDER_PATCH = Symbol.for(
+  "kg.pi.contentLayout.steeringMessageRender.v1",
 );
 
 type EditorFactory = (
@@ -310,6 +314,49 @@ function statusLoaderDecorator(
   return insetLines(lines, width, inset);
 }
 
+function themeColorAnsi(theme: Theme, color: string): string | undefined {
+  try {
+    return (theme.getFgAnsi as (color: string) => string).call(theme, color);
+  } catch {
+    return undefined;
+  }
+}
+
+// Pi renders queued steering previews as TruncatedText rows in dim. The
+// optional color token is extension-defined; absent themes keep native dim.
+function steeringMessageDecorator(
+  original: RenderPatchState["originalRender"],
+  row: RenderRow,
+  width: number,
+  theme: Theme,
+  _memo: RenderMemo,
+): string[] {
+  const textRow = row as NativeTextRow;
+  const text = textRow.text;
+  const dimAnsi = themeColorAnsi(theme, "dim");
+  const reset = "\x1b[39m";
+  if (
+    typeof text !== "string" ||
+    !dimAnsi ||
+    !text.startsWith(dimAnsi) ||
+    !text.endsWith(reset) ||
+    !text.slice(dimAnsi.length, -reset.length).startsWith("Steering: ")
+  ) {
+    return original.call(row, width);
+  }
+
+  const colorAnsi = themeColorAnsi(theme, "steeringMessage") ?? dimAnsi;
+  const message = text.slice(dimAnsi.length, -reset.length);
+  // Let TruncatedText handle ANSI-aware truncation, then restore its native
+  // source text so the style never leaks into a later render.
+  textRow.text = `${colorAnsi}${message}${reset}`;
+  try {
+    return original.call(row, width);
+  } finally {
+    textRow.text = text;
+  }
+}
+
 function systemContainerDecorator(
   original: RenderPatchState["originalRender"],
   row: RenderRow,
@@ -396,6 +443,7 @@ export default function contentLayout(pi: ExtensionAPI): void {
   let userPatch: RenderPatchState | undefined;
   let systemContainerPatch: RenderPatchState | undefined;
   let statusLoaderPatch: RenderPatchState | undefined;
+  let steeringMessagePatch: RenderPatchState | undefined;
   let editorRegistration:
     | {
         factory: EditorFactory;
@@ -446,6 +494,14 @@ export default function contentLayout(pi: ExtensionAPI): void {
       statusLoaderDecorator,
     );
 
+    steeringMessagePatch = installRenderPatch(
+      TruncatedText.prototype as unknown as PatchableRenderPrototype,
+      STEERING_MESSAGE_RENDER_PATCH,
+      owner,
+      getTheme,
+      steeringMessageDecorator,
+    );
+
     const previous = ctx.ui.getEditorComponent() as EditorFactory | undefined;
     const factory: EditorFactory = (tui, editorTheme, keybindings) => {
       const editor = previous
@@ -493,10 +549,17 @@ export default function contentLayout(pi: ExtensionAPI): void {
       owner,
       statusLoaderPatch,
     );
+    uninstallRenderPatch(
+      TruncatedText.prototype as unknown as PatchableRenderPrototype,
+      STEERING_MESSAGE_RENDER_PATCH,
+      owner,
+      steeringMessagePatch,
+    );
     assistantPatch = undefined;
     userPatch = undefined;
     systemContainerPatch = undefined;
     statusLoaderPatch = undefined;
+    steeringMessagePatch = undefined;
     activeTheme = undefined;
   });
 }

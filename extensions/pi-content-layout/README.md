@@ -41,6 +41,23 @@ text at this package's message inset, so `pi-tool-call-markers` mirrors
 `contentInset` for its bash blocks (see its `src/bash-block.ts`). Change
 indentation in both packages together.
 
+## Queued steering previews
+
+Pi renders queued `Steering:` messages in the native `dim` color. This package
+uses the optional `steeringMessage` foreground token when the active theme
+defines it; otherwise, it preserves Pi's native `dim` color. Other queued
+rows and the dequeue hint stay native.
+
+Add the token to a theme's `colors` map to choose the preview color:
+
+```json
+{
+  "colors": {
+    "steeringMessage": "mauve"
+  }
+}
+```
+
 ## pi-intercom message surface
 
 When [`pi-intercom`](https://www.npmjs.com/package/pi-intercom) is installed,
@@ -88,7 +105,7 @@ shape; a theme cannot provide the layout itself.
 
 The editor factory wraps the currently configured custom editor, or creates Pi's `CustomEditor` when none exists. It decorates `render()` only; text handling, callbacks, autocomplete, history, paste, application keybindings, image paste, and extension shortcuts remain on Pi's editor.
 
-Pi does not currently expose public renderers for native user and assistant messages. Their side inset and submitted prompt shell therefore use guarded prototype adapters around Pi's exported components. The adapters are idempotent, restore the original renderers on shutdown, and fall back to native rendering if the runtime shape changes.
+Pi does not currently expose public renderers for native user and assistant messages or queued steering previews. Their layout and styling use guarded adapters around Pi's exported components. The adapters restore the original renderers on shutdown and fall back to native rendering when the expected component shape changes.
 
 For the complete visual system, combine this package with:
 

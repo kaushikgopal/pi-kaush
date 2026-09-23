@@ -11,7 +11,13 @@ import {
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
-import { Container, Loader, Text, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  Container,
+  Loader,
+  Text,
+  TruncatedText,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   chatContainerHooks,
@@ -42,13 +48,21 @@ const FG_CODES: Record<string, number> = {
   dim: 90,
   muted: 90,
   userMessageText: 37,
+  steeringMessage: 34,
 };
+let steeringMessageTokenAvailable = false;
 
 const theme = {
   fg(color: ThemeColor, text: string) {
     return `${this.getFgAnsi(color)}${text}\x1b[39m`;
   },
   getFgAnsi(color: ThemeColor) {
+    if (
+      color === ("steeringMessage" as ThemeColor) &&
+      !steeringMessageTokenAvailable
+    ) {
+      throw new Error(`Unknown theme color: ${color}`);
+    }
     return `\x1b[${FG_CODES[color] ?? 90}m`;
   },
   bg(color: string, text: string) {
@@ -340,6 +354,45 @@ describe("native transcript adapters", () => {
     expect(stripControls(userLines[1] ?? "")).toContain("  ▎  hello from user");
     expect(userLines.every((line) => line.includes(SURFACE_BG))).toBe(true);
     expect(userLines[1]).toContain(`\x1b[35m▎\x1b[39m${SURFACE_BG}`);
+  });
+
+  test("styles queued Steering rows with the optional theme color", () => {
+    const harness = createHarness();
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    const render = (text: string) =>
+      new TruncatedText(theme.fg("dim", text), 1, 0).render(80)[0] ?? "";
+
+    try {
+      const fallback = render("Steering: dim fallback");
+      expect(fallback).toContain("\x1b[90mSteering: dim fallback");
+      expect(fallback).not.toContain("\x1b[3m");
+      expect(stripControls(fallback)).toContain("Steering: dim fallback");
+      expect(render("Follow-up: remains native")).not.toContain("\x1b[3m");
+      expect(render("↳ Option+Up to edit all queued messages")).not.toContain(
+        "\x1b[3m",
+      );
+
+      steeringMessageTokenAvailable = true;
+      const configured = render("Steering: accent color");
+      expect(configured).toContain("\x1b[34mSteering: accent color");
+      expect(configured).not.toContain("\x1b[90mSteering:");
+      expect(configured).not.toContain("\x1b[3m");
+
+      const narrowRow = new TruncatedText(
+        theme.fg("dim", "Steering: long queued text"),
+        1,
+        0,
+      );
+      const nativeText = (narrowRow as unknown as { text: string }).text;
+      const narrowLine = narrowRow.render(18)[0] ?? "";
+      expect(visibleWidth(narrowLine)).toBe(18);
+      expect(stripControls(narrowLine)).toContain("Steering:");
+      expect((narrowRow as unknown as { text: string }).text).toBe(nativeText);
+    } finally {
+      steeringMessageTokenAvailable = false;
+    }
   });
 
   test("status, assistant, rail, and editor text share the outer inset column", () => {
