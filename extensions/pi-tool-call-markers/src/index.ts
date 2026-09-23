@@ -938,7 +938,7 @@ function collapsedHeadline(
   const marker =
     row.toolName === "subagent"
       ? `${fgCollapsed(theme, tone, SUBAGENT_MARKER)} `
-      : `${fgCollapsedRail(theme, tone, GROUP_CALL_MARKER)} `;
+      : `${fgCollapsedRail(theme, GROUP_CALL_MARKER)} `;
   const glyph = collapsedCallMarker(row, theme, tone);
   const budget = Math.max(
     1,
@@ -1298,7 +1298,7 @@ function renderGroupedCallLines(
     const lines: string[] = [];
 
     const color = rowHasFailed(row) ? "error" : "muted";
-    const prefix = `${fgCollapsedRail(theme, color, GROUP_CALL_MARKER)} `;
+    const prefix = `${fgCollapsedRail(theme, GROUP_CALL_MARKER)} `;
     const marker = collapsedCallMarker(row, theme, color);
     const budget = Math.max(
       1,

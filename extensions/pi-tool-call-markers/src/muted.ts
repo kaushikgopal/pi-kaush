@@ -83,12 +83,8 @@ export function fgCollapsed(
 // guaranteed lighter than the collapsed color (e.g. catppuccin-latte's `dim`
 // resolves to the same overlay0 as syntaxComment), so apply the terminal's
 // faint attribute: it lightens toward the background on light themes and
-// darkens on dark ones. Error rails keep their full-strength semantic red.
-export function fgCollapsedRail(
-  theme: CollapsedTheme,
-  color: string,
-  text: string,
-): string {
-  const styled = fgCollapsed(theme, color, text);
-  return color === "error" ? styled : `\x1b[2m${styled}\x1b[22m`;
+// darkens on dark ones. The rail keeps this muted weight even on failed
+// rows, where only the row's text turns error-colored.
+export function fgCollapsedRail(theme: CollapsedTheme, text: string): string {
+  return `\x1b[2m${fgCollapsed(theme, "muted", text)}\x1b[22m`;
 }

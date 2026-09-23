@@ -406,7 +406,7 @@ describe("tool-call-markers grouping", () => {
     expect(lines.every((line) => !/[\x00-\x1f\x7f]/.test(line))).toBe(true);
   });
 
-  test("renders failed rows entirely in error", () => {
+  test("renders a failed row's text in error under a muted rail", () => {
     const taggingTheme = {
       bold: (text: string) => text,
       fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
@@ -432,7 +432,8 @@ describe("tool-call-markers grouping", () => {
       const colors = new Set(
         [...failedLine.matchAll(/<(\w+)>/g)].map((match) => match[1]),
       );
-      expect(colors).toEqual(new Set(["error"]));
+      expect(colors).toEqual(new Set(["muted", "error"]));
+      expect(failedLine).toContain("<muted>│</muted>");
     } finally {
       for (const handler of sessionHandlers) {
         handler({}, { ui: { theme, setToolsExpanded() {} } });
@@ -440,7 +441,7 @@ describe("tool-call-markers grouping", () => {
     }
   });
 
-  test("renders a failed grouped child entirely in error", () => {
+  test("renders a failed grouped child's text in error under a muted rail", () => {
     const taggingTheme = {
       bold: (text: string) => text,
       fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
@@ -459,7 +460,7 @@ describe("tool-call-markers grouping", () => {
       const output = chat.render(1_000).join("\n");
       const failedLine =
         output.split("\n").find((line) => line.includes("boom")) ?? "";
-      const plain = failedLine.replace(/<\/?\w+>/g, "");
+      const plain = stripAnsi(failedLine).replace(/<\/?\w+>/g, "");
       expect(plain).toContain("│");
       expect(plain).toContain("│ ●:");
       expect(plain).toContain("two.md");
@@ -467,7 +468,8 @@ describe("tool-call-markers grouping", () => {
       const colors = new Set(
         [...failedLine.matchAll(/<(\w+)>/g)].map((match) => match[1]),
       );
-      expect(colors).toEqual(new Set(["error"]));
+      expect(colors).toEqual(new Set(["muted", "error"]));
+      expect(failedLine).toContain("<muted>│</muted>");
     } finally {
       for (const handler of sessionHandlers) {
         handler({}, { ui: { theme, setToolsExpanded() {} } });

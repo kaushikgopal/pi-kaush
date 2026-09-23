@@ -97,16 +97,10 @@ describe("fgCollapsed", () => {
 });
 
 describe("fgCollapsedRail", () => {
-  test("wraps non-error colors in the faint attribute so the rail recedes", () => {
+  test("keeps the rail muted and faint so it recedes on every row", () => {
     const theme = themeWith({ syntaxComment: COMMENT });
-    expect(fgCollapsedRail(theme, "muted", "│")).toBe(
+    expect(fgCollapsedRail(theme, "│")).toBe(
       `\x1b[2m${COMMENT}│\x1b[39m\x1b[22m`,
     );
-  });
-
-  test("error rails keep their full-strength semantic color", () => {
-    const theme = themeWith({ syntaxComment: COMMENT });
-    expect(fgCollapsedRail(theme, "error", "│")).toBe(theme.fg("error", "│"));
-    expect(fgCollapsedRail(theme, "error", "│")).not.toContain("\x1b[2m");
   });
 });
