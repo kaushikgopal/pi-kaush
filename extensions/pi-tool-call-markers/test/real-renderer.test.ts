@@ -351,6 +351,18 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(rawLine).toBeDefined();
   });
 
+  test("uses the full available width for a collapsed glyph row", () => {
+    const width = 60;
+    const chat = new Container();
+    const row = createMcpRow("mcp-wide", { query: "x".repeat(100) });
+    chat.addChild(row);
+    settle(row, "results");
+
+    const output = renderPlain(chat, width);
+    expect(output.split("\n")).toHaveLength(1);
+    expect(visibleWidth(output)).toBe(width - 2);
+  });
+
   test("compacts a settled multiline command and restores it when expanded", () => {
     const chat = new Container();
     const command = [

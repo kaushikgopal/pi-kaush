@@ -940,10 +940,7 @@ function collapsedHeadline(
       ? `${fgCollapsed(theme, tone, SUBAGENT_MARKER)} `
       : `${fgCollapsedRail(theme, GROUP_CALL_MARKER)} `;
   const glyph = collapsedCallMarker(row, theme, tone);
-  const budget = Math.max(
-    1,
-    width - visibleWidth(marker) - visibleWidth(glyph),
-  );
+  const budget = Math.max(1, width - visibleWidth(marker));
   const label = glyph + collapsedChildLabel(row, budget, theme, tone);
   const outcome = collapsedOutcome(row, budget, theme);
   // The truncation suffix inherits the row tone; pi-tui's truncation resets
