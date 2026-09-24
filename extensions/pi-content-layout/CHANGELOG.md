@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Restyle the `intercom_message` box even when `pi-intercom` wins Pi's first-registration-wins renderer lookup: a chat-container hook replaces the box Pi built with this package's frame, so the surface no longer depends on `packages` order. The renderer registration stays as the cheaper path when this package loads first.
+
 - Restore Pi's native active editor border and terminal background, so its embedded status interrupts the top rule as in native Pi. Submitted user messages keep their darker railed shell. Older Pi versions keep the aligned transcript-row status fallback.
 
 - Roll back a chat-container hook that mutates the child list and then throws.

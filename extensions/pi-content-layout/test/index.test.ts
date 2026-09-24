@@ -591,15 +591,16 @@ describe("native transcript adapters", () => {
     }
   });
 
-  test("unregisters its chat container hook on shutdown", () => {
+  test("unregisters its chat container hooks on shutdown", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);
-    expect(chatContainerHooks().size).toBe(0);
+    const before = chatContainerHooks().size;
     harness.fire("session_start");
-    expect(chatContainerHooks().size).toBe(1);
+    // System-text inset and intercom message restyle.
+    expect(chatContainerHooks().size).toBe(before + 2);
     harness.fire("session_shutdown");
     activeHarnesses.pop();
-    expect(chatContainerHooks().size).toBe(0);
+    expect(chatContainerHooks().size).toBe(before);
   });
 
   test("leaves tool execution rows byte-identical to Pi's own rendering", () => {

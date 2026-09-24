@@ -64,19 +64,20 @@ When [`pi-intercom`](https://www.npmjs.com/package/pi-intercom) is installed,
 this package restyles its inbound `intercom_message` box onto the shared
 transcript columns: the frame's left border sits on the tool-marker column
 (the outer inset), and the `From:` title and body text share the text column
-used by tool rows and Thought labels. The frame borrows the bash-mode green
-of `!` shell-block rules, all text inside stays muted, and the sender name
-uses the `mdHeading` orange (the Thought-label hue in cobalt2 and Pi's stock
-themes). The redundant
+used by tool rows and Thought labels. The frame and the sender name ride
+`customMessageLabel` (Pi's label tone for extension messages), and every
+line inside the frame stays muted. The redundant
 `Ctrl+O expands` title hint is dropped (the meta line inside the box keeps
 `Ctrl+O to expand`). Content is unchanged, and expanded view keeps
 pi-intercom's full body, attachment, and reply sections.
 
-Pi resolves custom message renderers in extension load order (first
-registration wins), so list this package before `pi-intercom` in `packages`
-for the restyle to take effect. Without pi-intercom installed the
-registration is inert; malformed message payloads fall back to Pi's default
-custom-message box.
+Pi resolves a customType's renderer in extension load order (first
+registration wins), so `pi-intercom` would otherwise shadow this package's
+box. A chat-container hook swaps the restyled box in for whichever
+component Pi built, so the surface holds in either order; listing this
+package before `pi-intercom` in `packages` keeps the cheaper registration
+path. Without pi-intercom installed both paths are inert, and malformed
+message payloads fall back to Pi's default custom-message box.
 
 ## Manual configuration
 

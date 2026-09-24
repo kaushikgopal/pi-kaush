@@ -3,6 +3,7 @@ import {
   CustomEditor,
   type ExtensionAPI,
   type KeybindingsManager,
+  type MessageRenderer,
   type Theme,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -15,10 +16,14 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import {
+  type ChatContainerHook,
   chatContainerHooks,
   runChatContainerHooks,
 } from "./container-hooks.ts";
-import { renderIntercomMessage } from "./intercom-message.ts";
+import {
+  interceptIntercomMessages,
+  renderIntercomMessage,
+} from "./intercom-message.ts";
 import {
   contentInset,
   insetLines,
@@ -451,15 +456,15 @@ function decorateEditor(editor: EditorComponent): EditorComponent {
     },
   });
 }
+// Pi resolves custom message renderers in extension load order (first
+// registration wins), so this registration only wins when this package loads
+// before pi-intercom; the intercomMessageHook installed below covers the
+// order where pi-intercom wins. Without pi-intercom installed both are inert.
+const renderIntercom: MessageRenderer = (message, options, theme) =>
+  renderIntercomMessage(message.details, options.expanded, theme);
 
 export default function contentLayout(pi: ExtensionAPI): void {
-  // Restyle pi-intercom's inbound message box to sit on this package's
-  // transcript columns. Pi resolves message renderers in extension load
-  // order (first registration wins), so this must load before pi-intercom
-  // to take effect; without pi-intercom installed the registration is inert.
-  pi.registerMessageRenderer("intercom_message", (message, options, theme) =>
-    renderIntercomMessage(message.details, options.expanded, theme),
-  );
+  pi.registerMessageRenderer("intercom_message", renderIntercom);
 
   const owner = {};
   let activeTheme: Theme | undefined;
@@ -467,6 +472,7 @@ export default function contentLayout(pi: ExtensionAPI): void {
   let userPatch: RenderPatchState | undefined;
   let systemContainerPatch: RenderPatchState | undefined;
   let statusLoaderPatch: RenderPatchState | undefined;
+  let intercomMessageHook: ChatContainerHook | undefined;
   let steeringMessagePatch: RenderPatchState | undefined;
   let editorRegistration:
     | {
@@ -502,6 +508,9 @@ export default function contentLayout(pi: ExtensionAPI): void {
     const hostContainerPrototype = Object.getPrototypeOf(
       AssistantMessageComponent.prototype,
     ) as PatchableRenderPrototype;
+    intercomMessageHook = (_container, children) =>
+      interceptIntercomMessages(children, getTheme(), renderIntercom);
+    chatContainerHooks().add(intercomMessageHook);
     chatContainerHooks().add(systemTextHook);
     systemContainerPatch = installRenderPatch(
       hostContainerPrototype,
@@ -543,6 +552,10 @@ export default function contentLayout(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
+    if (intercomMessageHook) {
+      chatContainerHooks().delete(intercomMessageHook);
+      intercomMessageHook = undefined;
+    }
     chatContainerHooks().delete(systemTextHook);
     if (
       editorRegistration &&

@@ -171,3 +171,102 @@ export function renderIntercomMessage(
   if (typeof text !== "string") return undefined;
   return new IntercomMessageComponent(intercom, expanded, theme);
 }
+
+// Structural mirror of Pi's CustomMessageComponent: the fields this package
+// reads to restyle a box Pi already built with another renderer.
+type IntercomMessageHost = {
+  message?: { customType?: unknown; details?: unknown };
+  customRenderer?: unknown;
+  _expanded?: unknown;
+  render(width: number): string[];
+};
+
+function isIntercomMessageHost(
+  child: unknown,
+  ownRenderer: unknown,
+): child is IntercomMessageHost {
+  if (!child || typeof child !== "object") return false;
+  const host = child as IntercomMessageHost;
+  if (typeof host.render !== "function") return false;
+  // Pi picks one renderer per customType by load order; when this package's
+  // registration won, Pi already renders the styled box and there is nothing
+  // left to intercept.
+  if (host.customRenderer === ownRenderer) return false;
+  return host.message?.customType === "intercom_message";
+}
+
+// Pi re-renders the transcript on every keystroke, so a box rebuilt per frame
+// would re-wrap the body text each time. Cache per host component instead,
+// keyed on the inputs that change what the box looks like.
+const intercomBoxes = new WeakMap<
+  object,
+  {
+    theme: Theme;
+    details: unknown;
+    expanded: boolean;
+    component: Component;
+  }
+>();
+
+function intercomBoxFor(
+  host: IntercomMessageHost,
+  details: unknown,
+  expanded: boolean,
+  theme: Theme,
+): Component | undefined {
+  const cached = intercomBoxes.get(host);
+  if (
+    cached &&
+    cached.theme === theme &&
+    cached.details === details &&
+    cached.expanded === expanded
+  ) {
+    return cached.component;
+  }
+  const component = renderIntercomMessage(details, expanded, theme);
+  if (!component) {
+    intercomBoxes.delete(host);
+    return undefined;
+  }
+  intercomBoxes.set(host, { theme, details, expanded, component });
+  return component;
+}
+
+/**
+ * Swap this package's box into an intercom message Pi rendered with another
+ * extension's renderer. Pi resolves a customType's renderer by extension load
+ * order (first registration wins), so the registration above only wins when
+ * this package loads before pi-intercom; this hook makes the restyle hold in
+ * either order.
+ *
+ * Returns the undo for the current render pass, or undefined when no child
+ * needed intercepting. Malformed payloads fall back to the render Pi built.
+ */
+export function interceptIntercomMessages(
+  children: unknown[],
+  theme: Theme | undefined,
+  ownRenderer: unknown,
+): (() => void) | undefined {
+  if (!theme || !Array.isArray(children)) return undefined;
+  const restores: Array<() => void> = [];
+  for (const child of children) {
+    if (!isIntercomMessageHost(child, ownRenderer)) continue;
+    const originalRender = child.render;
+    child.render = (width: number): string[] => {
+      const box = intercomBoxFor(
+        child,
+        child.message?.details,
+        child._expanded === true,
+        theme,
+      );
+      return box ? box.render(width) : originalRender.call(child, width);
+    };
+    restores.push(() => {
+      delete (child as { render?: unknown }).render;
+    });
+  }
+  if (restores.length === 0) return undefined;
+  return () => {
+    for (const restore of restores.reverse()) restore();
+  };
+}
