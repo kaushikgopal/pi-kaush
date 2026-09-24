@@ -21,6 +21,9 @@ const expected = [
   "src/info-visibility-state.ts",
   "src/info-visibility.ts",
   "src/muted.ts",
+  "src/prompt-shell.ts",
+  "src/question-block.ts",
+  "src/sanitize.ts",
   "src/thinking-block-merger.ts",
 ].sort();
 

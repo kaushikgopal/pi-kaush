@@ -42,6 +42,12 @@ const PALETTE_TOKENS = [
   "accent",
   "warning",
   "error",
+  // Asked-question blocks paint with the prompt-shell tokens: the rail, the
+  // question text, and the surface behind both.
+  "borderAccent",
+  "text",
+  "userMessageBg",
+  "userMessageText",
 ] as const;
 
 // Revision key for rendered output that bakes resolved colors in. Compares

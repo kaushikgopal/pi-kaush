@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Render an asked question as a user-input moment instead of a raw tool row.
+  `ask_user_question` used to collapse to `│ * {"questions":…`, which is a tool
+  call marker doing the work of a prompt. An asked question now takes the
+  submitted-prompt shell: `▎ > <question>` followed by `▎ User: <answer>`, one
+  pair per question, with multi-select labels joined, a decline reading
+  `User declined to answer questions`, and a live row showing
+  `awaiting your answer…`. Recognition is shape-first off
+  `details.answers`, so another author's question tool renders the same without
+  a change here; the tool name is the fallback for calls that never answered.
+  The block reuses pi-content-layout's submitted-prompt geometry — rail,
+  surface, inset, one-column left and two-column right body padding, and
+  background padding rows — and italicizes the question while the answer stays
+  upright. Question blocks never join a tool group, and `Ctrl+O` still restores
+  Pi's native expanded rendering.
+
+- Make the railed shell's body padding explicit: `renderRailedBlockLines` takes
+  a `{ left, right }` padding, so the submitted-prompt shape (1/2) and the
+  existing `!`-block shape (1/0) come from one code path instead of the body
+  width being hardcoded.
+
+- Extract the railed prompt shell into `src/prompt-shell.ts`. User `!` blocks
+  and asked-question blocks share one implementation of the inset, rail,
+  surface background, and background repaint instead of two.
+
 - Read colors from the live palette instead of caching them against the
   theme object. Pi swaps the palette behind a stable theme Proxy, so every
   identity-keyed cache survived a theme switch: collapsed rows, the `+ Thought`

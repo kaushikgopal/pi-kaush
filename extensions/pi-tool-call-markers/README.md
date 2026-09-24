@@ -47,6 +47,27 @@ While a subagent runs, the plan headline's tail shows live progress from the str
 
 Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `↪ subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
 
+## Asked questions
+
+A call that asks the user something is a user-input moment, not an execution row, so it renders in the submitted-prompt shell instead of the tool-call rail:
+
+```text
+  ▎
+  ▎ > Which call-site shape should `notifications:` use?
+  ▎ User: Nested within subagent (Recommended)
+  ▎ > Which tier should the flag read at runtime?
+  ▎ User: Client only, Client and server
+  ▎
+```
+
+The block reuses `pi-content-layout`'s submitted-prompt geometry — the same rail, surface, inset, one-column left padding, two-column right padding, and background padding rows — so an asked question and a submitted prompt are the same shape in the transcript.
+
+- **Shape-first recognition.** Any tool whose result carries an `answers` array of `{ question, answer | selected }` entries renders as a question block, so another author's question tool works without a change here. The tool name (`ask_user_question` and close variants) is the fallback for a call that failed before answering.
+- **Answers, not options.** Each question shows its answer: an option label, typed custom text, or multi-select labels joined with commas. A question left blank reads `User: (no answer)`, a decline reads `User declined to answer questions`, and a validation failure keeps Pi's native failure row.
+- **Quoted questions.** The question is the model's text read inside a user-input shell, so it renders italic under a `>` marker and the answer stays upright: the answer is the user's own words. A theme without italics renders the question plainly.
+- **Prompt-shell tones.** The rail uses `borderAccent` and the body paints on `userMessageBg`, with the question in `text`, the `User:` label in `muted`, the answer in `userMessageText`, and a live row's `awaiting your answer…` in `warning`.
+- **No grouping.** Question blocks never join an adjacent tool group and carry no tool glyph. `Ctrl+O` still restores Pi's native expanded rendering.
+
 ## Edit diffs
 
 Settled `edit` calls collapse like every other row: the call line keeps its path and a `+added/-removed` outcome stat, and the hunk itself stays out of the collapsed row. `Ctrl+O` restores Pi's full native diff, including line numbers and intra-line word highlights. To keep edits expanded without pressing `Ctrl+O`, list `edit` in `PI_ALWAYS_EXPANDED_TOOL_CALL_MARKERS` (see Configuration).
@@ -55,9 +76,9 @@ Files and paths in collapsed rows are preserved as displayed by Pi: hyperlink-wr
 
 ## Scope boundary
 
-This package owns every **execution row** in the transcript: collapsed tool calls, tool grouping, subagent plans, thinking labels, and user-run `!` bash blocks (reshaped into the railed prompt shell). Transcript _surface_ layout — message insets, system-text and status-rule alignment, the editor surface, and the submitted-prompt shell for user messages — belongs to `@pi-kaush/pi-content-layout`, which never renders tool rows.
+This package owns every **execution row** in the transcript: collapsed tool calls, tool grouping, subagent plans, asked-question blocks, thinking labels, and user-run `!` bash blocks (reshaped into the railed prompt shell). Transcript _surface_ layout — message insets, system-text and status-rule alignment, the editor surface, and the submitted-prompt shell for user messages — belongs to `@pi-kaush/pi-content-layout`, which never renders tool rows.
 
-One shared visual contract crosses the line: `!` blocks align with message text, so their inset mirrors `pi-content-layout`'s message `contentInset` (see `src/bash-block.ts`). Change indentation in both packages together.
+One shared visual contract crosses the line: `!` blocks and asked-question blocks align with message text, so their inset mirrors `pi-content-layout`'s message `contentInset` (see `src/prompt-shell.ts`, which owns the railed shell both use). Change indentation in both packages together.
 
 ## Hiding info entirely: /toggle-info
 

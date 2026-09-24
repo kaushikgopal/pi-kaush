@@ -23,6 +23,10 @@ import {
   chatContainerHooks,
 } from "../src/container-hooks.ts";
 import contentLayout from "../../pi-content-layout/src/index.ts";
+import {
+  contentInset,
+  renderSubmittedUserLines,
+} from "../../pi-content-layout/src/render.ts";
 import toolCallMarkers from "../src/index.ts";
 import registerThinkingMarkers from "../src/thinking-block-merger.ts";
 
@@ -1609,6 +1613,398 @@ describe("user bash blocks", () => {
     );
     for (const handler of shutdownHandlers.splice(0)) handler();
     expect(BashExecutionComponent.prototype.render).toBe(NATIVE_BASH_RENDER);
+  });
+});
+
+describe("asked questions", () => {
+  const codes: Record<string, number> = {
+    borderAccent: 35,
+    text: 37,
+    userMessageText: 37,
+    muted: 90,
+    warning: 33,
+  };
+  const questionTheme = {
+    bold: (text: string) => text,
+    italic: (text: string) => `\x1b[3m${text}\x1b[23m`,
+    fg: (color: string, text: string) =>
+      `\x1b[${codes[color] ?? 37}m${text}\x1b[0m`,
+    bg: (_color: string, text: string) => text,
+    getBgAnsi: (color: string) =>
+      color === "userMessageBg" ? SURFACE_BG : "\x1b[40m",
+  };
+  const stripControls = (text: string) =>
+    text.replace(ANSI_RE, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
+
+  const DEFAULT_ARGS = {
+    questions: [
+      {
+        question: "Which call-site shape should `notifications:` use?",
+        header: "notifications",
+        options: [
+          { label: "Nested within subagent", description: "one" },
+          { label: "Top-level key", description: "two" },
+        ],
+      },
+    ],
+  };
+  const ASKED = DEFAULT_ARGS.questions[0]!.question;
+
+  function withTheme(fn: () => void): void {
+    for (const handler of sessionHandlers) {
+      handler({}, { ui: { theme: questionTheme, setToolsExpanded() {} } });
+    }
+    try {
+      fn();
+    } finally {
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
+      }
+    }
+  }
+
+  function createQuestionRow(
+    id: string,
+    toolName = "ask_user_question",
+    args: Record<string, unknown> = DEFAULT_ARGS,
+  ): ToolExecutionComponent {
+    return createMcpRow(id, args, toolName, "default");
+  }
+
+  function answer(row: ToolExecutionComponent, details: unknown): void {
+    row.updateResult(
+      {
+        content: [{ type: "text", text: "User has answered your questions." }],
+        details,
+        isError: false,
+      },
+      false,
+    );
+  }
+
+  test("renders a settled question as a railed prompt block", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-settled");
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            questionIndex: 0,
+            question: ASKED,
+            kind: "option",
+            answer: "Nested within subagent",
+          },
+        ],
+        cancelled: false,
+      });
+
+      const lines = chat.render(60);
+      const plain = stripControls(lines.join("\n"));
+      expect(plain).toContain(PROMPT_RAIL);
+      expect(plain).toContain(`> ${ASKED}`);
+      expect(plain).toContain("User: Nested within subagent");
+      // The tool glyph and the raw argument JSON are gone.
+      expect(plain).not.toContain("│ *");
+      expect(plain).not.toContain('{"questions"');
+      expect(
+        lines
+          .filter((line) => line !== "")
+          .every((line) => visibleWidth(line) === 60),
+      ).toBe(true);
+    });
+  });
+
+  test("joins multi-select labels into one answer line", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-multi");
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            questionIndex: 0,
+            question: ASKED,
+            kind: "multi",
+            answer: null,
+            selected: ["Nested within subagent", "Top-level key"],
+          },
+        ],
+        cancelled: false,
+      });
+
+      expect(renderPlain(chat)).toContain(
+        "User: Nested within subagent, Top-level key",
+      );
+    });
+  });
+
+  test("interleaves one answer per question", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const args = {
+        questions: [
+          { ...DEFAULT_ARGS.questions[0]!, question: "First question?" },
+          { ...DEFAULT_ARGS.questions[0]!, question: "Second question?" },
+        ],
+      };
+      const row = createQuestionRow("ask-pair", "ask_user_question", args);
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            questionIndex: 0,
+            question: "First question?",
+            kind: "option",
+            answer: "Alpha",
+          },
+          {
+            questionIndex: 1,
+            question: "Second question?",
+            kind: "custom",
+            answer: "typed by hand",
+          },
+        ],
+        cancelled: false,
+      });
+
+      expect(renderPlain(chat).split("\n")).toEqual([
+        "  ▎",
+        "  ▎ > First question?",
+        "  ▎ User: Alpha",
+        "  ▎ > Second question?",
+        "  ▎ User: typed by hand",
+        "  ▎",
+      ]);
+    });
+  });
+
+  test("reads a decline as the canonical rpiv text", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-declined");
+      chat.addChild(row);
+      answer(row, { answers: [], cancelled: true });
+
+      const plain = renderPlain(chat);
+      expect(plain).toContain("> Which call-site shape should");
+      expect(plain).toContain("User declined to answer questions");
+      expect(plain).not.toContain("User: (no answer)");
+    });
+  });
+
+  test("shows a live question with an awaiting tail", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-live");
+      chat.addChild(row);
+
+      const lines = chat.render(60);
+      const plain = lines.map(stripControls).join("\n");
+      expect(plain).toContain("> Which call-site shape should");
+      expect(plain).toContain("awaiting your answer…");
+      // Warning tone, like every other pending row.
+      expect(lines.join("\n")).toContain("\x1b[33mawaiting your answer…");
+    });
+  });
+
+  test("recognizes a foreign question tool by its result shape", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-foreign", "vendor_ask", {
+        questions: [{ question: "Ship it?" }],
+      });
+      chat.addChild(row);
+      answer(row, {
+        answers: [{ question: "Ship it?", kind: "option", answer: "yes" }],
+        cancelled: false,
+      });
+
+      const plain = renderPlain(chat);
+      expect(plain).toContain("> Ship it?");
+      expect(plain).toContain("User: yes");
+      expect(plain).not.toContain("* {");
+    });
+  });
+
+  test("keeps the generic row when the questionnaire never ran", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-failed");
+      chat.addChild(row);
+      row.updateResult(
+        {
+          content: [{ type: "text", text: "Error: UI not available" }],
+          details: { answers: [], cancelled: true, error: "no_ui" },
+          isError: false,
+        },
+        false,
+      );
+
+      const plain = renderPlain(chat);
+      expect(plain).not.toContain(PROMPT_RAIL);
+      expect(plain).toContain("│ *");
+    });
+  });
+
+  test("italicizes the question and leaves the answer upright", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-italics");
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            questionIndex: 0,
+            question: ASKED,
+            kind: "option",
+            answer: "nested",
+          },
+        ],
+        cancelled: false,
+      });
+
+      const lines = chat.render(60);
+      const styled = lines.join("\n");
+      // \x1b[3m is the italic attribute questionTheme.italic applies.
+      const questionLine = lines.find((line) =>
+        stripControls(line).includes("> Which call-site shape"),
+      )!;
+      const answerLine = lines.find((line) =>
+        stripControls(line).includes("User: nested"),
+      )!;
+      expect(questionLine).toContain("\x1b[3m");
+      expect(questionLine).toContain("\x1b[23m");
+      expect(answerLine).not.toContain("\x1b[3m");
+      expect(styled).toContain("Which call-site shape");
+    });
+  });
+
+  test("costs no italics on a theme that cannot render them", () => {
+    const { italic: _italic, ...plainTheme } = questionTheme;
+    for (const handler of sessionHandlers) {
+      handler({}, { ui: { theme: plainTheme, setToolsExpanded() {} } });
+    }
+    try {
+      const chat = new Container();
+      const row = createQuestionRow("ask-no-italics");
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            questionIndex: 0,
+            question: ASKED,
+            kind: "option",
+            answer: "nested",
+          },
+        ],
+        cancelled: false,
+      });
+      const questionLine = chat
+        .render(60)
+        .find((line) =>
+          stripControls(line).includes("> Which call-site shape"),
+        )!;
+      expect(questionLine).not.toContain("\x1b[3m");
+    } finally {
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
+      }
+    }
+  });
+
+  test("pads the block with background rows like a submitted prompt", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-padding");
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            questionIndex: 0,
+            question: ASKED,
+            kind: "option",
+            answer: "nested",
+          },
+        ],
+        cancelled: false,
+      });
+
+      const rendered = chat.render(60).slice(1);
+      expect(rendered).toHaveLength(4);
+      for (const line of [rendered[0], rendered[3]]) {
+        expect(stripControls(line!).trim()).toBe(PROMPT_RAIL);
+        // The padding row is a fully painted body row, not a bare spacer.
+        expect(line).toContain(SURFACE_BG);
+        expect(visibleWidth(line!)).toBe(60);
+      }
+    });
+  });
+
+  test("matches pi-content-layout's submitted-prompt geometry", () => {
+    withTheme(() => {
+      const width = 60;
+      const long = "x".repeat(400);
+      // The same prefixed content through this package's block and through the
+      // submitted-prompt renderer = the same shell columns.
+      const reference = stripControls(
+        renderSubmittedUserLines(
+          [`User: ${long}`],
+          width,
+          questionTheme as never,
+          contentInset(width),
+        )[0]!,
+      );
+
+      const chat = new Container();
+      const row = createQuestionRow("ask-geometry");
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          { questionIndex: 0, question: ASKED, kind: "custom", answer: long },
+        ],
+        cancelled: false,
+      });
+      const answerLine = stripControls(
+        chat
+          .render(width)
+          .find((line) => stripControls(line).includes("User: xxx"))!,
+      );
+
+      const runLength = (line: string) =>
+        (line.match(/x+/g) ?? []).join("").length;
+      const runStart = (line: string) => line.indexOf("x");
+      const runEnd = (line: string) => line.lastIndexOf("x");
+      expect(runStart(answerLine)).toBe(runStart(reference));
+      expect(runLength(answerLine)).toBe(runLength(reference));
+      expect(runEnd(answerLine)).toBe(runEnd(reference));
+      expect(visibleWidth(answerLine)).toBe(visibleWidth(reference));
+    });
+  });
+
+  test("never joins an adjacent tool group", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const read = createReadRow("src/a.ts");
+      const question = createQuestionRow("ask-grouped");
+      const second = createReadRow("src/b.ts");
+      chat.addChild(read);
+      chat.addChild(question);
+      chat.addChild(second);
+      settle(read, "one\ntwo");
+      answer(question, {
+        answers: [{ question: ASKED, kind: "option", answer: "nested" }],
+        cancelled: false,
+      });
+      settle(second, "three");
+
+      const plain = renderPlain(chat);
+      expect(plain).toContain("> Which call-site shape should");
+      // The reads flank the block instead of folding in with it.
+      expect(
+        plain.split("\n").filter((line) => line.includes("src/")),
+      ).toHaveLength(2);
+    });
   });
 });
 
