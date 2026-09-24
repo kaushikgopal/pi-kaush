@@ -15,13 +15,13 @@ Restart Pi or run `/reload`.
 Collapsed tool rows use semantic theme colors with no gear, background fill, box padding, or filled blank rows:
 
 ```text
-  │ ●: src/a.ts                         42 lines
-  │ ●: src/b.ts                         18 lines
-  │ $: npm test → done
+  │ ● src/a.ts                         42 lines
+  │ ● src/b.ts                         18 lines
+  │ $ npm test → done
 ```
 
 - **Two-column outer inset.** Tool markers and image output align with an inset conversation surface. Very narrow terminals reduce the decoration before useful content.
-- **`│` tool-call rail.** Every collapsed call anchors on a glyph instead of its tool name: `●` read, `+` write, `±` edit, `○` local search, `≡` ls, `↗` web search and fetch, and `$` bash; unmapped tools fall back to `*`. Grouped rows flow directly across tool types.
+- **`│` tool-call rail.** Every collapsed call anchors on a bold glyph instead of its tool name — `●` read, `+` write, `±` edit, `○` local search, `≡` ls, `↗` web search and fetch, and `$` bash; unmapped tools fall back to `*` — with a single space between the anchor and the call text, no joining colon. Grouped rows flow directly across tool types.
 - **Semantic, low-contrast status.** The anchor and the call content share the collapsed mute, pending state is warning-colored, and failures remain error-colored. Ordinary tool states have no background.
 - **Width-safe outcome tails.** Long summaries truncate before useful tails such as `→ done`, `→ 42 lines`, `→ +2/-1`, or a `bash` duration.
 - **Stable running groups.** Adjacent calls group as they appear, including settled failures, which stay error-colored inside the group. Pending state and elapsed `bash` time settle into the final outcome without changing the row count.
@@ -78,7 +78,9 @@ When Pi exposes its per-row hidden-thinking and streaming fields, hidden reasoni
 + Thought · 2.5s
 ```
 
-The live label samples Pi's native braille spinner sequence from the content updates Pi already renders; it does not add a timer. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `+ Thought`. Visible-thinking mode remains native. There is no interval, timeout, render request, model call, or network work.
+The live label samples Pi's native braille spinner sequence from the content updates Pi already renders; it does not add a timer. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `+ Thought`. There is no interval, timeout, render request, model call, or network work.
+
+Pi renders thinking labels and traces italic. This package drops those italics: both labels read as plain collapsed rows (the live spinner keeps its thinking-level tint, the settled row the muted tone, and a theme that resolves no color still loses the italics), and a visible trace stays italic only while it streams, then settles into ordinary transcript text. `PI_TOOL_CALL_MARKERS_THOUGHT_COLOR=inherit` is the opt-out that keeps Pi's native italic `thinkingText` styling.
 
 ## Local development
 
@@ -131,9 +133,13 @@ Pi has no public hook for native tool rows, transcript grouping, or per-message 
 
 - `ToolExecutionComponent` for collapsed presentation;
 - `Container` for adjacent grouping; and
-- `AssistantMessageComponent.updateContent` for display-only thinking merging and lifecycle labels.
+- `AssistantMessageComponent.updateContent` for display-only thinking merging, lifecycle labels, and the settled trace's italics.
 
 Each adapter feature-detects the fields and methods it needs, keeps the original method, uses an idempotency symbol, catches cosmetic failures, and restores the original on `session_shutdown` when it still owns the patch. Unsupported shapes fail open to Pi's native rendering. The thinking adapter continues adjacent merging even when the private label shape is unavailable.
+
+Teardown is owner-counted and inert: when another extension's wrapper sits above one of these, removal is impossible, so the buried wrapper delegates to the original instead of leaving collapsed rows or restyled labels behind after its owner shuts down. A later install re-enables it. The shared chat-container hook contract applies the same fail-open rule to hooks: a hook that throws after editing the child list has its edit rolled back, so a failed hook cannot drop rows from the transcript.
+
+Colors are read live from the theme, so a mid-session theme switch repaints collapsed rows, labels, and `!` blocks; cached render output keys on the resolved palette rather than on the theme object, which Pi keeps stable across a switch.
 
 Expanded tools always use Pi's native renderer. The collapsed tool shell owns its two-column inset directly; transcript layout extensions should leave tool rows unchanged, preventing load-order-dependent double padding.
 

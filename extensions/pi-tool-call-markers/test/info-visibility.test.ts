@@ -9,15 +9,28 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const stripAnsi = (text: string) =>
   text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+import { afterEach } from "vitest";
 import { runChatContainerHooks } from "../src/container-hooks.ts";
 import {
   infoVisibilityHidden,
   setInfoVisibilityHidden,
 } from "../src/info-visibility-state.ts";
-import { installInfoVisibility } from "../src/info-visibility.ts";
+import {
+  installInfoVisibility,
+  uninstallInfoVisibility,
+} from "../src/info-visibility.ts";
 import thinkingBlockMerger from "../src/thinking-block-merger.ts";
 
 type Handler = (event: unknown, ctx: unknown) => void;
+
+// Every harness releases the owners it installed when its test ends: the
+// toggle state and the hook registry are process-global, so a test that
+// leaves an owner behind would change what the next test observes.
+const liveHarnesses: Array<{ shutdown(): void }> = [];
+
+afterEach(() => {
+  for (const harness of liveHarnesses.splice(0)) harness.shutdown();
+});
 
 function createHarness() {
   const handlers = new Map<string, Handler[]>();
@@ -40,12 +53,28 @@ function createHarness() {
     },
   } as unknown as ExtensionAPI;
   const ctx = { ui: { notify: (text: string) => notifications.push(text) } };
+  let owners = 0;
 
-  return {
+  const harness = {
     pi,
     commands,
     handlers,
     notifications,
+    // Mirrors the entrypoint, which installs the toggle and releases it
+    // again from its own shutdown handler.
+    install() {
+      installInfoVisibility(pi);
+      owners += 1;
+      return harness;
+    },
+    releaseOwner() {
+      if (owners <= 0) return;
+      owners -= 1;
+      uninstallInfoVisibility();
+    },
+    shutdown() {
+      while (owners > 0) harness.releaseOwner();
+    },
     start(mode = "tui") {
       for (const handler of handlers.get("session_start") ?? []) {
         handler({}, { mode, ui: { theme: {} } });
@@ -55,6 +84,8 @@ function createHarness() {
       return commands.get("toggle-info")!.handler("", ctx);
     },
   };
+  liveHarnesses.push(harness);
+  return harness;
 }
 
 initTheme("dark");
@@ -65,8 +96,7 @@ beforeEach(() => {
 
 describe("toggle-info command", () => {
   test("flips visibility, restores on a second toggle, and notifies", async () => {
-    const harness = createHarness();
-    installInfoVisibility(harness.pi as ExtensionAPI);
+    const harness = createHarness().install();
     harness.start();
 
     expect(infoVisibilityHidden()).toBe(false);
@@ -79,8 +109,7 @@ describe("toggle-info command", () => {
   });
 
   test("resets to visible on session start", async () => {
-    const harness = createHarness();
-    installInfoVisibility(harness.pi as ExtensionAPI);
+    const harness = createHarness().install();
     harness.start();
     await harness.toggle();
     expect(infoVisibilityHidden()).toBe(true);
@@ -99,8 +128,7 @@ describe("info filter hook", () => {
   }
 
   test("lifts tool and bash rows out during render and restores them after", () => {
-    const harness = createHarness();
-    installInfoVisibility(harness.pi as ExtensionAPI);
+    const harness = createHarness().install();
     harness.start();
     setInfoVisibilityHidden(true);
 
@@ -123,9 +151,55 @@ describe("info filter hook", () => {
     expect(children).toEqual(original);
   });
 
+  test("removes the filter and resets the toggle at its last owner's shutdown", async () => {
+    const harness = createHarness().install();
+    harness.start();
+    await harness.toggle();
+    expect(infoVisibilityHidden()).toBe(true);
+
+    harness.shutdown();
+    expect(infoVisibilityHidden()).toBe(false);
+    const children: unknown[] = [new Text("a", 0, 0), toolRow()];
+    const restore = runChatContainerHooks(new Container(), children, 80);
+    // With the hook gone nothing is lifted out of the render pass.
+    expect(children).toHaveLength(2);
+    restore();
+    expect(children).toHaveLength(2);
+  });
+
+  test("keeps the filter while another owner remains", async () => {
+    const harness = createHarness().install();
+    harness.install();
+    harness.start();
+    await harness.toggle();
+
+    // One install's teardown leaves the other's filter in place; the hook
+    // leaves the registry only with the last owner.
+    harness.releaseOwner();
+    const filtered: unknown[] = [new Text("a", 0, 0), toolRow()];
+    const restoreFiltered = runChatContainerHooks(
+      new Container(),
+      filtered,
+      80,
+    );
+    expect(filtered).toHaveLength(1);
+    restoreFiltered();
+    expect(filtered).toHaveLength(2);
+
+    harness.releaseOwner();
+    expect(infoVisibilityHidden()).toBe(false);
+    const restored: unknown[] = [new Text("a", 0, 0), toolRow()];
+    const restoreRestored = runChatContainerHooks(
+      new Container(),
+      restored,
+      80,
+    );
+    expect(restored).toHaveLength(2);
+    restoreRestored();
+  });
+
   test("is a no-op while visible and on containers without executions", () => {
-    const harness = createHarness();
-    installInfoVisibility(harness.pi as ExtensionAPI);
+    const harness = createHarness().install();
     harness.start();
 
     const withTool: unknown[] = [new Text("a", 0, 0), toolRow()];

@@ -15,15 +15,19 @@ import {
   uninstallBashBlockPatch,
 } from "./bash-block.ts";
 import { runChatContainerHooks } from "./container-hooks.ts";
-import { installInfoVisibility } from "./info-visibility.ts";
-import { fgCollapsed, fgCollapsedRail } from "./muted.ts";
+import {
+  installInfoVisibility,
+  uninstallInfoVisibility,
+} from "./info-visibility.ts";
+import { fgCollapsed, fgCollapsedRail, paletteSample } from "./muted.ts";
 
 const OUTER_INSET = 2;
 const SUBAGENT_MARKER = "↪";
 const GROUP_CALL_MARKER = "│";
 // Collapsed rows anchor with a glyph instead of repeating the tool name;
 // tools that read as one family share a glyph, and unmapped tools fall back
-// to `*`.
+// to `*`. A single space separates the glyph from the call content: the
+// anchor is punctuation enough without a joining colon.
 const TOOL_CALL_GLYPHS: ReadonlyMap<string, string> = new Map([
   ["read", "●"],
   ["write", "+"],
@@ -87,13 +91,16 @@ type ToolExecutionRow = {
 
 type PresentationPatchState = {
   owners: number;
+  // Set at the final owner's shutdown. A wrapper that another extension has
+  // buried cannot be uninstalled, so it delegates instead of outliving its
+  // owner; a later install re-enables it.
+  disabled?: boolean;
   theme?: ThemeLike;
   collapseParallel: boolean;
   expandedTools: ReadonlySet<string>;
   groupCache: WeakMap<ToolExecutionRow, GroupRenderCache>;
   collapsedCache: WeakMap<ToolExecutionRow, CollapsedRenderCache>;
   rowVersions: WeakMap<ToolExecutionRow, number>;
-  rowGroups: WeakMap<ToolExecutionRow, ToolExecutionRow[]>;
   originalRender: (width: number) => string[];
   originalUpdateDisplay: () => void;
   originalHandleMouse?: (this: ToolExecutionRow, event: unknown) => unknown;
@@ -182,22 +189,12 @@ function rowSignatureOf(row: ToolExecutionRow): string {
   return `${row.isPartial}|${row.expanded}|${row.result ? 1 : 0}|${row.result?.isError ? 1 : 0}`;
 }
 
-// Theme samples are five theme.fg calls; computing them per row per frame
-// would reintroduce the per-keystroke cost the render caches remove, so
-// cache by theme object identity (a theme switch swaps the object).
-const themeSamples = new WeakMap<ThemeLike, string>();
+// Render caches hold lines with resolved colors baked in, so they key on the
+// palette's values rather than the theme object: Pi swaps the colors behind a
+// stable Proxy, which made an identity key survive a theme switch. Probing is
+// a handful of map lookups per row per frame.
 function themeSampleFor(theme: ThemeLike): string {
-  let sample = themeSamples.get(theme);
-  if (!sample) {
-    sample =
-      theme.fg("toolTitle", "x") +
-      theme.fg("muted", "x") +
-      theme.fg("dim", "x") +
-      theme.fg("warning", "x") +
-      theme.fg("error", "x");
-    themeSamples.set(theme, sample);
-  }
-  return sample;
+  return paletteSample(theme);
 }
 
 type InsetLayout = {
@@ -461,10 +458,6 @@ function selfRenderedCallLabel(row: ToolExecutionRow): string {
   return title ?? token;
 }
 
-function selfRenderedSummary(row: ToolExecutionRow, width: number): string {
-  return fitSummary(selfRenderedCallLabel(row), width);
-}
-
 function isToolExecutionRow(
   component: unknown,
 ): component is ToolExecutionRow & ComponentLike {
@@ -558,6 +551,16 @@ function hasToolSiblingInAssistantBatch(
   return false;
 }
 
+// A self-rendered tool opts out of the transcript by drawing no lines. The
+// singleton and grouped paths must agree on that, or grouping resurrects a
+// row the tool deliberately hid.
+function drawsNoRowLines(
+  row: ToolExecutionRow,
+  nativeLines: string[],
+): boolean {
+  return nativeLines.length === 0 && (row.imageComponents?.length ?? 0) === 0;
+}
+
 function isGroupableToolRow(
   row: ToolExecutionRow,
   children: unknown[],
@@ -566,6 +569,7 @@ function isGroupableToolRow(
   state: PresentationPatchState,
 ): boolean {
   if (row.toolName === "subagent") return false;
+  if (drawsNoRowLines(row, renderAt(index))) return false;
   if (
     !isLiveRow(row) &&
     !isCollapsibleSuccess(row) &&
@@ -796,11 +800,6 @@ function renderedCallSummary(
   width: number,
   theme: ThemeLike,
 ): string {
-  // Self-rendered call components change shape across the live/settled
-  // boundary (the adapter's call disappears once settled), so always build
-  // the summary from the stable args label instead of scraping the preview.
-  if (row.getRenderShell?.() === "self") return selfRenderedSummary(row, width);
-
   let component = row.callRendererComponent;
   if (!component && Array.isArray(row.contentBox?.children)) {
     component = row.contentBox.children[0] as ComponentLike | undefined;
@@ -851,56 +850,60 @@ function renderedCallSummary(
     : fgCollapsed(theme, "muted", "(no arguments)");
 }
 
-function styledCallLabel(
-  label: string,
-  theme: ThemeLike,
-  color = "muted",
-): string {
-  const plain = sanitizeInline(stripAnsi(label)).trim();
-  const match = /^(\S+)(.*)$/s.exec(plain);
-  if (!match) return fgCollapsed(theme, color, plain);
-  const rest = match[2] ?? "";
-  // The colon joins the bolded name to its content. Failed rows stay
-  // uniformly error-colored; settled rows use the collapsed mute — same
-  // color for the bolded name and the call content.
-  return (
-    fgCollapsed(theme, color, match[1] ?? "", true) +
-    (rest ? fgCollapsed(theme, color, `:${rest}`) : "")
-  );
-}
-
-function collapsedCallLabel(
+// The collapsed-row seam lives here and nowhere else: which anchor a row
+// takes, how that anchor is styled, and the call text that follows it.
+// Anchors always render bold and take no joining colon — `│ ● src/a.ts`,
+// `│ $ npm test` — and subagent fallbacks keep their `↪ subagent …`
+// reading instead of a glyph. Callers append the outcome tail.
+function collapsedSeam(
   row: ToolExecutionRow,
   width: number,
   theme: ThemeLike,
-  color = "muted",
-): string {
-  if (row.getRenderShell?.() === "self") {
-    return styledCallLabel(selfRenderedCallLabel(row), theme, color);
-  }
-
-  const token = row.toolName === "bash" ? "$" : (row.toolName ?? "tool");
-  const summary = renderedCallSummary(row, Math.max(1, width), theme);
-  const plainSummary = stripAnsi(summary).trim();
-  const label = plainSummary ? `${token} ${plainSummary}` : token;
-  return styledCallLabel(label, theme, color);
+  color: string,
+): { anchor: string; content: string } {
+  const isBash = row.toolName === "bash";
+  const isSubagent = row.toolName === "subagent";
+  const glyph = isBash
+    ? "$"
+    : (TOOL_CALL_GLYPHS.get(row.toolName ?? "") ?? "*");
+  const anchor = isSubagent
+    ? `${fgCollapsed(theme, color, SUBAGENT_MARKER, true)} `
+    : `${fgCollapsedRail(theme, GROUP_CALL_MARKER)} ${fgCollapsed(
+        theme,
+        color,
+        glyph,
+        true,
+      )} `;
+  const budget = Math.max(1, width - visibleWidth(anchor));
+  // Self-rendered rows build their own `tool {args}` label — Pi's call title
+  // is gone once settled — while ordinary rows scrape the rendered call
+  // line, which already drops its heading token.
+  const selfRendered = row.getRenderShell?.() === "self";
+  const source = selfRendered
+    ? selfRenderedCallLabel(row)
+    : renderedCallSummary(row, budget, theme);
+  const plain = sanitizeInline(stripAnsi(source)).trim();
+  // The anchor stands in for the label's leading token. Only self-rendered
+  // labels still carry it; a subagent fallback keeps `subagent` as its own
+  // heading, which the scrape dropped.
+  const text = isSubagent
+    ? `subagent${plain ? ` ${plain}` : ""}`
+    : selfRendered
+      ? dropCallToken(plain, row.toolName ?? "tool")
+      : plain;
+  return {
+    anchor,
+    content: fgCollapsed(theme, color, text || "(no arguments)"),
+  };
 }
 
-// Collapsed rows anchor their call text with a glyph instead of repeating
-// the tool name, grouped or not. Bash carries `$:` inside its own label and
-// the subagent fallback keeps its `↪ subagent` heading, so neither takes a
-// glyph.
-function collapsedCallMarker(
-  row: ToolExecutionRow,
-  theme: ThemeLike,
-  color: string,
-): string {
-  if (row.toolName === "bash" || row.toolName === "subagent") return "";
-  return fgCollapsed(
-    theme,
-    color,
-    `${TOOL_CALL_GLYPHS.get(row.toolName ?? "") ?? "*"}: `,
-  );
+// Drops the leading token an anchor now stands for, with whichever separator
+// the label joined it with.
+function dropCallToken(plain: string, token: string): string {
+  if (!plain.startsWith(token)) return plain;
+  const rest = plain.slice(token.length);
+  if (!/^:?\s|^:$/.test(rest)) return plain;
+  return rest.replace(/^:?\s*/, "");
 }
 
 function collapsedOutcome(
@@ -927,31 +930,28 @@ function collapsedOutcome(
   return renderedOutcome(row, theme);
 }
 
-function collapsedHeadline(
+// One collapsed row — head and outcome tail — at the given width. Singleton
+// and grouped rows differ only in what surrounds the line.
+function collapsedRowLine(
   row: ToolExecutionRow,
   width: number,
   theme: ThemeLike,
 ): string {
   // Failed rows render entirely in error so the row reads as the one that
   // failed, not just its outcome tail. Only the row's anchor stays bold.
-  const tone = rowHasFailed(row) ? "error" : "muted";
-  const marker =
-    row.toolName === "subagent"
-      ? `${fgCollapsed(theme, tone, SUBAGENT_MARKER)} `
-      : `${fgCollapsedRail(theme, GROUP_CALL_MARKER)} `;
-  const glyph = collapsedCallMarker(row, theme, tone);
-  const budget = Math.max(1, width - visibleWidth(marker));
-  const label = glyph + collapsedChildLabel(row, budget, theme, tone);
+  const color = rowHasFailed(row) ? "error" : "muted";
+  const seam = collapsedSeam(row, width, theme, color);
+  const budget = Math.max(1, width - visibleWidth(seam.anchor));
   const outcome = collapsedOutcome(row, budget, theme);
   // The truncation suffix inherits the row tone; pi-tui's truncation resets
   // around a plain suffix, which would render it in the terminal default
   // foreground instead of the row color.
-  const suffix = fgCollapsed(theme, tone, "…");
+  const suffix = fgCollapsed(theme, color, "…");
   return (
-    marker +
+    seam.anchor +
     (outcome
-      ? fitSummaryTail(label, outcome, budget, suffix)
-      : fitSummary(label, budget, suffix))
+      ? fitSummaryTail(seam.content, outcome, budget, suffix)
+      : fitSummary(seam.content, budget, suffix))
   );
 }
 
@@ -1251,38 +1251,9 @@ function renderCollapsedToolRow(
     row.toolName === "subagent"
       ? renderSubagentPlan(row, layout.contentWidth, theme)
       : undefined;
-  const body = plan ?? [collapsedHeadline(row, layout.contentWidth, theme)];
+  const body = plan ?? [collapsedRowLine(row, layout.contentWidth, theme)];
   body.push(...imageResultLines(row, layout.contentWidth, theme));
   return ["", ...insetLines(body, width)];
-}
-
-// Drops the call label's tool-name token: the row's glyph anchors the call
-// instead. The `↪` subagent fallback keeps its own heading.
-function collapsedChildLabel(
-  row: ToolExecutionRow,
-  width: number,
-  theme: ThemeLike,
-  color: string = "muted",
-): string {
-  const label = collapsedCallLabel(row, width, theme, color);
-  if (row.toolName === "subagent") return label;
-  const plain = stripAnsi(label);
-  const toolName = row.toolName ?? "tool";
-  let prefix = "";
-  if (plain === toolName) {
-    prefix = toolName;
-  } else if (plain.startsWith(`${toolName}:`)) {
-    const whitespace = /^\s*/.exec(plain.slice(toolName.length + 1))?.[0] ?? "";
-    prefix = `${toolName}:${whitespace}`;
-  }
-  const prefixWidth = visibleWidth(prefix);
-  const child = sliceByColumn(
-    label,
-    prefixWidth,
-    Math.max(0, visibleWidth(label) - prefixWidth),
-    true,
-  );
-  return child || fgCollapsed(theme, color, "(no arguments)");
 }
 
 function renderGroupedCallLines(
@@ -1292,26 +1263,7 @@ function renderGroupedCallLines(
 ): Array<{ row: ToolExecutionRow; lines: string[] }> {
   const segments: Array<{ row: ToolExecutionRow; lines: string[] }> = [];
   for (const row of rows) {
-    const lines: string[] = [];
-
-    const color = rowHasFailed(row) ? "error" : "muted";
-    const prefix = `${fgCollapsedRail(theme, GROUP_CALL_MARKER)} `;
-    const marker = collapsedCallMarker(row, theme, color);
-    const budget = Math.max(
-      1,
-      width - visibleWidth(prefix) - visibleWidth(marker),
-    );
-    const label = collapsedChildLabel(row, budget, theme, color);
-    const outcome = collapsedOutcome(row, budget, theme);
-    const suffix = fgCollapsed(theme, color, "…");
-    lines.push(
-      prefix +
-        marker +
-        (outcome
-          ? fitSummaryTail(label, outcome, budget, suffix)
-          : fitSummary(label, budget, suffix)),
-    );
-    segments.push({ row, lines });
+    segments.push({ row, lines: [collapsedRowLine(row, width, theme)] });
   }
   return segments;
 }
@@ -1471,7 +1423,6 @@ function renderContainerWithToolGroups(
       continue;
     }
 
-    for (const member of group) presentation.rowGroups.set(member, group);
     // Use a live member while any call is pending, then the first member once
     // settled. Either way, the grouped row keeps the same number of lines.
     const shellRow = group.find(isLiveRow) ?? child;
@@ -1592,6 +1543,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     const existing = proto[PRESENTATION_PATCHED];
     if (existing) {
       existing.owners++;
+      existing.disabled = false;
       return existing;
     }
     const legacy = proto[LEGACY_PRESENTATION_PATCHED];
@@ -1612,13 +1564,16 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       groupCache: new WeakMap(),
       collapsedCache: new WeakMap(),
       rowVersions: new WeakMap(),
-      rowGroups: new WeakMap(),
       originalRender: proto.render,
       originalUpdateDisplay: proto.updateDisplay,
     };
     const patchedUpdateDisplay = function updateDisplayWithToolPresentation(
       this: ToolExecutionRow,
     ): void {
+      if (state.disabled) {
+        state.originalUpdateDisplay.call(this);
+        return;
+      }
       // Transcript rerenders reuse settled caches, but a real component
       // display update can change args, results, renderer output, or images
       // without changing the row's shape signature.
@@ -1651,6 +1606,9 @@ function installPresentationPatch(): PresentationPatchState | undefined {
         event: unknown,
       ): unknown {
         const mouseEvent = event as { type?: unknown; button?: unknown };
+        if (state.disabled) {
+          return state.originalHandleMouse?.call(this, event);
+        }
         if (
           state.theme &&
           this.expanded === false &&
@@ -1672,6 +1630,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     ): string[] {
       const theme = state.theme;
       if (
+        state.disabled ||
         typeof this.expanded !== "boolean" ||
         typeof this.isPartial !== "boolean" ||
         this.expanded ||
@@ -1709,7 +1668,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
           return cached.lines;
         }
         const lines = state.originalRender.call(this, width);
-        if (lines.length === 0 && (this.imageComponents?.length ?? 0) === 0) {
+        if (drawsNoRowLines(this, lines)) {
           return lines;
         }
         try {
@@ -1730,7 +1689,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       // Partial (streaming) rows keep the collapsed presentation but are
       // never cached: their content changes with every streamed chunk.
       const lines = state.originalRender.call(this, width);
-      if (lines.length === 0 && (this.imageComponents?.length ?? 0) === 0) {
+      if (drawsNoRowLines(this, lines)) {
         return lines;
       }
       try {
@@ -1767,6 +1726,7 @@ function uninstallPresentationPatch(
   if (!state || state.owners <= 0) return;
   state.owners--;
   if (state.owners > 0) return;
+  state.disabled = true;
   const proto =
     ToolExecutionComponent?.prototype as unknown as ToolExecutionRow & {
       [PRESENTATION_PATCHED]?: PresentationPatchState;
@@ -1817,17 +1777,12 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setToolsExpanded(false);
   });
 
-  pi.on("session_start", (_event, ctx) => {
-    if (patch) patch.theme = ctx.ui.theme;
-    if (bashPatch) bashPatch.theme = ctx.ui.theme;
-    ctx.ui.setToolsExpanded(false);
-  });
-
   pi.on("session_shutdown", () => {
     if (released) return;
     released = true;
     uninstallGroupingPatch(grouping);
     uninstallPresentationPatch(patch);
     uninstallBashBlockPatch(bashPatch);
+    uninstallInfoVisibility();
   });
 }

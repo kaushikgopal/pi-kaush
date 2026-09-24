@@ -14,6 +14,20 @@ class MockLabelText {
   }
 }
 
+// Mirrors Pi core: a visible thinking trace renders as Markdown whose default
+// text style carries the italic flag, and the component caches its lines.
+class MockThinkingMarkdown {
+  defaultTextStyle: { color: (text: string) => string; italic: boolean } = {
+    color: (text: string) => text,
+    italic: true,
+  };
+  invalidated = 0;
+
+  invalidate() {
+    this.invalidated++;
+  }
+}
+
 class MockAssistantMessageComponent {
   hiddenThinkingLabel = "Thinking...";
   hideThinkingBlock = true;
@@ -28,15 +42,27 @@ class MockAssistantMessageComponent {
   updateContent(message: { content: unknown[] }, ...args: unknown[]) {
     this.lastMessage = message;
     this.lastArgs = args;
+    const hasThinking = message.content.some(
+      (content) =>
+        (content as { type?: string } | undefined)?.type === "thinking",
+    );
     this.contentContainer.children =
       this.hideThinkingBlock === true &&
       typeof this.hiddenThinkingLabel === "string"
         ? [new MockLabelText(this.hiddenThinkingLabel)]
-        : [];
+        : hasThinking
+          ? [new MockThinkingMarkdown()]
+          : [];
   }
 
   get labelChild(): MockLabelText | undefined {
-    return this.contentContainer.children[0] as MockLabelText | undefined;
+    const child = this.contentContainer.children[0];
+    return child instanceof MockLabelText ? child : undefined;
+  }
+
+  get markdownChild(): MockThinkingMarkdown | undefined {
+    const child = this.contentContainer.children[0];
+    return child instanceof MockThinkingMarkdown ? child : undefined;
   }
 }
 
@@ -312,12 +338,44 @@ describe("thinking block merger", () => {
     );
   });
 
-  test("leaves visible-thinking rows without a replacement node", () => {
+  test("leaves visible-thinking rows without a replacement label node", () => {
     startSession(mockTheme());
     const visible = new MockAssistantMessageComponent();
     visible.hideThinkingBlock = false;
     visible.updateContent(thinkingMessage(), false);
-    expect(visible.contentContainer.children).toEqual([]);
+    expect(visible.labelChild).toBeUndefined();
+  });
+
+  test("drops italics from a visible thinking trace once it settles", () => {
+    const assistant = new MockAssistantMessageComponent();
+    assistant.hideThinkingBlock = false;
+    assistant.updateContent(thinkingMessage(), true);
+    expect(assistant.markdownChild?.defaultTextStyle.italic).toBe(true);
+
+    assistant.updateContent(thinkingMessage(), false);
+    const settled = assistant.markdownChild;
+    expect(settled?.defaultTextStyle.italic).toBe(false);
+    expect(settled?.invalidated).toBe(1);
+  });
+
+  test("keeps a live trace italic through un-flagged rebuilds", () => {
+    const assistant = new MockAssistantMessageComponent();
+    assistant.hideThinkingBlock = false;
+    assistant.updateContent(thinkingMessage(), true);
+    // Resize and theme switches rebuild the row without the streaming flag.
+    assistant.updateContent(thinkingMessage());
+    expect(assistant.markdownChild?.defaultTextStyle.italic).toBe(true);
+
+    assistant.updateContent(thinkingMessage(), false);
+    assistant.updateContent(thinkingMessage());
+    expect(assistant.markdownChild?.defaultTextStyle.italic).toBe(false);
+  });
+
+  test("treats restored visible thinking as settled", () => {
+    const restored = new MockAssistantMessageComponent();
+    restored.hideThinkingBlock = false;
+    restored.updateContent(thinkingMessage());
+    expect(restored.markdownChild?.defaultTextStyle.italic).toBe(false);
   });
 
   test("passes through the theme-resolved sequence on indexed terminals", () => {
@@ -332,13 +390,27 @@ describe("thinking block merger", () => {
     );
   });
 
-  test("keeps native styling for the inherit variant and missing themes", () => {
+  test("keeps native italic styling only for the inherit variant", () => {
     vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "inherit");
     startSession({ getColorMode: () => "truecolor" });
     expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
 
     startSession(undefined);
     expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+  });
+
+  test("drops italics even when the theme resolves no color", () => {
+    startSession({
+      getColorMode: () => "truecolor",
+      getFgAnsi: () => {
+        throw new Error("Unknown theme color");
+      },
+    });
+    expect(visibleThoughtLabel("+ Thought")).toBe("\x1b[23m+ Thought");
+    expect(visibleThoughtLabel("⠋ Thinking…")).toBe("\x1b[23m⠋ Thinking…");
+
+    startSession(undefined);
+    expect(visibleThoughtLabel("+ Thought")).toBe("\x1b[23m+ Thought");
   });
 
   test("tints the live label with the level token and settles muted", () => {

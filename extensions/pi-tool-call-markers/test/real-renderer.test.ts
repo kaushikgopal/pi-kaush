@@ -55,6 +55,24 @@ const extensionTheme = {
     ),
 };
 
+// Mirrors Pi's theme object: one stable object whose colors change when the
+// theme changes, because Pi swaps the palette behind its exported theme
+// Proxy. Identity-keyed caches therefore never refresh on a theme switch.
+const DARK_PALETTE_ANSI = "\x1b[38;2;10;10;10m";
+const LIGHT_PALETTE_ANSI = "\x1b[38;2;200;200;200m";
+function switchableTheme() {
+  let paletteAnsi = DARK_PALETTE_ANSI;
+  return {
+    switchTo(next: "dark" | "light") {
+      paletteAnsi = next === "dark" ? DARK_PALETTE_ANSI : LIGHT_PALETTE_ANSI;
+    },
+    bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+    fg: (_color: string, text: string) => `${paletteAnsi}${text}\x1b[39m`,
+    bg: (_color: string, text: string) => text,
+    getFgAnsi: (_color: string) => paletteAnsi,
+  };
+}
+
 function fgAnsiStrict(known: Record<string, string>, color: string): string {
   const ansi = known[color];
   if (ansi === undefined) throw new Error(`Unknown theme color: ${color}`);
@@ -324,6 +342,87 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(line).not.toContain("\x1b[3m");
   });
 
+  test("drops italics from a visible thinking trace once it settles", () => {
+    const message = {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "ponder" }],
+      stopReason: "stop",
+    } as never;
+    // Thinking visible: Pi renders the trace as an italic markdown block.
+    const assistant = new AssistantMessageComponent(message, false);
+    const updateContent = assistant.updateContent.bind(assistant) as (
+      message: unknown,
+      streaming?: boolean,
+    ) => void;
+    const traceItalic = () => {
+      const children = (
+        assistant as unknown as {
+          contentContainer?: {
+            children?: Array<{ defaultTextStyle?: { italic?: boolean } }>;
+          };
+        }
+      ).contentContainer?.children;
+      return children?.find((child) => child.defaultTextStyle !== undefined)
+        ?.defaultTextStyle?.italic;
+    };
+
+    updateContent(message, true);
+    expect(traceItalic()).toBe(true);
+    expect(assistant.render(40).join("\n")).toContain("ponder");
+
+    updateContent(message, false);
+    expect(traceItalic()).toBe(false);
+    const settled = assistant.render(40).join("\n");
+    expect(settled).toContain("ponder");
+    expect(settled).not.toContain("\x1b[3m");
+  });
+
+  test("repaints collapsed rows after a mid-session theme switch", () => {
+    const theme = switchableTheme();
+    for (const handler of sessionHandlers) {
+      handler({}, { mode: "tui", ui: { theme, setToolsExpanded() {} } });
+    }
+    const chat = new Container();
+    const row = createBashRow("npm test");
+    chat.addChild(row);
+    settle(row, "tests passed");
+
+    expect(chat.render(60).join("\n")).toContain(DARK_PALETTE_ANSI);
+
+    theme.switchTo("light");
+    const light = chat.render(60).join("\n");
+    expect(light).toContain(LIGHT_PALETTE_ANSI);
+    expect(light).not.toContain(DARK_PALETTE_ANSI);
+  });
+
+  test("repaints the thought label after a mid-session theme switch", () => {
+    const theme = switchableTheme();
+    for (const handler of sessionHandlers) {
+      handler({}, { mode: "tui", ui: { theme, setToolsExpanded() {} } });
+    }
+    const message = {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "ponder" }],
+      stopReason: "stop",
+    } as never;
+    const assistant = new AssistantMessageComponent(message, true);
+    const updateContent = assistant.updateContent.bind(assistant) as (
+      message: unknown,
+      streaming?: boolean,
+    ) => void;
+    updateContent(message, true);
+    updateContent(message, false);
+    expect(assistant.render(40).join("\n")).toContain(DARK_PALETTE_ANSI);
+
+    theme.switchTo("light");
+    // Pi rebuilds the row on a theme switch, which is when the label takes
+    // its color: it must come from the current palette, not a cached one.
+    assistant.invalidate();
+    const light = assistant.render(40).join("\n");
+    expect(light).toContain(LIGHT_PALETTE_ANSI);
+    expect(light).not.toContain(DARK_PALETTE_ANSI);
+  });
+
   test("collapses a successful singleton to its call and outcome", () => {
     const chat = new Container();
     const row = createBashRow("npm test");
@@ -331,7 +430,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "all tests passed");
 
     const output = renderPlain(chat);
-    expect(output).toContain("│ $: npm test → done");
+    expect(output).toContain("│ $ npm test → done");
     expect(output).not.toContain("all tests passed");
   });
 
@@ -377,7 +476,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const collapsed = renderPlain(chat);
     expect(collapsed).toContain(
-      "│ $: printf one · printf two · printf three · … → done",
+      "│ $ printf one · printf two · printf three · … → done",
     );
     expect(collapsed.split("\n")).toHaveLength(1);
     expect(collapsed).not.toContain("printf four");
@@ -409,7 +508,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const settled = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(settled).toContain(
-      "│ $: sleep 1 · printf finished (timeout 30s) → done",
+      "│ $ sleep 1 · printf finished (timeout 30s) → done",
     );
     expect(settled.split("\n")).toHaveLength(1);
   });
@@ -493,7 +592,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chat.addChild(first);
     settle(first, "tests passed");
     const singletonHeight = chat.render(100).length;
-    expect(renderPlain(chat)).toContain("│ $: npm test → done");
+    expect(renderPlain(chat)).toContain("│ $ npm test → done");
 
     chat.addChild(new AssistantMessageComponent());
     const second = createBashRow("npm run lint");
@@ -502,15 +601,15 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
     expect(renderPlain(chat)).not.toContain("%");
     expect(renderPlain(chat).match(/│/g)).toHaveLength(2);
-    expect(renderPlain(chat)).toContain("│ $: npm run lint");
+    expect(renderPlain(chat)).toContain("│ $ npm run lint");
 
     settle(second, "lint passed");
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(output).not.toContain("%");
     expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain("│ $: npm test → done");
-    expect(output).toContain("│ $: npm run lint → done");
+    expect(output).toContain("│ $ npm test → done");
+    expect(output).toContain("│ $ npm run lint → done");
   });
 
   test("groups real settled rows with one-line outcome bullets", () => {
@@ -525,8 +624,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat, 36);
     expect(output).not.toContain("%");
     expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain("│ $: npm test → done");
-    expect(output).toContain("│ $: npm run lint → done");
+    expect(output).toContain("│ $ npm test → done");
+    expect(output).toContain("│ $ npm run lint → done");
     expect(output).not.toContain("tests passed");
     expect(output).not.toContain("lint passed");
   });
@@ -582,11 +681,33 @@ describe("tool-call-markers with Pi's real renderer", () => {
       const output = renderPlain(chat);
       expect(output).not.toContain("%");
       expect(output.match(/│/g)).toHaveLength(2);
-      expect(output).toContain("│ $: npm test → done");
+      expect(output).toContain("│ $ npm test → done");
       expect(calls).toEqual([{ container: chat, width: 100 }]);
       expect(restores).toBe(1);
     } finally {
       chatContainerHooks().delete(hook);
+    }
+  });
+
+  test("rolls back a hook that mutates children and then throws", () => {
+    const chat = new Container();
+    const row = createBashRow("npm test");
+    chat.addChild(row);
+    settle(row, "tests passed");
+
+    const destructiveHook: ChatContainerHook = (_container, children) => {
+      const index = children.indexOf(row);
+      if (index !== -1) children.splice(index, 1);
+      throw new Error("boom");
+    };
+    chatContainerHooks().add(destructiveHook);
+    try {
+      // Without the rollback the row would be gone from the child list for
+      // this render and every later one.
+      expect(renderPlain(chat)).toContain("│ $ npm test → done");
+      expect(renderPlain(chat)).toContain("│ $ npm test → done");
+    } finally {
+      chatContainerHooks().delete(destructiveHook);
     }
   });
 
@@ -607,7 +728,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       const output = renderPlain(chat);
       expect(output).not.toContain("%");
       expect(output.match(/│/g)).toHaveLength(2);
-      expect(output).toContain("│ $: npm test → done");
+      expect(output).toContain("│ $ npm test → done");
     } finally {
       chatContainerHooks().delete(badHook);
     }
@@ -682,6 +803,46 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(renderPlain(chat)).toBe("");
   });
 
+  test("keeps a hidden self-rendered tool out of a group", () => {
+    const definition = {
+      name: "silent_group_member",
+      label: "Silent",
+      description: "renders no transcript row",
+      parameters: { type: "object", properties: {} },
+      renderShell: "self" as const,
+      execute() {
+        throw new Error("not executed");
+      },
+      renderCall() {
+        return new EmptyComponent();
+      },
+      renderResult() {
+        return new EmptyComponent();
+      },
+    };
+    const hidden = new ToolExecutionComponent(
+      "silent_group_member",
+      "silent-group-1",
+      { quiet: 1 },
+      {},
+      definition as never,
+      { requestRender() {} } as never,
+      process.cwd(),
+    );
+    const chat = new Container();
+    chat.addChild(hidden);
+    settle(hidden, "hidden result");
+    const visible = createBashRow("npm test");
+    chat.addChild(visible);
+    settle(visible, "tests passed");
+
+    const output = renderPlain(chat);
+    expect(output).toContain("│ $ npm test → done");
+    // The row that opted out of the transcript stays out of the group too.
+    expect(output).not.toContain("quiet");
+    expect(output.match(/│/g)).toHaveLength(1);
+  });
+
   test("collapses a settled self-rendered MCP row to call and outcome", () => {
     const chat = new Container();
     const row = createMcpRow("mcp-1", { query: "vibecheck" });
@@ -689,7 +850,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "# Search Results (1 found)\n\n## 1. vibecheck");
 
     const output = renderPlain(chat);
-    expect(output).toContain('│ *: {"query":"vibecheck"} → done');
+    expect(output).toContain('│ * {"query":"vibecheck"} → done');
     expect(output.split("\n")).toHaveLength(1);
     expect(output).not.toContain("Search Results");
   });
@@ -711,7 +872,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     // Edit rows label by path like Pi's native call line, keep the summary
     // line, and surface the change as a +a/-b stat; the hunk stays out of the
     // collapsed row and returns with Ctrl+O.
-    expect(output).toContain("±: a.ts → +1/-1");
+    expect(output).toContain("± a.ts → +1/-1");
     expect(output).not.toContain("  +new");
     expect(output).not.toContain("  -old");
   });
@@ -735,8 +896,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).not.toContain("│ edit");
-    expect(output).toContain("│ ±: a.ts → +1/-1");
-    expect(output).toContain("│ ±: b.ts → +1/-1");
+    expect(output).toContain("│ ± a.ts → +1/-1");
+    expect(output).toContain("│ ± b.ts → +1/-1");
     expect(output).not.toContain("  +x");
     expect(output).not.toContain("  -y");
     expect(output).not.toContain("edited");
@@ -767,7 +928,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
       const output = renderPlain(chat);
       expect(output).toContain("FULL edited a.ts");
-      expect(output).not.toContain("│ ±:");
+      expect(output).not.toContain("│ ±");
 
       // The list stays authoritative: a global collapse re-expands the row.
       row.setExpanded(false);
@@ -795,8 +956,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "alpha\nbeta\ngamma\n");
 
     const output = renderPlain(chat);
-    expect(output).toContain("│ ●: tools/kb_mcp/README.md:1-400 → 3 lines");
-    expect(output).not.toContain("│ ●: :1-400");
+    expect(output).toContain("│ ● tools/kb_mcp/README.md:1-400 → 3 lines");
+    expect(output).not.toContain("│ ● :1-400");
     expect(output).not.toMatch(/\x1b\]/);
   });
 
@@ -807,8 +968,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "one\ntwo\n");
 
     const output = renderPlain(chat);
-    expect(output).toContain("│ ●: package.json:1-400 → 2 lines");
-    expect(output).not.toContain("│ ●: :1-400");
+    expect(output).toContain("│ ● package.json:1-400 → 2 lines");
+    expect(output).not.toContain("│ ● :1-400");
   });
 
   test("collapses a failed self-rendered MCP row to an error line", () => {
@@ -820,7 +981,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat);
     expect(output.split("\n")).toHaveLength(1);
     expect(output).toContain(
-      '*: {"query":"vibecheck"} → Error: Security violation: 403',
+      '* {"query":"vibecheck"} → Error: Security violation: 403',
     );
     expect(output).not.toContain("lots of detail");
   });
@@ -839,7 +1000,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     );
 
     const output = renderPlain(chat);
-    expect(output).toContain('*: glean_nope → Tool "glean_nope" not found.');
+    expect(output).toContain('* glean_nope → Tool "glean_nope" not found.');
     expect(output).not.toContain("→ done");
   });
 
@@ -929,14 +1090,14 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const live = renderPlain(chat);
     expect(live.split("\n")).toHaveLength(1);
-    expect(live).toContain('*: {"query":"vibecheck","num":1}');
+    expect(live).toContain('* {"query":"vibecheck","num":1}');
     expect(live).toContain("…");
     expect(live).not.toContain('"num": 1');
 
     settle(row, "results");
     const settled = renderPlain(chat);
     expect(settled.split("\n")).toHaveLength(1);
-    expect(settled).toContain('*: {"query":"vibecheck","num":1} → done');
+    expect(settled).toContain('* {"query":"vibecheck","num":1} → done');
   });
 
   test("squashes string-encoded proxy arguments without escaping", () => {
@@ -954,7 +1115,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      '*: glean_search: {"query":"vibecheck","num_results":1} → done',
+      '* glean_search {"query":"vibecheck","num_results":1} → done',
     );
     expect(output).not.toContain('\\"');
   });
@@ -1010,8 +1171,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat);
     expect(output).not.toContain("(details omitted)");
     expect(output).not.toContain("│ glean_search");
-    expect(output).toContain('│ *: {"query":"alpha"}');
-    expect(output).toContain('│ *: {"query":"beta"}');
+    expect(output).toContain('│ * {"query":"alpha"}');
+    expect(output).toContain('│ * {"query":"beta"}');
     expect(output).toContain("→ done");
     expect(output).not.toContain("alpha results");
   });
@@ -1026,16 +1187,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output).toContain('│ *: {"query":"alpha"}');
-    expect(output).toContain('│ *: {"query":"beta"}');
+    expect(output).toContain('│ * {"query":"alpha"}');
+    expect(output).toContain('│ * {"query":"beta"}');
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
 
     settle(first, "alpha results");
     settle(second, "beta results");
     const settled = renderPlain(chat);
-    expect(settled).toContain('│ *: {"query":"alpha"}');
-    expect(settled).toContain('│ *: {"query":"beta"}');
+    expect(settled).toContain('│ * {"query":"alpha"}');
+    expect(settled).toContain('│ * {"query":"beta"}');
     expect(settled).toContain("→ done");
   });
 
@@ -1059,9 +1220,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain('│ *: {"query":"x"} → done');
+    expect(output).toContain('│ * {"query":"x"} → done');
     expect(output).toContain(
-      '│ *: {"query":"y"} → Error: not connected to server "glean"',
+      '│ * {"query":"y"} → Error: not connected to server "glean"',
     );
   });
 
@@ -1079,8 +1240,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat);
     expect(output).not.toContain("%");
     expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain('│ *: {"query":"alpha"}');
-    expect(output).toContain('│ *: {"query":"beta"}');
+    expect(output).toContain('│ * {"query":"alpha"}');
+    expect(output).toContain('│ * {"query":"beta"}');
   });
 
   test("keeps the glyph anchor when the error line is long", () => {
@@ -1115,7 +1276,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat, 60);
     expect(output.split("\n")).toHaveLength(1);
-    expect(output).toContain('*: {"query":"x"} → Error: boom');
+    expect(output).toContain('* {"query":"x"} → Error: boom');
     expect(output).not.toMatch(/…$/);
   });
 
@@ -1159,7 +1320,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      '*: search vibecheck {"limit":20,"offset":40} → done',
+      '* search vibecheck {"limit":20,"offset":40} → done',
     );
   });
 
@@ -1174,7 +1335,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain("*: auth-start @ glean → done");
+    expect(output).toContain("* auth-start @ glean → done");
   });
 
   test("labels server-only proxy calls as list", () => {
@@ -1184,7 +1345,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain("*: list glean → done");
+    expect(output).toContain("* list glean → done");
   });
 
   test("shows a server arg raw for modes the adapter does not scope", () => {
@@ -1199,7 +1360,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      '*: describe glean_search {"server":"glean"} → done',
+      '* describe glean_search {"server":"glean"} → done',
     );
     expect(output).not.toContain("@ glean");
   });
@@ -1215,33 +1376,33 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain('*: glean_search: @ glean {"query":"x"} → done');
+    expect(output).toContain('* glean_search @ glean {"query":"x"} → done');
   });
 
   test.each([
     [
       { tool: "glean_search", args: '{"query": "x"}' },
-      '*: glean_search: {"query":"x"}',
+      '* glean_search {"query":"x"}',
     ],
-    [{ connect: "glean" }, "*: connect glean"],
-    [{ describe: "glean_search" }, "*: describe glean_search"],
-    [{ instructions: "user" }, "*: instructions user"],
+    [{ connect: "glean" }, "* connect glean"],
+    [{ describe: "glean_search" }, "* describe glean_search"],
+    [{ instructions: "user" }, "* instructions user"],
     [
       { search: "vibecheck", limit: 20, offset: 40 },
-      '*: search vibecheck {"limit":20,"offset":40}',
+      '* search vibecheck {"limit":20,"offset":40}',
     ],
-    [{ action: "auth-start", server: "glean" }, "*: auth-start @ glean"],
+    [{ action: "auth-start", server: "glean" }, "* auth-start @ glean"],
     [
       {
         action: "auth-complete",
         server: "glean",
         args: '{"redirectUrl":"https://auth.example/cb"}',
       },
-      '*: auth-complete @ glean {"redirectUrl":"https://auth.example/cb"}',
+      '* auth-complete @ glean {"redirectUrl":"https://auth.example/cb"}',
     ],
-    [{ action: "ui-messages" }, "*: ui-messages"],
-    [{ server: "glean" }, "*: list glean"],
-    [{}, "*: status"],
+    [{ action: "ui-messages" }, "* ui-messages"],
+    [{ server: "glean" }, "* list glean"],
+    [{}, "* status"],
   ])("labels unambiguous proxy shape %j as %s", (args, label) => {
     const chat = new Container();
     const row = createMcpRow(`mcp-mode-${JSON.stringify(args)}`, args, "mcp");
@@ -1279,7 +1440,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       const output = renderPlain(chat);
       // Every selector survives in the raw compact shape; no single operation
       // is claimed on the label.
-      expect(output).toContain(`*: ${JSON.stringify(args)} → done`);
+      expect(output).toContain(`* ${JSON.stringify(args)} → done`);
       for (const needle of forbidden) expect(output).not.toContain(needle);
     },
   );
@@ -1295,7 +1456,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain("*: search @ glean → done");
+    expect(output).toContain("* search @ glean → done");
     expect(output).not.toContain("mcp list");
   });
 
@@ -1306,7 +1467,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "ok");
 
     const output = renderPlain(chat);
-    expect(output).toContain('*: {"tool":"hammer"} → done');
+    expect(output).toContain('* {"tool":"hammer"} → done');
   });
 });
 
@@ -1385,6 +1546,22 @@ describe("user bash blocks", () => {
     });
   });
 
+  test("repaints a user bash block after a mid-session theme switch", () => {
+    const theme = switchableTheme();
+    for (const handler of sessionHandlers) {
+      handler({}, { mode: "tui", ui: { theme, setToolsExpanded() {} } });
+    }
+    const bash = createBashBlock("ls");
+    bash.setComplete(0, false);
+    expect(bash.render(40).join("\n")).toContain(DARK_PALETTE_ANSI);
+
+    theme.switchTo("light");
+    // The decorated lines are cached; the palette has to be part of the key.
+    const light = bash.render(40).join("\n");
+    expect(light).toContain(LIGHT_PALETTE_ANSI);
+    expect(light).not.toContain(DARK_PALETTE_ANSI);
+  });
+
   test("falls back to the native shell on very narrow widths", () => {
     withTheme(() => {
       const bash = createBashBlock("ls");
@@ -1432,6 +1609,86 @@ describe("user bash blocks", () => {
     );
     for (const handler of shutdownHandlers.splice(0)) handler();
     expect(BashExecutionComponent.prototype.render).toBe(NATIVE_BASH_RENDER);
+  });
+});
+
+describe("lifecycle hardening", () => {
+  test("goes inert when a later wrapper buries every patch", () => {
+    // Simulate another extension wrapping the same prototypes after this one
+    // installed: markers can no longer restore them at shutdown, so each
+    // wrapper has to delegate rather than outlive its owner.
+    const toolProto = ToolExecutionComponent.prototype as unknown as {
+      render: (this: unknown, width: number) => string[];
+    };
+    const containerProto = Container.prototype as unknown as {
+      render: (this: unknown, width: number) => string[];
+    };
+    const bashProto = BashExecutionComponent.prototype as unknown as {
+      render: (this: unknown, width: number) => string[];
+    };
+    const assistantProto = AssistantMessageComponent.prototype as unknown as {
+      updateContent: (this: unknown, ...args: unknown[]) => void;
+    };
+    const buriedTool = toolProto.render;
+    const buriedContainer = containerProto.render;
+    const buriedBash = bashProto.render;
+    const buriedAssistant = assistantProto.updateContent;
+    toolProto.render = function (this: unknown, width: number) {
+      return buriedTool.call(this, width);
+    };
+    containerProto.render = function (this: unknown, width: number) {
+      return buriedContainer.call(this, width);
+    };
+    bashProto.render = function (this: unknown, width: number) {
+      return buriedBash.call(this, width);
+    };
+    assistantProto.updateContent = function (
+      this: unknown,
+      ...args: unknown[]
+    ) {
+      buriedAssistant.apply(this, args);
+    };
+
+    try {
+      for (const handler of shutdownHandlers.splice(0)) handler();
+
+      const chat = new Container();
+      const row = createBashRow("npm test");
+      chat.addChild(row);
+      settle(row, "tests passed");
+      const collapsed = renderPlain(chat);
+      expect(collapsed).toContain("npm test");
+      expect(collapsed).not.toContain("│ $ npm test");
+
+      const bash = new BashExecutionComponent("ls", {
+        requestRender() {},
+      } as TUI);
+      bash.setComplete(0, false);
+      expect(bash.render(40).join("\n")).not.toContain(PROMPT_RAIL);
+
+      const message = {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "ponder" }],
+        stopReason: "stop",
+      } as never;
+      const assistant = new AssistantMessageComponent(message, true);
+      const updateContent = assistant.updateContent.bind(assistant) as (
+        message: unknown,
+        streaming?: boolean,
+      ) => void;
+      updateContent(message, false);
+      // Pi's default label is back, with none of our styling: the patch is
+      // inert and never replaced the label's text node.
+      const label = assistant
+        .render(40)
+        .find((line) => line.includes("Thinking"));
+      expect(label).toBeDefined();
+    } finally {
+      toolProto.render = buriedTool;
+      containerProto.render = buriedContainer;
+      bashProto.render = buriedBash;
+      assistantProto.updateContent = buriedAssistant;
+    }
   });
 });
 
@@ -1507,8 +1764,8 @@ describe("composition with pi-content-layout", () => {
   function expectGroupedAndInset(output: string): void {
     expect(output).not.toContain("%");
     expect(output.match(/│/g)).toHaveLength(2);
-    expect(output).toContain("│ $: npm test → done");
-    expect(output).toContain("│ $: npm run lint → done");
+    expect(output).toContain("│ $ npm test → done");
+    expect(output).toContain("│ $ npm run lint → done");
     expect(output).toMatch(/^ {2}Reloaded keybindings/m);
   }
 
@@ -1538,7 +1795,7 @@ describe("composition with pi-content-layout", () => {
       shutdownNext();
       const output = renderPlain(buildTranscript());
       expect(output).not.toContain("│ bash");
-      expect(output).not.toContain("│ $: npm test");
+      expect(output).not.toContain("│ $ npm test");
 
       // Content-layout's shutdown then restores the wrapper it captured —
       // the now-inert grouping wrapper — so system text loses its inset too.

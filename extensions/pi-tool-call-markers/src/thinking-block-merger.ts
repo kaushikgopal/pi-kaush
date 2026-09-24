@@ -49,56 +49,60 @@ type ThemeDetail = {
 // styles current across mid-session theme switches, which fire no event.
 let themeProvider: (() => ThemeDetail | undefined) | undefined;
 let activeLevel: (() => string) | undefined;
-// Theme object the current label styles were computed from.
-let stylesTheme: ThemeDetail | undefined;
+// Pi builds both thinking labels italic. The default treatment replaces that
+// with a plain row: italic-off always leads — the TUI diff renderer can skip
+// bytes shared with the previous italic frame, which would leave the terminal
+// italic — plus the resolved color when the theme supplies one. The `inherit`
+// variant is the only choice that keeps Pi's native italic styling.
+const ITALIC_OFF = "\x1b[23m";
 
 type LabelStyle = { prefix: string; suffix: string };
-let liveLabelStyle: LabelStyle | undefined;
-let settledLabelStyle: LabelStyle | undefined;
+
+// The package styles labels only inside a session it can read the theme from.
+// `inherit` is the other native case: it keeps Pi's italic labels.
+function stylesThinkingLabels(): boolean {
+  return themeProvider !== undefined && thoughtLabelColorChoice() !== "inherit";
+}
 
 function styledWith(
   token: string,
-  theme: ThemeDetail | undefined = themeProvider?.(),
+  theme: ThemeDetail | undefined,
 ): LabelStyle | undefined {
-  const ansi = theme?.getFgAnsi?.(token);
+  // Pi's Theme throws on a token it does not know, so probe the way muted.ts
+  // does: an unresolvable color costs the label its tint, never the row.
+  let ansi: string | undefined;
+  try {
+    const resolved = theme?.getFgAnsi?.(token);
+    if (typeof resolved === "string") ansi = resolved;
+  } catch {
+    ansi = undefined;
+  }
   if (!ansi) return undefined;
-  // The styled label replaces Pi's italicized Text node wholesale (see
-  // restyleHiddenThinkingLabel). The leading italic-off still matters: the
-  // TUI's diff renderer can skip bytes shared with the previously drawn
-  // italic line, leaving the terminal in italic state otherwise.
-  return { prefix: `\x1b[23m${ansi}`, suffix: "\x1b[39m" };
+  return { prefix: `${ITALIC_OFF}${ansi}`, suffix: "\x1b[39m" };
 }
 
 // The theme's collapsedThinkingCall override when defined, else its comment
 // color, else the muted token.
-function settledMutedStyle(
-  theme: ThemeDetail | undefined,
-): LabelStyle | undefined {
-  const ansi = theme ? collapsedThinkingAnsi(theme) : null;
-  if (ansi) return { prefix: `\x1b[23m${ansi}`, suffix: "\x1b[39m" };
+function settledMutedStyle(theme: ThemeDetail): LabelStyle | undefined {
+  const ansi = collapsedThinkingAnsi(theme);
+  if (ansi) return { prefix: `${ITALIC_OFF}${ansi}`, suffix: "\x1b[39m" };
   return styledWith("muted", theme);
 }
-function updateThoughtLabelStyle(): void {
-  liveLabelStyle = undefined;
-  settledLabelStyle = undefined;
-  const theme = themeProvider?.();
-  stylesTheme = theme;
-  const choice = thoughtLabelColorChoice();
-  if (choice === "inherit" || !theme) return;
 
+// Resolved per label, never cached: Pi swaps the colors behind a stable theme
+// Proxy, so a cached style would survive a theme switch and repaint the
+// transcript in the old palette.
+function labelStyle(
+  settled: boolean,
+  theme: ThemeDetail,
+): LabelStyle | undefined {
+  const choice = thoughtLabelColorChoice();
+  if (settled && choice !== "mdheading") return settledMutedStyle(theme);
   const token =
     choice === "mdheading"
       ? "mdHeading"
       : (LEVEL_TOKEN[activeLevel?.() ?? "off"] ?? "thinkingOff");
-  liveLabelStyle = styledWith(token, theme);
-  settledLabelStyle =
-    choice === "mdheading" ? liveLabelStyle : settledMutedStyle(theme);
-}
-
-// Recompute label styles whenever the theme object has swapped (theme switch
-// or /reload); those transitions fire no extension event.
-function ensureLabelStyles(): void {
-  if (themeProvider?.() !== stylesTheme) updateThoughtLabelStyle();
+  return styledWith(token, theme);
 }
 
 // The settled label is the finalized "+ Thought" row; every other label is
@@ -108,13 +112,14 @@ function isSettledThoughtLabel(label: string): boolean {
 }
 
 export function visibleThoughtLabel(label: string): string {
-  ensureLabelStyles();
-  const style = isSettledThoughtLabel(label)
-    ? settledLabelStyle
-    : liveLabelStyle;
-  if (!style) return label;
+  if (!stylesThinkingLabels()) return label;
   const raw = label.replace(/\x1b\[[0-9;]*m/g, "");
-  return `${style.prefix}${raw}${style.suffix}`;
+  const theme = themeProvider?.();
+  const style = theme
+    ? labelStyle(isSettledThoughtLabel(label), theme)
+    : undefined;
+  // A theme that cannot resolve a color still drops Pi's italics.
+  return style ? `${style.prefix}${raw}${style.suffix}` : `${ITALIC_OFF}${raw}`;
 }
 
 type AssistantMessageLike = {
@@ -133,6 +138,28 @@ type TextLikeChild = {
   setText?(text: string): void;
 };
 
+type MarkdownLikeChild = {
+  defaultTextStyle?: { italic?: boolean };
+  invalidate?(): void;
+};
+
+// Pi renders a visible thinking trace as italic markdown. Italic is the live
+// cue — a settled trace drops it and reads as ordinary transcript text — and
+// the italic default style is what identifies the trace: Pi passes it for
+// thinking content and for nothing else. Callers gate on the row actually
+// carrying thinking, so no other italic block is touched.
+function unitalicizeSettledThinking(row: AssistantMessageRow): void {
+  const children = row.contentContainer?.children;
+  if (!Array.isArray(children)) return;
+  for (const child of children) {
+    const markdown = child as MarkdownLikeChild | undefined;
+    const style = markdown?.defaultTextStyle;
+    if (style?.italic !== true) continue;
+    style.italic = false;
+    markdown?.invalidate?.();
+  }
+}
+
 // Pi renders the hidden-thinking label as an italic Text node built from the
 // plain label field. Embedding style codes in the field itself is not
 // enough: the TUI diff renderer reuses the byte prefix shared with the
@@ -149,7 +176,7 @@ function restyleHiddenThinkingLabel(row: AssistantMessageRow): void {
   const label = row.hiddenThinkingLabel;
   const children = row.contentContainer?.children;
   if (!Array.isArray(children)) return;
-  if (!liveLabelStyle && !settledLabelStyle) return;
+  if (!stylesThinkingLabels()) return;
   const styled = visibleThoughtLabel(label);
   for (const child of children) {
     const textChild = child as TextLikeChild | undefined;
@@ -171,6 +198,10 @@ type ThinkingTiming = {
 
 type ThinkingGroupingPatchState = {
   owners: number;
+  // Set at the final owner's shutdown. A wrapper another extension has buried
+  // cannot be uninstalled, so it delegates instead of outliving its owner; a
+  // later install re-enables it.
+  disabled?: boolean;
   originalUpdateContent: (
     message: AssistantMessageLike,
     ...args: unknown[]
@@ -180,13 +211,38 @@ type ThinkingGroupingPatchState = {
     ...args: unknown[]
   ) => void;
   timings: WeakMap<AssistantMessageRow, ThinkingTiming>;
-  // Last update per row, so /toggle-info can replay rows without waiting for
-  // new content. Cleared on session start; rows are session-lived anyway.
+  // Last update per tracked row, so /toggle-info can replay rows without
+  // waiting for new content. Only rows that carry thinking change under the
+  // toggle, and the map is capped so a long session or an abandoned branch
+  // cannot pin every message the transcript ever showed.
   rows: Map<
     AssistantMessageRow,
     { message: AssistantMessageLike; args: unknown[] }
   >;
 };
+
+const MAX_REPLAY_ROWS = 400;
+
+// Bookkeeping only, so it fails open: a message whose content shape throws
+// must not take the row's update pass down with it.
+function trackReplayRow(
+  state: ThinkingGroupingPatchState,
+  row: AssistantMessageRow,
+  message: AssistantMessageLike,
+  args: unknown[],
+): void {
+  try {
+    if (!hasThinkingContent(message)) return;
+    state.rows.set(row, { message, args });
+    while (state.rows.size > MAX_REPLAY_ROWS) {
+      const oldest = state.rows.keys().next().value;
+      if (oldest === undefined) return;
+      state.rows.delete(oldest);
+    }
+  } catch {
+    // The row keeps its native rendering; only /toggle-info replay misses it.
+  }
+}
 
 type ThinkingContentLike = {
   type: "thinking";
@@ -246,30 +302,40 @@ function thinkingSpinner(startedAt: number, now: number): string {
   return PI_SPINNER_FRAMES[frame % PI_SPINNER_FRAMES.length]!;
 }
 
+// A row is live while it streams, and stays live through un-flagged rebuilds
+// (resize, theme switch, /reload) until an explicit final update arrives.
+// Rows that never carry the flag — restored history, older runtimes — count
+// as settled.
+function thinkingStillLive(
+  streaming: boolean | undefined,
+  timing: ThinkingTiming | undefined,
+): boolean {
+  if (streaming === true) return true;
+  return (
+    streaming === undefined &&
+    timing !== undefined &&
+    timing.finishedAt === undefined
+  );
+}
+
 function lifecycleLabel(
   row: AssistantMessageRow,
   streaming: boolean | undefined,
   timings: WeakMap<AssistantMessageRow, ThinkingTiming>,
 ): string {
   const now = Date.now();
-  let current = timings.get(row);
-  if (streaming === true) {
-    if (!current || current.finishedAt !== undefined) {
-      current = { startedAt: now };
-      timings.set(row, current);
-    }
+  const previous = timings.get(row);
+  if (thinkingStillLive(streaming, previous)) {
+    const current =
+      previous && previous.finishedAt === undefined
+        ? previous
+        : { startedAt: now };
+    timings.set(row, current);
     return `${thinkingSpinner(current.startedAt, now)} Thinking…`;
   }
 
-  if (streaming === undefined && current?.finishedAt === undefined && current) {
-    // Pi can rebuild a live row on resize/theme changes without forwarding
-    // the optional streaming flag. Keep its active label until an explicit
-    // final update arrives.
-    return `${thinkingSpinner(current.startedAt, now)} Thinking…`;
-  }
-
-  if (streaming === false && current?.finishedAt === undefined) {
-    if (current) current.finishedAt = now;
+  if (streaming === false && previous && previous.finishedAt === undefined) {
+    previous.finishedAt = now;
   }
 
   const settled = timings.get(row);
@@ -353,6 +419,7 @@ function installThinkingGroupingPatch():
     if (existing) {
       existing.owners++;
       existing.rows ??= new Map();
+      existing.disabled = false;
       return existing;
     }
 
@@ -367,9 +434,14 @@ function installThinkingGroupingPatch():
       message: AssistantMessageLike,
       ...args: unknown[]
     ): void {
-      // Grouping and labels are cosmetic. Each fails open independently, and
+      // Grouping and styling are cosmetic. Each fails open independently, and
       // the original renderer is still called exactly once with every arg.
-      state.rows.set(this, { message, args });
+      if (state.disabled) {
+        Reflect.apply(state.originalUpdateContent, this, [message, ...args]);
+        return;
+      }
+      trackReplayRow(state, this, message, args);
+      const streaming = typeof args[0] === "boolean" ? args[0] : undefined;
       let combined = message;
       try {
         // Pi builds the hidden label and the visible block only when thinking
@@ -381,7 +453,6 @@ function installThinkingGroupingPatch():
         // Preserve the original message intact.
       }
       try {
-        const streaming = typeof args[0] === "boolean" ? args[0] : undefined;
         applyHiddenThinkingLabel(this, combined, streaming, state.timings);
       } catch {
         // Preserve Pi's native label if its private row shape changes.
@@ -391,6 +462,16 @@ function installThinkingGroupingPatch():
         restyleHiddenThinkingLabel(this);
       } catch {
         // Keep Pi's native label styling if the row shape changes.
+      }
+      try {
+        if (
+          hasThinkingContent(combined) &&
+          !thinkingStillLive(streaming, state.timings.get(this))
+        ) {
+          unitalicizeSettledThinking(this);
+        }
+      } catch {
+        // Keep Pi's native italic trace if the row shape changes.
       }
     };
 
@@ -412,6 +493,7 @@ function uninstallThinkingGroupingPatch(
   if (!state || state.owners <= 0) return false;
   state.owners--;
   if (state.owners > 0) return false;
+  state.disabled = true;
   const proto =
     AssistantMessageComponent?.prototype as unknown as AssistantMessageRow & {
       [THINKING_GROUPING_PATCHED]?: ThinkingGroupingPatchState;
@@ -453,17 +535,12 @@ export default function (pi: ExtensionAPI) {
         return "off";
       }
     };
-    updateThoughtLabelStyle();
   });
-  pi.on("thinking_level_select", () => updateThoughtLabelStyle());
   pi.on("session_shutdown", () => {
     if (released) return;
     released = true;
     if (patch && !uninstallThinkingGroupingPatch(patch)) return;
     themeProvider = undefined;
     activeLevel = undefined;
-    stylesTheme = undefined;
-    liveLabelStyle = undefined;
-    settledLabelStyle = undefined;
   });
 }

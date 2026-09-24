@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+- Read colors from the live palette instead of caching them against the
+  theme object. Pi swaps the palette behind a stable theme Proxy, so every
+  identity-keyed cache survived a theme switch: collapsed rows, the `+ Thought`
+  label, and user `!` blocks kept the old colors until their content changed.
+  Probes are map lookups, so the render caches now key on the resolved colors
+  (`paletteSample`, including the bash-block line cache) and the label
+  resolves its style per call.
+
+- Stop grouping from resurrecting a tool that opted out of the transcript. A
+  self-rendered tool that draws no lines stays hidden whether it renders alone
+  or beside another call: the singleton and grouped paths share one
+  draws-nothing rule.
+
+- Go inert at the final owner's shutdown. Every prototype wrapper — tool
+  presentation, container grouping, user bash blocks, thinking — delegates to
+  the original when another extension's wrapper has buried it and removal is
+  impossible, so collapsed rows and restyled labels cannot outlive their owner.
+  A later install re-enables the same wrappers.
+
+- Roll back a container hook that mutates the child list and then throws.
+  Its edit used to stick, dropping those rows from every later render. Both
+  copies of the shared hook contract changed together.
+
+- Own and release `/toggle-info` with the rest of the extension: the
+  process-global filter hook and the hidden flag now leave with the last owner
+  instead of filtering a transcript this package no longer renders.
+
+- Track thinking rows for the `/toggle-info` replay instead of every assistant
+  row, capped at 400 entries, so a long session or an abandoned branch cannot
+  pin every message the transcript ever showed.
+
+- Delete state nothing reads (the row→group map) and the duplicate
+  `session_start` handler that applied the collapsed default twice.
+
+- Drop the colon after every collapsed-row anchor: glyph rows read
+  `│ ● src/a.ts` and bash rows `│ $ npm test`. The anchor runs bold with a
+  single space before the call text, so the anchor alone separates the two.
+  The whole seam — glyph map, `$` prompt, subagent fallback heading, and the
+  tool-token drop — now lives in one function that both the singleton and
+  grouped render paths call, and self-rendered labels no longer leak their
+  tool name into the row under themes that tag instead of color.
+
+- Drop the italics Pi puts on thinking. The hidden `+ Thought` label renders
+  plain in every theme — the live spinner keeps its level tint, the settled
+  row its muted tone, and a theme that resolves no color still loses the
+  italics — and the visible trace stays italic only while it streams, then
+  renders as ordinary transcript text once the row settles. The live/settled
+  rule is shared with the label, so un-flagged row rebuilds (resize, theme
+  switch) keep a live trace italic and a finished one plain.
+  `PI_TOOL_CALL_MARKERS_THOUGHT_COLOR=inherit` remains the only opt-out that
+  keeps Pi's native italic styling.
+
+- Fail open when a theme rejects a thinking token. Pi's Theme throws on
+  tokens it does not know, so the label probe now falls back to the plain
+  treatment instead of throwing out of the row's update pass.
+
 - Restore Pi 0.85's click-to-expand under the custom collapsed rows. Pi routes
   mouse clicks by per-child rendered line heights, and the grouping render
   bypassed the native render that refreshes that cache, so clicks on anything

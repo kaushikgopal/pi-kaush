@@ -1,5 +1,6 @@
 import { BashExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { paletteSample } from "./muted.ts";
 
 type ThemeLike = {
   bold(text: string): string;
@@ -199,8 +200,15 @@ type BashRow = { status?: unknown };
 
 type BashBlockPatchState = {
   owners: number;
+  // Set at the final owner's shutdown. A wrapper another extension has buried
+  // cannot be uninstalled, so it delegates instead of outliving its owner; a
+  // later install re-enables it.
+  disabled?: boolean;
   theme?: ThemeLike;
-  cache: WeakMap<object, { width: number; src: string[]; lines: string[] }>;
+  cache: WeakMap<
+    object,
+    { width: number; src: string[]; lines: string[]; palette: string }
+  >;
   originalRender: (width: number) => string[];
   patchedRender?: (width: number) => string[];
 };
@@ -213,6 +221,7 @@ type BashBlockPatchState = {
 // TODO: Replace prototype patching with a public Pi rendering API when available.
 function installBashBlockPatch(): BashBlockPatchState | undefined {
   try {
+    console.error("BB new state");
     const proto = BashExecutionComponent?.prototype as unknown as BashRow & {
       [BASH_BLOCK_PATCHED]?: BashBlockPatchState;
       render?: (width: number) => string[];
@@ -222,6 +231,8 @@ function installBashBlockPatch(): BashBlockPatchState | undefined {
     const existing = proto[BASH_BLOCK_PATCHED];
     if (existing) {
       existing.owners++;
+      console.error("BB reuse owners", existing.owners);
+      existing.disabled = false;
       return existing;
     }
 
@@ -235,17 +246,24 @@ function installBashBlockPatch(): BashBlockPatchState | undefined {
       width: number,
     ): string[] {
       const theme = state.theme;
-      if (!theme) return state.originalRender.call(this, width);
+      if (state.disabled || !theme) {
+        return state.originalRender.call(this, width);
+      }
       const inset = bashBlockInset(width);
       const bodyWidth = width - inset * 2 - visibleWidth(PROMPT_RAIL);
       if (inset === 0 || bodyWidth < 8) {
         return state.originalRender.call(this, width);
       }
       const lines = state.originalRender.call(this, Math.max(1, bodyWidth));
+      // Decorated lines carry resolved colors, so the cache keys on the
+      // palette too: Pi swaps the colors behind a stable theme Proxy, which a
+      // theme-identity check would never notice.
+      const palette = paletteSample(theme);
       const entry = state.cache.get(this);
       if (
         entry &&
         entry.width === width &&
+        entry.palette === palette &&
         entry.src.length === lines.length &&
         entry.src.every((line, index) => line === lines[index])
       ) {
@@ -259,7 +277,7 @@ function installBashBlockPatch(): BashBlockPatchState | undefined {
         typeof status === "string" ? status : undefined,
         inset,
       );
-      state.cache.set(this, { width, src: lines, lines: decorated });
+      state.cache.set(this, { width, src: lines, lines: decorated, palette });
       return decorated;
     };
 
@@ -285,6 +303,7 @@ function uninstallBashBlockPatch(state: BashBlockPatchState | undefined): void {
   if (!state || state.owners <= 0) return;
   state.owners--;
   if (state.owners > 0) return;
+  state.disabled = true;
   const proto = BashExecutionComponent?.prototype as unknown as BashRow & {
     [BASH_BLOCK_PATCHED]?: BashBlockPatchState;
     render?: (width: number) => string[];

@@ -37,11 +37,17 @@ export function runChatContainerHooks(
   const restores: Array<() => void> = [];
   if (Array.isArray(children)) {
     for (const hook of chatContainerHooks()) {
+      // A hook rewrites `children` and hands back its own undo. Snapshot first:
+      // a hook that throws after splicing rows out would otherwise leave them
+      // missing from every later render, with nothing left to restore them.
+      const before = [...children];
       try {
         const restore = hook(container, children, width);
         if (typeof restore === "function") restores.push(restore);
       } catch {
         // Hooks are cosmetic; one failing hook must not break rendering.
+        children.length = 0;
+        children.push(...before);
       }
     }
   }

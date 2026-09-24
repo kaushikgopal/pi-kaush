@@ -19,27 +19,36 @@ type CollapsedTheme = {
   getFgAnsi?(color: string): string;
 };
 
-// Resolved per theme object (Pi's Theme throws on unknown tokens; themes
-// without getFgAnsi have no overrides), alongside index.ts's other
-// theme-identity-keyed caches.
-const ansiCache = new WeakMap<object, Map<string, string | null>>();
-
+// Probed live, never cached: Pi swaps the colors behind a stable theme
+// Proxy, so a value cached against the theme object outlives a theme switch.
+// A probe is one map lookup, and the Theme throws on tokens it does not know
+// (themes without getFgAnsi have no overrides at all).
 function tokenAnsi(theme: CollapsedTheme, token: string): string | null {
-  let cache = ansiCache.get(theme);
-  if (!cache) {
-    cache = new Map();
-    ansiCache.set(theme, cache);
-  }
-  if (cache.has(token)) return cache.get(token)!;
-  let ansi: string | null = null;
   try {
     const resolved = theme.getFgAnsi?.(token);
-    if (typeof resolved === "string") ansi = resolved;
+    return typeof resolved === "string" ? resolved : null;
   } catch {
-    ansi = null;
+    return null;
   }
-  cache.set(token, ansi);
-  return ansi;
+}
+
+// The tokens this package resolves from a palette.
+const PALETTE_TOKENS = [
+  TOOL_OVERRIDE_TOKEN,
+  THINKING_OVERRIDE_TOKEN,
+  DEFAULT_TOKEN,
+  "muted",
+  "toolOutput",
+  "accent",
+  "warning",
+  "error",
+] as const;
+
+// Revision key for rendered output that bakes resolved colors in. Compares
+// the colors themselves, so a mid-session theme switch is visible to every
+// cache that keys on it.
+export function paletteSample(theme: CollapsedTheme): string {
+  return PALETTE_TOKENS.map((token) => tokenAnsi(theme, token) ?? "").join(",");
 }
 
 // Override token when defined, else the theme's syntaxComment color, else

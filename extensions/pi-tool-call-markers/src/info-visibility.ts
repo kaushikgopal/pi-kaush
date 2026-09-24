@@ -6,6 +6,8 @@ import {
 import { chatContainerHooks } from "./container-hooks.ts";
 import {
   infoVisibilityHidden,
+  releaseInfoVisibilityOwner,
+  retainInfoVisibilityOwner,
   setInfoVisibilityHidden,
 } from "./info-visibility-state.ts";
 import { refreshThinkingVisibility } from "./thinking-block-merger.ts";
@@ -42,6 +44,7 @@ function infoFilterHook(
 }
 
 export function installInfoVisibility(pi: ExtensionAPI): void {
+  retainInfoVisibilityOwner();
   // The hook registry is process-global; dedupe by name so hot reloads swap
   // rather than stack.
   const hooks = chatContainerHooks();
@@ -67,8 +70,17 @@ export function installInfoVisibility(pi: ExtensionAPI): void {
     },
   });
 
-  // Every session starts in the default collapsed-but-visible state. No
-  // shutdown reset: extra shutdown handlers would sit between this package's
-  // owner-counted patch releases.
+  // Every session starts in the default collapsed-but-visible state.
   pi.on("session_start", () => setInfoVisibilityHidden(false));
+}
+
+// Released from the entrypoint's own shutdown handler, so a session still
+// tears down with one handler per install. The registry and the toggle are
+// process-global: while any owner remains, the hook stays; the last owner
+// removes it, so execution rows cannot keep disappearing from a transcript
+// this package no longer renders.
+export function uninstallInfoVisibility(): void {
+  if (releaseInfoVisibilityOwner() > 0) return;
+  chatContainerHooks().delete(infoFilterHook);
+  setInfoVisibilityHidden(false);
 }
