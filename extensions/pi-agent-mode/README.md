@@ -48,10 +48,12 @@ Agent frontmatter may declare a `model` (exact model, optional thinking
 suffix) or a `profile` — a named entry in the shared machine-local
 `~/.pi/agent/profiles.yaml` maintained by
 [@pi-kaush/pi-model-profiles](../pi-model-profiles). An agent must not declare
-both. Profile candidates are walked in order at activation and the first
-model that exists and is authenticated wins; once the session is running,
-models never switch mid-request. Agents without either keep the current
-session model.
+both. Before selecting a model, `/agent` refreshes Pi's local model catalog so
+models added during a long-lived session can be used; the parent session's
+`enabledModels` / `--models` cycling scope does not limit profile candidates.
+Profile candidates are walked in order at activation and the first model that
+exists and is authenticated wins; once the session is running, models never
+switch mid-request. Agents without either keep the current session model.
 
 `pi-agent-mode` loads `@pi-kaush/pi-model-profiles` lazily: if the library is
 missing, only agents that declare `profile:` fail (with an install hint) and

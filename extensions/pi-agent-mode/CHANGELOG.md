@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Refresh Pi's local model catalog before `/agent` model selection and baseline
+  restoration, so a long-lived session sees newly configured profile candidates
+  without using the parent's model-cycling scope. Report refresh failures without
+  changing the active agent.
 - Add `profile` frontmatter: activate a named model profile from the shared machine-local `~/.pi/agent/profiles.yaml` (`@pi-kaush/pi-model-profiles`), walking candidates in order and applying the first available model and thinking level.
 - Reject agents declaring both `profile` and `model`; precedence is explicit: profile first, then model, then the session default.
 - Load `@pi-kaush/pi-model-profiles` lazily so a missing library degrades only profile support; `/agent` remains fully functional without it.

@@ -64,8 +64,11 @@ interface PiHarness {
   branch: any[];
   notifications: Array<[string, string]>;
   statuses: Array<[string, string | undefined]>;
+  refreshOptions: Array<{ allowNetwork: boolean }>;
   confirmCalls: number;
   beforeAgentStart(systemPrompt: string): any;
+  queueModelOnRefresh(model: Model): void;
+  failNextRefresh(error: Error): void;
   removeModel(id: string): void;
   setAuthUnavailable(value: boolean): void;
   setConfirmResult(value: boolean): void;
@@ -115,6 +118,9 @@ function createHarness(root: string, branch: any[] = []): PiHarness {
     name: "Plain",
   };
   const models = [baselineModel, targetModel, plainModel];
+  const pendingModels: Model[] = [];
+  const refreshOptions: Array<{ allowNetwork: boolean }> = [];
+  let refreshError: Error | undefined;
 
   let currentModel: Model = baselineModel;
   let thinkingLevel = "medium";
@@ -134,7 +140,17 @@ function createHarness(root: string, branch: any[] = []): PiHarness {
     cwd,
     model: currentModel,
     hasUI: false,
+    scopedModels: [{ model: baselineModel }],
     modelRegistry: {
+      refresh: async (options: { allowNetwork: boolean }) => {
+        refreshOptions.push(options);
+        if (refreshError) {
+          const error = refreshError;
+          refreshError = undefined;
+          throw error;
+        }
+        models.push(...pendingModels.splice(0));
+      },
       find: (provider: string, id: string) =>
         models.find((model) => model.provider === provider && model.id === id),
       getAll: () => models,
@@ -203,11 +219,18 @@ function createHarness(root: string, branch: any[] = []): PiHarness {
     branch,
     notifications,
     statuses,
+    refreshOptions,
     get confirmCalls() {
       return confirmCalls;
     },
     beforeAgentStart(systemPrompt: string) {
       return handlers.get("before_agent_start")!({ systemPrompt }, ctx);
+    },
+    queueModelOnRefresh(model: Model) {
+      pendingModels.push(model);
+    },
+    failNextRefresh(error: Error) {
+      refreshError = error;
     },
     removeModel(id: string) {
       const index = models.findIndex((model) => model.id === id);
@@ -407,6 +430,102 @@ describe("pi-agent-mode", () => {
         thinkingLevel: "medium",
         activeTools: ["read", "bash"],
       });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refreshes the local catalog before choosing a profile candidate", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      mkdirSync(join(root, "home", ".pi"), { recursive: true });
+      writeFileSync(
+        join(root, "home", ".pi", "profiles.yaml"),
+        "version: 1\nprofiles:\n  coder:\n    description: Coding work\n    candidates:\n      - model: provider/target\n        thinkingLevel: high\n      - model: provider/plain\n",
+      );
+      const agentsDir = join(root, "home", ".pi", "agents");
+      mkdirSync(agentsDir, { recursive: true });
+      writeFileSync(
+        join(agentsDir, "builder.md"),
+        "---\nname: builder\ndescription: builder agent\nprofile: coder\n---\nBuild.\n",
+      );
+      const harness = createHarness(root);
+      harness.removeModel("target");
+      harness.queueModelOnRefresh({
+        provider: "provider",
+        id: "target",
+        name: "Target",
+      });
+
+      await harness.activate("builder");
+      expect(harness.state()).toMatchObject({
+        model: "target",
+        thinkingLevel: "high",
+      });
+      expect(harness.refreshOptions).toEqual([{ allowNetwork: false }]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refreshes explicit agent models and the baseline on clear", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      writeAgent(
+        join(root, "home", ".pi", "agents"),
+        "builder",
+        "provider/target",
+      );
+      const harness = createHarness(root);
+      harness.removeModel("target");
+      harness.queueModelOnRefresh({
+        provider: "provider",
+        id: "target",
+        name: "Target",
+      });
+
+      await harness.activate("builder");
+      expect(harness.state().model).toBe("target");
+
+      harness.removeModel("baseline");
+      harness.queueModelOnRefresh({
+        provider: "provider",
+        id: "baseline",
+        name: "Baseline",
+      });
+      await harness.activate("none");
+      expect(harness.state().model).toBe("baseline");
+      expect(harness.refreshOptions).toEqual([
+        { allowNetwork: false },
+        { allowNetwork: false },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("reports a catalog refresh failure without changing the active model", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-agent-mode-"));
+    try {
+      writeAgent(
+        join(root, "home", ".pi", "agents"),
+        "builder",
+        "provider/target",
+      );
+      const harness = createHarness(root);
+      harness.failNextRefresh(new Error("invalid models.json"));
+
+      await harness.activate("builder");
+      expect(harness.state()).toEqual({
+        model: "baseline",
+        thinkingLevel: "medium",
+        activeTools: ["read", "bash"],
+      });
+      expect(harness.entries).toHaveLength(0);
+      expect(harness.notifications).toContainEqual([
+        "Could not refresh model catalog: invalid models.json",
+        "error",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

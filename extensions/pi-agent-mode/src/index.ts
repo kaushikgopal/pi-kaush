@@ -148,6 +148,26 @@ export function registerAgentMode(pi: ExtensionAPI) {
     pi.appendEntry(PI_AGENT_MODE_STATE_TYPE, state);
   }
 
+  async function refreshModelCatalog(ctx: ExtensionContext): Promise<boolean> {
+    try {
+      // Activation may happen after models.json changes in a long-lived session.
+      // Pi 0.80 accepts no options; newer Pi can suppress remote catalog fetches.
+      // The cycling scope is independent of the models an agent may select.
+      await (
+        ctx.modelRegistry.refresh as (options: {
+          allowNetwork: boolean;
+        }) => void | Promise<unknown>
+      )({ allowNetwork: false });
+      return true;
+    } catch (error) {
+      ctx.ui.notify(
+        `Could not refresh model catalog: ${error instanceof Error ? error.message : error}`,
+        "error",
+      );
+      return false;
+    }
+  }
+
   function findModel(modelSpec: string, ctx: ExtensionContext) {
     const spec = modelSpec.trim();
     const separator = spec.indexOf("/");
@@ -175,6 +195,7 @@ export function registerAgentMode(pi: ExtensionAPI) {
     if (ctx.model?.provider === model.provider && ctx.model.id === model.id)
       return true;
 
+    if (!(await refreshModelCatalog(ctx))) return false;
     const resolved = ctx.modelRegistry.find(model.provider, model.id);
     if (!resolved) {
       ctx.ui.notify(
@@ -290,6 +311,8 @@ export function registerAgentMode(pi: ExtensionAPI) {
       );
       return false;
     }
+    if ((agent.profile || agent.model) && !(await refreshModelCatalog(ctx)))
+      return false;
     if (agent.profile) {
       const applied = await applyProfileModels(agent, ctx);
       if (!applied) return false;
