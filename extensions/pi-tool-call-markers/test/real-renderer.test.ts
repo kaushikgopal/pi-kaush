@@ -1772,6 +1772,7 @@ describe("asked questions", () => {
         "  ▎",
         "  ▎ > First question?",
         "  ▎ User: Alpha",
+        "  ▎",
         "  ▎ > Second question?",
         "  ▎ User: typed by hand",
         "  ▎",
@@ -1979,6 +1980,89 @@ describe("asked questions", () => {
       expect(runLength(answerLine)).toBe(runLength(reference));
       expect(runEnd(answerLine)).toBe(runEnd(reference));
       expect(visibleWidth(answerLine)).toBe(visibleWidth(reference));
+    });
+  });
+
+  test("separates each question with one painted blank row", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const asked = ["One?", "Two?", "Three?"];
+      const content = "a line of answer";
+      const row = createQuestionRow("ask-spacing", "ask_user_question", {
+        questions: asked.map((question) => ({
+          ...DEFAULT_ARGS.questions[0]!,
+          question,
+        })),
+      });
+      chat.addChild(row);
+      answer(row, {
+        answers: asked.map((question, questionIndex) => ({
+          questionIndex,
+          question,
+          kind: "custom",
+          answer: content,
+        })),
+        cancelled: false,
+      });
+
+      const rendered = chat.render(60);
+      expect(renderPlain(chat).split("\n")).toEqual([
+        "  ▎",
+        "  ▎ > One?",
+        `  ▎ User: ${content}`,
+        "  ▎",
+        "  ▎ > Two?",
+        `  ▎ User: ${content}`,
+        "  ▎",
+        "  ▎ > Three?",
+        `  ▎ User: ${content}`,
+        "  ▎",
+      ]);
+      // Every spacer is a fully painted body row, not a bare blank line.
+      const bodyRows = rendered.filter((line) => line.includes(SURFACE_BG));
+      expect(bodyRows).toHaveLength(
+        rendered.filter((line) => line !== "").length,
+      );
+    });
+  });
+
+  test("keeps a lone question's outcome on the line after it", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-lone-decline");
+      chat.addChild(row);
+      answer(row, { answers: [], cancelled: true });
+
+      expect(renderPlain(chat).split("\n")).toEqual([
+        "  ▎",
+        `  ▎ > ${ASKED}`,
+        "  ▎ User declined to answer questions",
+        "  ▎",
+      ]);
+    });
+  });
+
+  test("separates a global outcome from a multi-question ask", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-pair-decline", "ask_user_question", {
+        questions: [
+          { ...DEFAULT_ARGS.questions[0]!, question: "First?" },
+          { ...DEFAULT_ARGS.questions[0]!, question: "Second?" },
+        ],
+      });
+      chat.addChild(row);
+      answer(row, { answers: [], cancelled: true });
+
+      expect(renderPlain(chat).split("\n")).toEqual([
+        "  ▎",
+        "  ▎ > First?",
+        "  ▎",
+        "  ▎ > Second?",
+        "  ▎",
+        "  ▎ User declined to answer questions",
+        "  ▎",
+      ]);
     });
   });
 

@@ -22,6 +22,13 @@
   existing `!`-block shape (1/0) come from one code path instead of the body
   width being hardcoded.
 
+- Separate asked questions with one painted blank row. Adjacent questions ran
+  together as one wall of text; each question/answer pair now gets a blank body
+  row between it and the next. A lone question keeps its outcome on the
+  following line, and a global outcome (still awaiting, or declined) is
+  separated from a multi-question ask so it cannot read as answering only the
+  last question.
+
 - Extract the railed prompt shell into `src/prompt-shell.ts`. User `!` blocks
   and asked-question blocks share one implementation of the inset, rail,
   surface background, and background repaint instead of two.

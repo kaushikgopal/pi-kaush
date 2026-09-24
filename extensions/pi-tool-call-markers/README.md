@@ -55,6 +55,7 @@ A call that asks the user something is a user-input moment, not an execution row
   ▎
   ▎ > Which call-site shape should `notifications:` use?
   ▎ User: Nested within subagent (Recommended)
+  ▎
   ▎ > Which tier should the flag read at runtime?
   ▎ User: Client only, Client and server
   ▎
@@ -66,6 +67,7 @@ The block reuses `pi-content-layout`'s submitted-prompt geometry — the same ra
 - **Answers, not options.** Each question shows its answer: an option label, typed custom text, or multi-select labels joined with commas. A question left blank reads `User: (no answer)`, a decline reads `User declined to answer questions`, and a validation failure keeps Pi's native failure row.
 - **Quoted questions.** The question is the model's text read inside a user-input shell, so it renders italic under a `>` marker and the answer stays upright: the answer is the user's own words. A theme without italics renders the question plainly.
 - **Prompt-shell tones.** The rail uses `borderAccent` and the body paints on `userMessageBg`, with the question in `text`, the `User:` label in `muted`, the answer in `userMessageText`, and a live row's `awaiting your answer…` in `warning`.
+- **One blank row per question.** Questions are separated by a painted blank row so a multi-question ask stays scannable. A lone question keeps its outcome on the following line.
 - **No grouping.** Question blocks never join an adjacent tool group and carry no tool glyph. `Ctrl+O` still restores Pi's native expanded rendering.
 
 ## Edit diffs

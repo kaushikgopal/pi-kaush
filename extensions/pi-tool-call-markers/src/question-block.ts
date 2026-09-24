@@ -41,7 +41,9 @@ type AnswerEntry = {
 type QuestionLine =
   | { kind: "question"; text: string }
   | { kind: "answer"; text: string }
-  | { kind: "status"; text: string; tone: "muted" | "warning" };
+  | { kind: "status"; text: string; tone: "muted" | "warning" }
+  // A painted blank body row; the shell gives it the prompt surface.
+  | { kind: "spacer" };
 
 // rpiv's canonical decline text, reused verbatim so the transcript says what
 // the model was told.
@@ -173,30 +175,38 @@ function questionLines(
   }
   if (pairs.length === 0) return undefined;
 
-  const lines: QuestionLine[] = [];
-  const questions = pairs.map(
-    (pair): QuestionLine => ({ kind: "question", text: pair.question }),
-  );
-  if (row.isPartial === true) {
-    return [
-      ...questions,
-      { kind: "status", text: AWAITING_TEXT, tone: "warning" },
-    ];
-  }
-  if (
+  const pending = row.isPartial === true;
+  const declined =
+    !pending &&
     isRecord(details) &&
     details.cancelled === true &&
-    pairs.every((pair) => pair.answer === undefined)
-  ) {
-    return [
-      ...questions,
-      { kind: "status", text: DECLINE_TEXT, tone: "muted" },
-    ];
+    pairs.every((pair) => pair.answer === undefined);
+
+  // One group per question. Groups are separated by a painted blank row so a
+  // multi-question ask stays scannable.
+  const groups: QuestionLine[][] = pairs.map((pair) => {
+    const group: QuestionLine[] = [{ kind: "question", text: pair.question }];
+    if (!pending && !declined) {
+      group.push({ kind: "answer", text: pair.answer ?? NO_ANSWER_TEXT });
+    }
+    return group;
+  });
+  if (pending || declined) {
+    const status: QuestionLine = pending
+      ? { kind: "status", text: AWAITING_TEXT, tone: "warning" }
+      : { kind: "status", text: DECLINE_TEXT, tone: "muted" };
+    // A lone question keeps its outcome on the following line; a
+    // multi-question ask separates the global outcome so it cannot read as
+    // answering only the last question.
+    if (groups.length > 1) groups.push([status]);
+    else groups[0]!.push(status);
   }
-  for (const pair of pairs) {
-    lines.push({ kind: "question", text: pair.question });
-    lines.push({ kind: "answer", text: pair.answer ?? NO_ANSWER_TEXT });
-  }
+
+  const lines: QuestionLine[] = [];
+  groups.forEach((group, index) => {
+    if (index > 0) lines.push({ kind: "spacer" });
+    lines.push(...group);
+  });
   return lines;
 }
 
@@ -258,6 +268,7 @@ function styleLine(
   width: number,
   theme: QuestionTheme,
 ): string[] {
+  if (line.kind === "spacer") return [""];
   const prefix =
     line.kind === "question"
       ? QUESTION_PREFIX
