@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Use Pi's embedded status indicator in the active prompt's top edge when supported, while keeping the aligned transcript-row fallback for older Pi versions.
+- Restore Pi's native active editor border and terminal background, so its embedded status interrupts the top rule as in native Pi. Submitted user messages keep their darker railed shell. Older Pi versions keep the aligned transcript-row status fallback.
 
 - Roll back a chat-container hook that mutates the child list and then throws.
   Its edit used to stick, dropping those rows from every later render. The

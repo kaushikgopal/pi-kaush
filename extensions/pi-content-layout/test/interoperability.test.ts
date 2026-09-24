@@ -244,13 +244,10 @@ describe.each(["inline-first", "layout-first"] as const)(
       const editorLine = editor
         ?.render(50)
         .find((line) => stripControls(line).includes("@x"));
-      expect(stripControls(editorLine ?? "")).toMatch(/^  @x/);
+      expect(stripControls(editorLine ?? "")).toMatch(/^ @x/);
       expect(stripControls(editorLine ?? "")).not.toContain("▎");
       expect(editorLine).toContain("\x1b[35m@x\x1b[39m");
-      expect(editorLine).toContain(
-        `\x1b[35m@x\x1b[39m${theme.getFgAnsi("userMessageText")}`,
-      );
-      expect(editorLine).toContain(SURFACE_BG);
+      expect(editorLine).not.toContain(SURFACE_BG);
 
       const thinkingMessage = {
         role: "assistant",
@@ -292,9 +289,8 @@ describe.each(["inline-first", "layout-first"] as const)(
         },
       );
       const footerLines = footer?.render(50) ?? [];
-      expect(footerLines).toHaveLength(2);
-      expect(footerLines[0]).toBe("");
-      const footerLine = footerLines[1];
+      expect(footerLines).toHaveLength(1);
+      const footerLine = footerLines[0];
       expect(footerLine?.startsWith("  ")).toBe(true);
       expect(footerLine?.endsWith("  ")).toBe(true);
       footer?.dispose();

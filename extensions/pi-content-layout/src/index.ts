@@ -22,7 +22,6 @@ import { renderIntercomMessage } from "./intercom-message.ts";
 import {
   contentInset,
   insetLines,
-  renderActiveEditor,
   renderSubmittedUserLines,
 } from "./render.ts";
 
@@ -428,29 +427,17 @@ function supportsEmbeddedWorkingStatus(editor: EditorComponent): boolean {
   );
 }
 
-function decorateEditor(
-  editor: EditorComponent,
-  getTheme: ThemeGetter,
-): EditorComponent {
-  const target = editor as EditorComponent & {
-    borderColor?: (text: string) => string;
-  };
-  const embedsWorkingStatus = supportsEmbeddedWorkingStatus(target);
+function decorateEditor(editor: EditorComponent): EditorComponent {
+  const embedsWorkingStatus = supportsEmbeddedWorkingStatus(editor);
 
-  return new Proxy(target, {
+  return new Proxy(editor, {
     get(component, property) {
       if (property === "render") {
         return (width: number) => {
-          const render = () => {
-            const theme = getTheme();
-            return theme
-              ? renderActiveEditor(component, width, theme)
-              : component.render(width);
-          };
-          if (!embedsWorkingStatus) return render();
+          if (!embedsWorkingStatus) return component.render(width);
           embeddedStatusRenderDepth += 1;
           try {
-            return render();
+            return component.render(width);
           } finally {
             embeddedStatusRenderDepth -= 1;
           }
@@ -549,7 +536,7 @@ export default function contentLayout(pi: ExtensionAPI): void {
             keybindings,
             EMBEDDED_STATUS_EDITOR_OPTIONS,
           );
-      return decorateEditor(editor, getTheme);
+      return decorateEditor(editor);
     };
     editorRegistration = { factory, previous };
     ctx.ui.setEditorComponent(factory);

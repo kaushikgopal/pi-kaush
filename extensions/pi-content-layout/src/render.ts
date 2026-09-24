@@ -1,16 +1,13 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import type { EditorComponent } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 export const OUTER_INSET = 2;
 export const PROMPT_RAIL = "▎";
-export const ACTIVE_SIDE_PADDING = 1;
+const SUBMITTED_SIDE_PADDING = 1;
 
-// The prompt surface (active editor block and submitted message body) paints
-// with the theme's userMessageBg token, so both user-input surfaces stay
-// identical while following the active theme. userMessageBg is a required pi
-// theme token; the legacy hex remains only as a fallback for theme lookalikes
-// that cannot resolve it (test fakes, older hosts).
+// Submitted message bodies paint with the theme's userMessageBg token.
+// The active editor uses Pi's native terminal background. The legacy hex
+// remains only as a fallback for theme lookalikes that cannot resolve it.
 const PROMPT_SURFACE_BG_FALLBACK = "\x1b[48;2;7;19;18m"; // #071312
 
 export function promptSurfaceBg(theme: Theme): string {
@@ -21,15 +18,9 @@ export function promptSurfaceBg(theme: Theme): string {
   }
 }
 
-const BORDER_SENTINEL = "\x1b]133;P;pi-content-layout\x07";
 const SGR_PATTERN = /\x1b\[([0-9;]*)m/g;
 const BACKGROUND_PATTERN =
   /\x1b\[(?:4[0-8]|10[0-7]|48;5;\d{1,3}|48;2;\d{1,3};\d{1,3};\d{1,3})m/g;
-const DISPLAY_ANSI_PATTERN = /\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
-
-type BorderEditor = EditorComponent & {
-  borderColor?: (text: string) => string;
-};
 
 export function contentInset(width: number): number {
   return width > OUTER_INSET * 2 ? OUTER_INSET : 0;
@@ -97,41 +88,6 @@ function reapplyBackgroundAfterReset(
   });
 }
 
-function leavesForegroundReset(rawParameters: string): boolean {
-  const parameters =
-    rawParameters === "" ? [0] : rawParameters.split(";").map(Number);
-  let foregroundIsDefault = false;
-  for (let index = 0; index < parameters.length; index++) {
-    const parameter = parameters[index];
-    if (parameter === 38) {
-      foregroundIsDefault = false;
-      const mode = parameters[index + 1];
-      if (mode === 5) index += 2;
-      if (mode === 2) index += 4;
-    } else if (parameter === 0 || parameter === 39) {
-      foregroundIsDefault = true;
-    } else if (
-      parameter !== undefined &&
-      ((parameter >= 30 && parameter <= 37) ||
-        (parameter >= 90 && parameter <= 97))
-    ) {
-      foregroundIsDefault = false;
-    }
-  }
-  return foregroundIsDefault;
-}
-
-function paintForeground(text: string, foregroundAnsi: string): string {
-  const content = text.replace(
-    SGR_PATTERN,
-    (sequence, rawParameters: string) =>
-      leavesForegroundReset(rawParameters)
-        ? `${sequence}${foregroundAnsi}`
-        : sequence,
-  );
-  return `${foregroundAnsi}${content}\x1b[39m`;
-}
-
 export function paintBackground(
   line: string,
   width: number,
@@ -140,120 +96,6 @@ export function paintBackground(
   const fitted = fitLine(line, width);
   // Mirrors Theme.bg: background, content, then a background-only reset.
   return `${backgroundAnsi}${reapplyBackgroundAfterReset(fitted, backgroundAnsi)}\x1b[49m`;
-}
-
-function stripDisplayAnsi(text: string): string {
-  return text.replace(DISPLAY_ANSI_PATTERN, "");
-}
-
-function scrollHint(line: string): string | undefined {
-  return stripDisplayAnsi(line).match(/[↑↓] \d+ more/)?.[0];
-}
-
-function hasEmbeddedStatus(line: string): boolean {
-  const withoutScrollHint = stripDisplayAnsi(line).replace(
-    /[↑↓] \d+ more/g,
-    "",
-  );
-  return /[^ \t─]/.test(withoutScrollHint);
-}
-
-function activeBlockLine(
-  line: string,
-  isBoundary: boolean,
-  width: number,
-  theme: Theme,
-): string {
-  const hint = isBoundary ? scrollHint(line) : undefined;
-  const body = hint
-    ? theme.fg("muted", ` ${hint}`)
-    : isBoundary
-      ? ""
-      : paintForeground(line, theme.getFgAnsi("userMessageText"));
-  const innerWidth = Math.max(0, width - ACTIVE_SIDE_PADDING * 2);
-  const padding = " ".repeat(ACTIVE_SIDE_PADDING);
-  return paintBackground(
-    `${padding}${fitLine(body, innerWidth)}${padding}`,
-    width,
-    promptSurfaceBg(theme),
-  );
-}
-
-function activeStatusBorderLine(
-  line: string,
-  width: number,
-  theme: Theme,
-): string {
-  const innerWidth = Math.max(0, width - ACTIVE_SIDE_PADDING * 2);
-  const padding = " ".repeat(ACTIVE_SIDE_PADDING);
-  const surfaceBg = promptSurfaceBg(theme);
-  const content = fitLine(replaceBackground(line, surfaceBg), innerWidth);
-  return paintBackground(`${padding}${content}${padding}`, width, surfaceBg);
-}
-
-function markEditorBoundaries(editor: BorderEditor): () => void {
-  const original = editor.borderColor;
-  if (typeof original !== "function") return () => {};
-  editor.borderColor = (text: string) =>
-    `${BORDER_SENTINEL}${original(text)}${BORDER_SENTINEL}`;
-  return () => {
-    editor.borderColor = original;
-  };
-}
-
-export function renderActiveEditor(
-  editor: BorderEditor,
-  width: number,
-  theme: Theme,
-): string[] {
-  const editorWidth = width - ACTIVE_SIDE_PADDING * 2;
-  if (editorWidth < 1 || typeof editor.borderColor !== "function") {
-    return editor.render(width);
-  }
-
-  const restoreBorder = markEditorBoundaries(editor);
-  let markedLines: string[];
-  try {
-    markedLines = editor.render(editorWidth);
-  } finally {
-    restoreBorder();
-  }
-
-  try {
-    const boundaries = markedLines
-      .map((line, index) => (line.includes(BORDER_SENTINEL) ? index : -1))
-      .filter((index) => index >= 0);
-    if (boundaries.length !== 2 || boundaries[0] !== 0) {
-      return editor.render(width);
-    }
-
-    const bottomBoundary = boundaries[1];
-    if (bottomBoundary === undefined || bottomBoundary <= 0) {
-      return editor.render(width);
-    }
-
-    const cleanLines = markedLines.map((line) =>
-      line.split(BORDER_SENTINEL).join(""),
-    );
-    const block = cleanLines.slice(0, bottomBoundary + 1).map((line, index) => {
-      if (index === 0 && hasEmbeddedStatus(line)) {
-        return activeStatusBorderLine(line, width, theme);
-      }
-      return activeBlockLine(
-        line,
-        index === 0 || index === bottomBoundary,
-        width,
-        theme,
-      );
-    });
-    const suggestions = cleanLines
-      .slice(bottomBoundary + 1)
-      .map((line) => fitLine(line, width));
-
-    return [...block, ...suggestions];
-  } catch {
-    return editor.render(width);
-  }
 }
 
 function replaceBackground(text: string, backgroundAnsi: string): string {
@@ -282,9 +124,9 @@ export function renderSubmittedUserLines(
     // The rail glyph (▎) fills only the left quarter of its cell, so one
     // column of left padding already reads as a two-column visual gap.
     // Give the right edge two columns so both sides of the text read equal.
-    const leftPadding = " ".repeat(ACTIVE_SIDE_PADDING);
-    const rightPadding = " ".repeat(ACTIVE_SIDE_PADDING + 1);
-    const innerWidth = Math.max(1, bodyWidth - ACTIVE_SIDE_PADDING * 2 - 1);
+    const leftPadding = " ".repeat(SUBMITTED_SIDE_PADDING);
+    const rightPadding = " ".repeat(SUBMITTED_SIDE_PADDING + 1);
+    const innerWidth = Math.max(1, bodyWidth - SUBMITTED_SIDE_PADDING * 2 - 1);
     const body = paintBackground(
       `${leftPadding}${fitLine(recolored, innerWidth)}${rightPadding}`,
       bodyWidth,

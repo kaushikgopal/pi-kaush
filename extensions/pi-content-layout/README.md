@@ -1,6 +1,6 @@
 # pi-content-layout
 
-A small Pi extension that insets the main conversation, renders the active editor as a full-width dark surface, and gives submitted prompts a compact rail shell.
+A small Pi extension that insets the main conversation, leaves the active editor in Pi's native style, and gives submitted prompts a compact rail shell.
 
 ### Install
 
@@ -14,10 +14,10 @@ Restart Pi or run `/reload`.
 Assistant output
   Text wraps inside the inset width.
 
-Active prompt
-████████████████████████████████████████████████
-  prompt text                        darker background
-████████████████████████████████████████████████
+Active prompt (native Pi border and terminal background)
+── ⠋ Working ───────────────────────────────────
+ prompt text
+────────────────────────────────────────────────
 
 Submitted prompt
   ▎                                            darker background
@@ -25,7 +25,7 @@ Submitted prompt
   ▎                                            darker background
 ```
 
-Assistant and submitted-message content keep the two-column outer inset. The active prompt intentionally ignores that inset: its darker background fills the terminal width, with no rail and one extra layout column on each side of Pi's configured editor padding. When Pi embeds a status indicator, it appears along the prompt's top edge; otherwise the top and bottom rows remain background padding or carry real scroll indicators. The submitted prompt remains unchanged: it keeps Pi's message padding and the thin rail outside its darker body. Autocomplete stays outside the active surface.
+Assistant and submitted-message content keep the two-column outer inset. The active prompt uses its editor's native border, terminal background, and padding. Pi embeds its status indicator in the top border when supported. The submitted prompt keeps Pi's message padding, with the thin rail outside its darker body.
 
 ## Scope boundary
 
@@ -90,22 +90,15 @@ If you manage Pi package sources directly, add the package to `settings.json`:
 
 ## Theme ownership
 
-The active editor surface and submitted message body paint with a fixed
-near-black `#071312` background (`PROMPT_SURFACE_BG`) so both user-input
-surfaces stay identical; the theme's `selectedBg` token continues to serve
-selections and dialogs. Active input uses the theme's `userMessageText`
-foreground and restores it after embedded ANSI resets without overriding
-inline identifier colors. The extension also consumes `accent` for the
-submitted-prompt rail and `muted` for editor scroll hints.
+The active editor uses Pi's native terminal background (light with a light theme, dark with a dark theme). Submitted message bodies paint with the theme's `userMessageBg` token, and their rails use `borderAccent`.
 
-Themes control colors, while this extension controls width and component
-shape; a theme cannot provide the layout itself.
+Themes control colors; this extension controls transcript spacing and the submitted-prompt shape.
 
 ## Composition and compatibility
 
-The editor factory wraps the currently configured custom editor, or creates Pi's `CustomEditor` when none exists. It decorates `render()` only; text handling, callbacks, autocomplete, history, paste, application keybindings, image paste, and extension shortcuts remain on Pi's editor.
+The editor factory wraps the currently configured custom editor, or creates Pi's `CustomEditor` when none exists. It preserves the editor's native rendering and input behavior. The wrapper only prevents transcript-specific status indentation from affecting a status embedded in the editor border.
 
-The default editor opts into Pi's `embedWorkingStatus` behavior when the host supports it, so status indicators appear along the active prompt's top edge. Older Pi versions keep the separate status row, which this package still aligns with the transcript.
+The default editor opts into Pi's `embedWorkingStatus` behavior when the host supports it, so status indicators interrupt the active prompt's top border. Older Pi versions keep the separate status row, which this package still aligns with the transcript.
 
 Pi does not currently expose public renderers for native user and assistant messages or queued steering previews. Their layout and styling use guarded adapters around Pi's exported components. The adapters restore the original renderers on shutdown and fall back to native rendering when the expected component shape changes.
 

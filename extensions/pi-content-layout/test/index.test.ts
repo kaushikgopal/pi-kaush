@@ -24,7 +24,7 @@ import {
   runChatContainerHooks,
 } from "../src/container-hooks.ts";
 import contentLayout from "../src/index.ts";
-import { ACTIVE_SIDE_PADDING, OUTER_INSET } from "../src/render.ts";
+import { OUTER_INSET } from "../src/render.ts";
 
 const CSI_RE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 const CONTROL_RE =
@@ -163,7 +163,7 @@ afterEach(() => {
 });
 
 describe("editor factory composition", () => {
-  test("wraps the previous editor render while forwarding its behavior", () => {
+  test("keeps the previous editor's native border and behavior", () => {
     const target = new TestEditor();
     target.text = "hello";
     const previous: EditorFactory = () => target;
@@ -188,12 +188,11 @@ describe("editor factory composition", () => {
 
     const lines = editor?.render(30) ?? [];
     expect(lines).toHaveLength(3);
-    expect(stripControls(lines[0] ?? "")).toMatch(/^\s+$/);
-    expect(stripControls(lines[1] ?? "")).toMatch(/^ changed/);
-    expect(stripControls(lines[2] ?? "")).toMatch(/^\s+$/);
+    expect(stripControls(lines[0] ?? "")).toBe("─".repeat(30));
+    expect(stripControls(lines[1] ?? "")).toMatch(/^changed/);
+    expect(stripControls(lines[2] ?? "")).toBe("─".repeat(30));
     expect(lines.every((line) => visibleWidth(line) === 30)).toBe(true);
-    expect(lines.every((line) => line.includes(SURFACE_BG))).toBe(true);
-    expect(lines[1]).toContain(`${theme.getFgAnsi("userMessageText")}changed`);
+    expect(lines.every((line) => !line.includes(SURFACE_BG))).toBe(true);
     expect(stripControls(lines.join("\n"))).not.toContain("▎");
 
     harness.fire("session_shutdown");
@@ -216,9 +215,11 @@ describe("editor factory composition", () => {
     );
     expect(editor).toBeDefined();
     expect("actionHandlers" in (editor ?? {})).toBe(true);
-    expect(editor?.render(30).every((line) => visibleWidth(line) === 30)).toBe(
-      true,
-    );
+    const lines = editor?.render(30) ?? [];
+    expect(lines.every((line) => visibleWidth(line) === 30)).toBe(true);
+    expect(stripControls(lines[0] ?? "")).toContain("─");
+    expect(stripControls(lines.at(-1) ?? "")).toContain("─");
+    expect(lines.every((line) => !line.includes(SURFACE_BG))).toBe(true);
   });
 
   test("preserves real editor input, cursor, multiline, paste, and submission", () => {
@@ -443,8 +444,7 @@ describe("native transcript adapters", () => {
     const editorLine = editor
       ?.render(width)
       .find((line) => stripControls(line).includes("editor probe"));
-    expect(ACTIVE_SIDE_PADDING + target.paddingX).toBe(OUTER_INSET);
-    expect(columnOf(editorLine, "editor probe")).toBe(OUTER_INSET);
+    expect(columnOf(editorLine, "editor probe")).toBe(target.paddingX);
   });
 
   test("aligns status indicators with the chat content inset", () => {
@@ -490,7 +490,7 @@ describe("native transcript adapters", () => {
     vi.useRealTimers();
   });
 
-  test("preserves native spacing for status rendered inside an embedded editor", () => {
+  test("keeps native border and spacing for status inside the editor", () => {
     vi.useFakeTimers();
     const working = new Loader(
       { requestRender() {} } as unknown as TUI,
@@ -535,8 +535,9 @@ describe("native transcript adapters", () => {
         ?.render(40)
         .find((line) => stripControls(line).includes("Working..."));
       const spinnerColumn = stripControls(statusLine ?? "").indexOf("⠋");
-      expect(spinnerColumn).toBe(4);
-      expect(statusLine).toContain(SURFACE_BG);
+      expect(spinnerColumn).toBe(3);
+      expect(stripControls(statusLine ?? "")).toContain("─");
+      expect(statusLine).not.toContain(SURFACE_BG);
     } finally {
       working.stop();
       vi.useRealTimers();

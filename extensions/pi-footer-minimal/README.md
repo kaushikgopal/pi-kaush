@@ -12,7 +12,7 @@ Restart Pi or run `/reload`.
 
 ## What it shows
 
-One blank row separates the footer from the active prompt surface above it; footer metadata begins on the next row.
+Footer metadata begins immediately below the active prompt border, without a blank separator row.
 
 Default (one metadata line):
 

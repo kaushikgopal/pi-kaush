@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Remove the blank separator row between the active prompt and footer metadata.
 - Drop footer-owned working state: no spinner cell, no interval, and Pi's native working row stays visible in the chat output (reverts the footer working-indicator design).
 - Prepend one blank separator row above the footer metadata, restoring visual separation from the active prompt surface (supersedes the zero-separator prototype).
 - Inset both footer metadata lines two columns from the terminal edges (was one).

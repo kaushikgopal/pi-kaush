@@ -156,7 +156,7 @@ function widthFor(left: string, right: string): number {
 }
 
 function mainLine(footer: Footer, width: number): string {
-  return footer.render(width)[1]!;
+  return footer.render(width)[0]!;
 }
 
 function plain(text: string): string {
@@ -164,14 +164,14 @@ function plain(text: string): string {
 }
 
 describe("edge padding", () => {
-  test("prepends one blank separator row above the footer", () => {
+  test("renders footer metadata without a blank separator row", () => {
     const harness = createHarness();
     const footer = harness.start();
 
     const lines = footer.render(80);
-    expect(lines.length).toBeGreaterThanOrEqual(2);
-    expect(lines[0]).toBe("");
-    expect(visibleWidth(lines[1] ?? "")).toBeGreaterThan(0);
+    expect(lines).toHaveLength(1);
+    expect(visibleWidth(lines[0] ?? "")).toBe(80);
+    expect(lines[0]?.startsWith("  ")).toBe(true);
   });
 
   test("insets both footer lines by two columns from each edge", () => {
@@ -180,10 +180,10 @@ describe("edge padding", () => {
     harness.commands.get("footer-more-stats")?.("on", harness.context);
 
     const lines = footer.render(80);
-    expect(lines).toHaveLength(3);
-    expect(lines[1]).not.toContain("(provider)");
-    expect(lines[2]).toContain("(provider)");
-    for (const line of lines.slice(1)) {
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).not.toContain("(provider)");
+    expect(lines[1]).toContain("(provider)");
+    for (const line of lines) {
       expect(visibleWidth(line)).toBe(80);
       expect(line.startsWith("  ")).toBe(true);
       expect(line.endsWith("  ")).toBe(true);
@@ -261,7 +261,7 @@ describe("usage and context", () => {
     const footer = harness.start();
     harness.commands.get("footer-more-stats")?.("on", harness.context);
 
-    expect(footer.render(100)[2]).toContain("↑1.0k ↓30 ¢33.3%");
+    expect(footer.render(100)[1]).toContain("↑1.0k ↓30 ¢33.3%");
   });
 
   test.each([
@@ -305,7 +305,7 @@ describe("extension status and command boundaries", () => {
     const footer = harness.start();
     harness.commands.get("footer-more-stats")?.("on", harness.context);
 
-    expect(footer.render(100)[2]).toContain(expected);
+    expect(footer.render(100)[1]).toContain(expected);
   });
 
   test("shows the selected thinking level and color", () => {
@@ -324,7 +324,7 @@ describe("extension status and command boundaries", () => {
   test("warns without changing state for an invalid stats command", async () => {
     const harness = createHarness();
     const footer = harness.start();
-    expect(footer.render(100)).toHaveLength(2);
+    expect(footer.render(100)).toHaveLength(1);
 
     await harness.commands.get("footer-more-stats")?.(
       "sometimes",
@@ -338,7 +338,7 @@ describe("extension status and command boundaries", () => {
       },
     ]);
     expect(harness.renderRequests).toBe(0);
-    expect(footer.render(100)).toHaveLength(2);
+    expect(footer.render(100)).toHaveLength(1);
   });
 });
 

@@ -236,9 +236,7 @@ export default function (pi: ExtensionAPI) {
           }
         }
 
-        // One blank row separates the footer from the active prompt surface
-        // above it; footer metadata begins on the second row.
-        const lines: string[] = ["", padFooterLine(mainLine, width)];
+        const lines: string[] = [padFooterLine(mainLine, width)];
 
         // Optional stats line: token stats • MCP badge • other statuses
         if (showMoreStats) {
