@@ -490,6 +490,59 @@ describe("native transcript adapters", () => {
     vi.useRealTimers();
   });
 
+  test("preserves native spacing for status rendered inside an embedded editor", () => {
+    vi.useFakeTimers();
+    const working = new Loader(
+      { requestRender() {} } as unknown as TUI,
+      (spinner) => spinner,
+      (text) => text,
+      "Working...",
+    );
+    (working as unknown as { kind?: string }).kind = "working";
+
+    const target = new TestEditor() as TestEditor & {
+      embedWorkingStatus: boolean;
+      setWorkingStatusIndicator: (indicator: unknown) => void;
+    };
+    target.embedWorkingStatus = true;
+    target.setWorkingStatusIndicator = () => {};
+    target.render = function render(width: number): string[] {
+      const renderedStatus = working.render(width + 2)[1] ?? "";
+      const status = renderedStatus.startsWith(" ")
+        ? renderedStatus.slice(1).trimEnd()
+        : renderedStatus.trimEnd();
+      const prefix = "── ";
+      const top = this.borderColor(
+        prefix +
+          status +
+          "─".repeat(Math.max(0, width - visibleWidth(prefix + status))),
+      );
+      const content = "editor with status".padEnd(width);
+      return [top, content, this.borderColor("─".repeat(width))];
+    };
+
+    const harness = createHarness(() => target);
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    try {
+      const editor = harness.factory?.(
+        {} as TUI,
+        {} as EditorTheme,
+        {} as KeybindingsManager,
+      );
+      const statusLine = editor
+        ?.render(40)
+        .find((line) => stripControls(line).includes("Working..."));
+      const spinnerColumn = stripControls(statusLine ?? "").indexOf("⠋");
+      expect(spinnerColumn).toBe(4);
+      expect(statusLine).toContain(SURFACE_BG);
+    } finally {
+      working.stop();
+      vi.useRealTimers();
+    }
+  });
+
   test("keeps system rows inset when an outer grouping wrapper composes through hooks", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);

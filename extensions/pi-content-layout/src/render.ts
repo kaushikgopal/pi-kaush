@@ -150,6 +150,14 @@ function scrollHint(line: string): string | undefined {
   return stripDisplayAnsi(line).match(/[↑↓] \d+ more/)?.[0];
 }
 
+function hasEmbeddedStatus(line: string): boolean {
+  const withoutScrollHint = stripDisplayAnsi(line).replace(
+    /[↑↓] \d+ more/g,
+    "",
+  );
+  return /[^ \t─]/.test(withoutScrollHint);
+}
+
 function activeBlockLine(
   line: string,
   isBoundary: boolean,
@@ -169,6 +177,18 @@ function activeBlockLine(
     width,
     promptSurfaceBg(theme),
   );
+}
+
+function activeStatusBorderLine(
+  line: string,
+  width: number,
+  theme: Theme,
+): string {
+  const innerWidth = Math.max(0, width - ACTIVE_SIDE_PADDING * 2);
+  const padding = " ".repeat(ACTIVE_SIDE_PADDING);
+  const surfaceBg = promptSurfaceBg(theme);
+  const content = fitLine(replaceBackground(line, surfaceBg), innerWidth);
+  return paintBackground(`${padding}${content}${padding}`, width, surfaceBg);
 }
 
 function markEditorBoundaries(editor: BorderEditor): () => void {
@@ -215,16 +235,17 @@ export function renderActiveEditor(
     const cleanLines = markedLines.map((line) =>
       line.split(BORDER_SENTINEL).join(""),
     );
-    const block = cleanLines
-      .slice(0, bottomBoundary + 1)
-      .map((line, index) =>
-        activeBlockLine(
-          line,
-          index === 0 || index === bottomBoundary,
-          width,
-          theme,
-        ),
+    const block = cleanLines.slice(0, bottomBoundary + 1).map((line, index) => {
+      if (index === 0 && hasEmbeddedStatus(line)) {
+        return activeStatusBorderLine(line, width, theme);
+      }
+      return activeBlockLine(
+        line,
+        index === 0 || index === bottomBoundary,
+        width,
+        theme,
       );
+    });
     const suggestions = cleanLines
       .slice(bottomBoundary + 1)
       .map((line) => fitLine(line, width));

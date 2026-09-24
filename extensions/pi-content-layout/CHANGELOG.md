@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use Pi's embedded status indicator in the active prompt's top edge when supported, while keeping the aligned transcript-row fallback for older Pi versions.
+
 - Roll back a chat-container hook that mutates the child list and then throws.
   Its edit used to stick, dropping those rows from every later render. The
   contract is shared by copy with pi-tool-call-markers, so both copies changed

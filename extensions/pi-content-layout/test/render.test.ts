@@ -106,6 +106,39 @@ describe("active editor", () => {
     expect(editor.borderColor).toBe(originalBorder);
   });
 
+  test("keeps Pi's embedded status in the active prompt's top edge", () => {
+    const editor = new FakeEditor();
+    editor.suggestion = false;
+    editor.render = function render(width: number): string[] {
+      const prefix = "── ";
+      const status = `${this.borderColor("⠋")} ${this.borderColor("Working...")}`;
+      const remaining = Math.max(
+        0,
+        width - visibleWidth(prefix) - visibleWidth(status),
+      );
+      const top =
+        this.borderColor(prefix) +
+        status +
+        this.borderColor("─".repeat(remaining));
+      const content = `${CURSOR_MARKER}prompt\x1b[0m`;
+      return [
+        top,
+        content + " ".repeat(Math.max(0, width - visibleWidth(content))),
+        this.borderColor("─".repeat(width)),
+      ];
+    };
+
+    const lines = renderActiveEditor(editor, 30, theme);
+    const statusLine = lines[0] ?? "";
+    expect(lines).toHaveLength(3);
+    expect(visibleWidth(statusLine)).toBe(30);
+    expect(stripControls(statusLine)).toContain("⠋ Working...");
+    expect(statusLine).toContain(SURFACE_BG);
+    expect(statusLine).toContain("\x1b[36m");
+    expect(stripControls(lines[1] ?? "")).toContain("prompt");
+    expect(stripControls(lines[2] ?? "")).toMatch(/^\s+$/);
+  });
+
   test("uses the user-message foreground and restores it after ANSI resets", () => {
     const editor = new FakeEditor();
     editor.suggestion = false;

@@ -25,7 +25,7 @@ Submitted prompt
   ▎                                            darker background
 ```
 
-Assistant and submitted-message content keep the two-column outer inset. The active prompt intentionally ignores that inset: its darker background fills the terminal width, with no rail, one extra layout column on each side of Pi's configured editor padding, and one background-colored row above and below the content. Real scroll indicators replace the corresponding padding row when needed. The submitted prompt remains unchanged: it keeps Pi's message padding and the thin rail outside its darker body. Autocomplete stays outside the active surface.
+Assistant and submitted-message content keep the two-column outer inset. The active prompt intentionally ignores that inset: its darker background fills the terminal width, with no rail and one extra layout column on each side of Pi's configured editor padding. When Pi embeds a status indicator, it appears along the prompt's top edge; otherwise the top and bottom rows remain background padding or carry real scroll indicators. The submitted prompt remains unchanged: it keeps Pi's message padding and the thin rail outside its darker body. Autocomplete stays outside the active surface.
 
 ## Scope boundary
 
@@ -104,6 +104,8 @@ shape; a theme cannot provide the layout itself.
 ## Composition and compatibility
 
 The editor factory wraps the currently configured custom editor, or creates Pi's `CustomEditor` when none exists. It decorates `render()` only; text handling, callbacks, autocomplete, history, paste, application keybindings, image paste, and extension shortcuts remain on Pi's editor.
+
+The default editor opts into Pi's `embedWorkingStatus` behavior when the host supports it, so status indicators appear along the active prompt's top edge. Older Pi versions keep the separate status row, which this package still aligns with the transcript.
 
 Pi does not currently expose public renderers for native user and assistant messages or queued steering previews. Their layout and styling use guarded adapters around Pi's exported components. The adapters restore the original renderers on shutdown and fall back to native rendering when the expected component shape changes.
 

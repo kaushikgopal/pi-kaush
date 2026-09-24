@@ -46,6 +46,15 @@ type EditorFactory = (
   keybindings: KeybindingsManager,
 ) => EditorComponent;
 
+type EmbeddedStatusEditorOptions = NonNullable<
+  ConstructorParameters<typeof CustomEditor>[3]
+> & { embedWorkingStatus: true };
+
+// Newer Pi consumes this option; older editors keep the transcript status row.
+const EMBEDDED_STATUS_EDITOR_OPTIONS: EmbeddedStatusEditorOptions = {
+  embedWorkingStatus: true,
+};
+
 type ThemeGetter = () => Theme | undefined;
 
 type RenderRow = {
@@ -249,6 +258,9 @@ const knownChatContainers = new WeakSet<object>();
 
 let systemTextHookActive = 0;
 
+// Embedded status indicators call Loader.render() from inside the editor border.
+let embeddedStatusRenderDepth = 0;
+
 // The system-text inset decorates matching Text instances in place instead of
 // intercepting the container's child list. Other whole-container wrappers
 // (pi-tool-call-markers' grouping) run the shared hooks without delegating to
@@ -305,8 +317,12 @@ function statusLoaderDecorator(
   row: RenderRow,
   width: number,
 ): string[] {
-  if (typeof (row as LoaderRow).kind !== "string")
+  if (
+    embeddedStatusRenderDepth > 0 ||
+    typeof (row as LoaderRow).kind !== "string"
+  ) {
     return original.call(row, width);
+  }
   const nativeInset = Math.max(0, Number((row as LoaderRow).paddingX) || 0);
   const inset = Math.max(0, contentInset(width) - nativeInset);
   if (inset === 0) return original.call(row, width);
@@ -401,6 +417,17 @@ function userDecorator(
   return decorated;
 }
 
+function supportsEmbeddedWorkingStatus(editor: EditorComponent): boolean {
+  const candidate = editor as EditorComponent & {
+    embedWorkingStatus?: unknown;
+    setWorkingStatusIndicator?: unknown;
+  };
+  return (
+    candidate.embedWorkingStatus === true &&
+    typeof candidate.setWorkingStatusIndicator === "function"
+  );
+}
+
 function decorateEditor(
   editor: EditorComponent,
   getTheme: ThemeGetter,
@@ -408,15 +435,25 @@ function decorateEditor(
   const target = editor as EditorComponent & {
     borderColor?: (text: string) => string;
   };
+  const embedsWorkingStatus = supportsEmbeddedWorkingStatus(target);
 
   return new Proxy(target, {
     get(component, property) {
       if (property === "render") {
         return (width: number) => {
-          const theme = getTheme();
-          return theme
-            ? renderActiveEditor(component, width, theme)
-            : component.render(width);
+          const render = () => {
+            const theme = getTheme();
+            return theme
+              ? renderActiveEditor(component, width, theme)
+              : component.render(width);
+          };
+          if (!embedsWorkingStatus) return render();
+          embeddedStatusRenderDepth += 1;
+          try {
+            return render();
+          } finally {
+            embeddedStatusRenderDepth -= 1;
+          }
         };
       }
       const value = Reflect.get(component, property, component) as unknown;
@@ -506,7 +543,12 @@ export default function contentLayout(pi: ExtensionAPI): void {
     const factory: EditorFactory = (tui, editorTheme, keybindings) => {
       const editor = previous
         ? previous(tui, editorTheme, keybindings)
-        : new CustomEditor(tui, editorTheme, keybindings);
+        : new CustomEditor(
+            tui,
+            editorTheme,
+            keybindings,
+            EMBEDDED_STATUS_EDITOR_OPTIONS,
+          );
       return decorateEditor(editor, getTheme);
     };
     editorRegistration = { factory, previous };
