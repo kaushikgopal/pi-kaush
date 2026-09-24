@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Roll back a chat-container hook that mutates the child list and then throws.
+  Its edit used to stick, dropping those rows from every later render. The
+  contract is shared by copy with pi-tool-call-markers, so both copies changed
+  together.
+
 - Pad the submitted-prompt box with two columns on the right of the text so
   it matches the two-column visual gap the quarter-block rail leaves on the
   left; previously wrapped content sat one column off the right edge.
