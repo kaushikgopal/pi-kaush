@@ -43,13 +43,18 @@ the contract: bounded tasks in, structured result out.
 - **Structured yield**: delegated children finish through a terminating `yield`
   tool (`completed`, `blocked`, `failed`), with artifact paths; ordinary final
   assistant output remains a fallback.
-- **Model resolution**: explicit invocation model overrides profile, overrides
-  agent frontmatter; bare ids resolve family-scoped by nearest version.
+- **Model resolution**: before delegation, refresh Pi's authenticated model catalog
+  locally; select profile candidates and bare model overrides from that catalog, not
+  the parent's `enabledModels` / `scopedModels` cycling list. An explicit model
+  overrides an invocation profile, which overrides the agent's `profile`
+  frontmatter, then its legacy `model` field. Bare ids resolve family-scoped
+  by nearest version; qualified refs pass through to the child for validation.
 
 ## Agents
 
-Profiles of agents are Markdown files with optional frontmatter (`emoji`,
-`model`, `tools`, `systemPrompt`, `confirmProjectAgents`). Discovery:
+Agent definitions are Markdown files with optional frontmatter (`emoji`,
+`profile`, `model`, `tools`, `confirmProjectAgents`). Declare either `profile`
+or `model`, not both. Discovery:
 
 1. user: `~/.pi/agent/agents/*.md`
 2. project: nearest `.pi/agents/*.md`, with `agentScope: "project" | "both"`

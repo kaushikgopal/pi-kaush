@@ -43,7 +43,11 @@ function makeTestExtensionDir(): string {
   mkdirSync(agentsDir, { recursive: true });
   writeFileSync(
     join(agentsDir, "redteam.md"),
-    "---\nname: redteam\ndescription: Independent adversarial reviewer.\n---\nReview adversarially.\n",
+    "---\nname: redteam\ndescription: Independent adversarial reviewer.\nprofile: thinker\n---\nReview adversarially.\n",
+  );
+  writeFileSync(
+    join(agentsDir, "both.md"),
+    "---\nname: both\ndescription: Invalid agent.\nprofile: thinker\nmodel: p/m\n---\nDo not run.\n",
   );
   return dir;
 }
@@ -185,6 +189,98 @@ describe("subagent profile tool surface", () => {
     expect(rendered.text).not.toContain("deep-thinker");
   });
 
+  test("refreshes the catalog and ignores a stale parent cycling scope", async () => {
+    const { tool } = registerTestTool();
+    let available: { provider: string; id: string }[] = [];
+    const aborted = new AbortController();
+    aborted.abort();
+    const result = await tool.execute(
+      "call-stale-scope",
+      { agent: "redteam", task: "must not start", profile: "quick" },
+      aborted.signal,
+      undefined,
+      {
+        cwd: "/tmp",
+        scopedModels: [{ model: { provider: "other", id: "old" } }],
+        modelRegistry: {
+          refresh: async () => {
+            available = [{ provider: "p", id: "m" }];
+          },
+          getAvailable: () => available,
+        },
+        sessionManager: {
+          getSessionId: () => "root-session",
+          getEntries: () => [],
+        },
+      },
+    );
+    expect(result.details.results[0]).toMatchObject({
+      agent: "redteam",
+      profile: "quick",
+      requestedModel: "p/m",
+    });
+    expect(result.content[0].text).toContain("aborted before it started");
+  });
+
+  test("agent frontmatter selects a profile; invocation profile and model override it", async () => {
+    const { tool } = registerTestTool();
+    const ctx = {
+      cwd: "/tmp",
+      modelRegistry: { refresh: async () => {}, getAvailable: () => [] },
+      sessionManager: {
+        getSessionId: () => "root-session",
+        getEntries: () => [],
+      },
+    };
+    const run = async (overrides: Record<string, string> = {}) =>
+      tool.execute(
+        "call-agent-profile",
+        { agent: "redteam", task: "must not start", ...overrides },
+        undefined,
+        undefined,
+        ctx,
+      );
+
+    const configured = await run();
+    expect(configured.content[0].text).toContain(
+      'Profile "thinker" has no available candidate models',
+    );
+    expect(configured.details.results[0].profile).toBe("thinker");
+
+    const overridden = await run({ profile: "quick" });
+    expect(overridden.content[0].text).toContain(
+      'Profile "quick" has no available candidate models',
+    );
+    expect(overridden.details.results[0].profile).toBe("quick");
+
+    const explicit = await run({ profile: "quick", model: "unavailable" });
+    expect(explicit.content[0].text).toContain(
+      'Model "unavailable" is not available',
+    );
+    expect(explicit.details.results[0].profile).toBeUndefined();
+  });
+
+  test("rejects agents that declare both a profile and a model", async () => {
+    const { tool } = registerTestTool();
+    const result = await tool.execute(
+      "call-conflicting-agent",
+      { agent: "both", task: "must not start", profile: "quick" },
+      undefined,
+      undefined,
+      {
+        cwd: "/tmp",
+        modelRegistry: { refresh: async () => {}, getAvailable: () => [] },
+        sessionManager: {
+          getSessionId: () => "root-session",
+          getEntries: () => [],
+        },
+      },
+    );
+    expect(result.content[0].text).toContain(
+      'declare either "profile" or "model" in frontmatter, not both',
+    );
+  });
+
   test("rejects shared context outside parallel mode", async () => {
     const { tool } = registerTestTool();
     const result = await tool.execute(
@@ -195,7 +291,7 @@ describe("subagent profile tool surface", () => {
       {
         cwd: "/tmp",
         scopedModels: [],
-        modelRegistry: { getAvailable: () => [] },
+        modelRegistry: { refresh: async () => {}, getAvailable: () => [] },
         sessionManager: {
           getSessionId: () => "root-session",
           getEntries: () => [],
@@ -219,7 +315,7 @@ describe("subagent profile tool surface", () => {
       {
         cwd: "/tmp",
         scopedModels: [],
-        modelRegistry: { getAvailable: () => [] },
+        modelRegistry: { refresh: async () => {}, getAvailable: () => [] },
         sessionManager: {
           getSessionId: () => "root-session",
           getEntries: () => [],

@@ -144,7 +144,7 @@ function selectBestModel(
 /**
  * Resolve a bare or qualified model spec to a canonical `provider/model` reference.
  *
- * - Qualified refs (containing `/`) are returned unchanged with their thinking level preserved.
+ * - Qualified refs (containing `/`) pass through to the child, which may fetch a newer model catalog.
  * - Bare ids and display names resolve against the supplied candidates: exact, normalized, then
  *   same-family nearest-version matching; unmatched specs return undefined rather than crossing families.
  */
@@ -160,15 +160,6 @@ export function resolveModelReference(
 
   const match = selectBestModel(baseSpec, availableModels);
   return match ? formatModelReference(match, thinkingLevel) : undefined;
-}
-
-export function delegationModelCandidates(
-  scopedModels: ReadonlyArray<{ model: AvailableModel }>,
-  availableModels: ReadonlyArray<AvailableModel>,
-): ReadonlyArray<AvailableModel> {
-  return scopedModels.length > 0
-    ? scopedModels.map(({ model }) => model)
-    : availableModels;
 }
 
 export function createModelResolver(

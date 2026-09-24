@@ -58,25 +58,21 @@ export function loadSubagentProfilesCurrent(
   return { mtimeMs, config: loadModelProfiles(filePath) };
 }
 
-/**
- * Per-candidate eligibility diagnostics for a profile whose candidates were
- * all filtered out of the current delegation model scope. Lists every
- * configured candidate with its reason instead of a bare "none available".
- */
+/** Reports why configured profile candidates are absent from Pi's available catalog. */
 export function formatProfileEligibilityError(
   profileName: string,
   candidates: readonly SubagentProfileCandidate[],
   availableModels: ReadonlySet<string>,
-  scopeSize?: number,
+  catalogSize?: number,
 ): string {
   const lines = candidates.map((candidate) => {
     const eligible = availableModels.has(candidate.model.toLowerCase());
-    return `- ${formatModelProfileCandidate(candidate)}: ${eligible ? "eligible" : "not in the current delegation model scope"}`;
+    return `- ${formatModelProfileCandidate(candidate)}: ${eligible ? "eligible" : "not available (unknown model or provider authentication missing)"}`;
   });
-  const scope =
-    scopeSize === undefined ? "" : ` (${scopeSize} models in scope)`;
+  const catalog =
+    catalogSize === undefined ? "" : ` (${catalogSize} available models)`;
   return [
-    `Profile "${profileName}" has no eligible candidate models (0 of ${candidates.length} in the current delegation model scope${scope}):`,
+    `Profile "${profileName}" has no available candidate models (0 of ${candidates.length} in Pi's model catalog${catalog}):`,
     ...lines,
   ].join("\n");
 }

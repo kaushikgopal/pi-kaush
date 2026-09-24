@@ -1,8 +1,10 @@
+import { relative } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   createSubagentExecutionWatchdog,
   formatDuration,
   formatSubagentTimeoutMessage,
+  getPiInvocation,
   type SubagentTimeoutReason,
 } from "../src/_execution.ts";
 
@@ -92,5 +94,45 @@ describe("subagent execution watchdog", () => {
     expect(formatSubagentTimeoutMessage("inactivity", limits)).toBe(
       "Subagent exceeded the inactivity limit after 15 minutes without output.",
     );
+  });
+});
+
+describe("subagent process invocation", () => {
+  test("uses the current Pi command when the parent runtime was removed", () => {
+    expect(
+      getPiInvocation(
+        ["--model", "provider/model"],
+        "/__removed_pi_runtime__/node",
+        import.meta.filename,
+      ),
+    ).toEqual({ command: "pi", args: ["--model", "provider/model"] });
+  });
+
+  test("keeps the parent's runtime while it still exists", () => {
+    expect(
+      getPiInvocation(["--version"], process.execPath, import.meta.filename),
+    ).toEqual({
+      command: process.execPath,
+      args: [import.meta.filename, "--version"],
+    });
+  });
+
+  test("resolves a relative entrypoint before changing the child's cwd", () => {
+    const relativeScript = relative(process.cwd(), import.meta.filename);
+    expect(
+      getPiInvocation(["--version"], process.execPath, relativeScript),
+    ).toEqual({
+      command: process.execPath,
+      args: [import.meta.filename, "--version"],
+    });
+  });
+
+  test("does not pass a Bun virtual script to a filesystem runtime", () => {
+    expect(
+      getPiInvocation(["--version"], process.execPath, "/$bunfs/root/cli.js"),
+    ).toEqual({
+      command: "pi",
+      args: ["--version"],
+    });
   });
 });

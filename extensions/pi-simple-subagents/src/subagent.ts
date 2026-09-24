@@ -38,7 +38,6 @@ import {
   createDelegationTrace,
   currentDelegationDepth,
   createModelResolver,
-  delegationModelCandidates,
   type DelegationTrace,
   hasDelegatedToolActivity,
   resolveRequestedModel,
@@ -61,6 +60,7 @@ import {
   createSubagentExecutionWatchdog,
   formatDuration,
   formatSubagentTimeoutMessage,
+  getPiInvocation,
   type SubagentTimeoutReason,
 } from "./_execution.ts";
 import {
@@ -521,22 +521,6 @@ async function writePromptToTempFile(
   return { dir: tmpDir, filePath };
 }
 
-function getPiInvocation(args: string[]): { command: string; args: string[] } {
-  const currentScript = process.argv[1];
-  const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-  if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-    return { command: process.execPath, args: [currentScript, ...args] };
-  }
-
-  const execName = path.basename(process.execPath).toLowerCase();
-  const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
-  if (!isGenericRuntime) {
-    return { command: process.execPath, args };
-  }
-
-  return { command: "pi", args };
-}
-
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
 async function runSingleAgent(
@@ -589,7 +573,7 @@ async function runSingleAgent(
       exitCode: 1,
       messages: [],
       output: "",
-      stderr: `Model "${requestedModelSpec}" is not available in the current Pi model scope.`,
+      stderr: `Model "${requestedModelSpec}" is not available in Pi's model catalog or its provider has no authentication.`,
       usage: createEmptyUsage(),
       ...(agent.emoji ? { agentEmoji: agent.emoji } : {}),
       ...(step !== undefined ? { step } : {}),
@@ -858,7 +842,9 @@ async function runSingleAgent(
         finish(code ?? 0);
       });
 
-      proc.on("error", () => {
+      proc.on("error", (error) => {
+        currentResult.errorMessage = `Could not start subagent (${invocation.command}): ${error.message}`;
+        currentResult.stderr = currentResult.errorMessage;
         activeProcess.complete();
         finish(1);
       });
@@ -954,6 +940,13 @@ function profileFailureResult(
   };
 }
 
+function resolveProfileName(
+  invocationProfile: string | undefined,
+  agentProfile: string | undefined,
+): string | undefined {
+  return invocationProfile?.trim() || agentProfile;
+}
+
 async function runAgentWithProfile(
   defaultCwd: string,
   agents: AgentConfig[],
@@ -962,7 +955,7 @@ async function runAgentWithProfile(
   agentName: string,
   task: string,
   invocationModel: string | undefined,
-  profileName: string | undefined,
+  invocationProfile: string | undefined,
   cwd: string | undefined,
   step: number | undefined,
   trace: DelegationTrace,
@@ -974,6 +967,18 @@ async function runAgentWithProfile(
   makeDetails: (results: SingleResult[]) => SubagentDetails,
   resolveModel?: (spec: string) => string | undefined,
 ): Promise<SingleResult> {
+  const agent = agents.find((candidate) => candidate.name === agentName);
+  if (agent?.profile && agent.model) {
+    return profileFailureResult(
+      agents,
+      agentName,
+      task,
+      agent.profile,
+      `Agent "${agentName}": declare either "profile" or "model" in frontmatter, not both.`,
+      step,
+    );
+  }
+  const profileName = resolveProfileName(invocationProfile, agent?.profile);
   if (invocationModel?.trim() || !profileName) {
     return runSingleAgent(
       defaultCwd,
@@ -1284,31 +1289,6 @@ export function registerSubagent(
           isError: true,
         };
       }
-      // Pi's ExtensionContext does not expose scopedModels (as of 0.85.x);
-      // an absent scope means every available model is a candidate.
-      const delegationModels = delegationModelCandidates(
-        (
-          ctx as ExtensionContext & {
-            scopedModels?: Parameters<typeof delegationModelCandidates>[0];
-          }
-        ).scopedModels ?? [],
-        ctx.modelRegistry.getAvailable(),
-      );
-      let availableModelReferences: Promise<ReadonlySet<string>> | undefined;
-      const getAvailableModelReferences = (): Promise<ReadonlySet<string>> => {
-        if (!availableModelReferences) {
-          availableModelReferences = Promise.resolve(
-            new Set(
-              delegationModels.map((model) =>
-                `${model.provider}/${model.id}`.toLowerCase(),
-              ),
-            ) as ReadonlySet<string>,
-          );
-        }
-        return availableModelReferences;
-      };
-      const resolveModel = createModelResolver(delegationModels);
-
       const hasChain = (params.chain?.length ?? 0) > 0;
       const hasTasks = (params.tasks?.length ?? 0) > 0;
       const hasSingle = Boolean(params.agent && params.task);
@@ -1394,6 +1374,27 @@ export function registerSubagent(
             };
         }
       }
+
+      // Delegated children launch a fresh Pi process. The parent's scopedModels
+      // only controls its startup/cycling choices and can remain stale when
+      // models.json changes during a long-lived session.
+      // Pi 0.80's refresh() was synchronous and took no options; newer Pi
+      // accepts allowNetwork to avoid remote catalog requests per delegation.
+      await (
+        ctx.modelRegistry.refresh as (options: {
+          allowNetwork: boolean;
+        }) => void | Promise<unknown>
+      )({ allowNetwork: false });
+      const delegationModels = ctx.modelRegistry.getAvailable();
+      const availableModelReferences = new Set(
+        delegationModels.map((model) =>
+          `${model.provider}/${model.id}`.toLowerCase(),
+        ),
+      );
+      const getAvailableModelReferences = async (): Promise<
+        ReadonlySet<string>
+      > => availableModelReferences;
+      const resolveModel = createModelResolver(delegationModels);
 
       if (params.chain && params.chain.length > 0) {
         const results: SingleResult[] = [];
@@ -1492,21 +1493,28 @@ export function registerSubagent(
           const configuredAgent = agents.find(
             (agent) => agent.name === task.agent,
           );
+          const profileName = resolveProfileName(
+            task.profile,
+            configuredAgent?.profile,
+          );
+          const firstCandidate = profileName
+            ? profiles.profiles[profileName]?.candidates[0]
+            : undefined;
           const requestedModel = task.model
             ? resolveRequestedModel(
                 task.model,
                 configuredAgent?.model,
                 resolveModel,
               )
-            : task.profile
-              ? formatProfileCandidate(
-                  profiles.profiles[task.profile]!.candidates[0]!,
-                )
-              : resolveRequestedModel(
-                  undefined,
-                  configuredAgent?.model,
-                  resolveModel,
-                );
+            : firstCandidate
+              ? formatProfileCandidate(firstCandidate)
+              : profileName
+                ? undefined
+                : resolveRequestedModel(
+                    undefined,
+                    configuredAgent?.model,
+                    resolveModel,
+                  );
           allResults[i] = {
             agent: task.agent,
             ...(configuredAgent?.emoji
@@ -1519,7 +1527,7 @@ export function registerSubagent(
             output: "",
             stderr: "",
             ...(requestedModel !== undefined ? { requestedModel } : {}),
-            ...(task.model || !task.profile ? {} : { profile: task.profile }),
+            ...(task.model || !profileName ? {} : { profile: profileName }),
             usage: createEmptyUsage(),
           };
         }

@@ -10,7 +10,6 @@ import {
   createDelegationTrace,
   hasDelegatedToolActivity,
   createModelResolver,
-  delegationModelCandidates,
   resolveRequestedModel,
   resolveModelReference,
   sessionIdFromJsonEvent,
@@ -100,87 +99,47 @@ describe("subagent model selection", () => {
     ).toBe("provider-a/gpt-5.6-luna:high");
   });
 
-  test("delegation resolves Kimi K3 from the enabled model scope", () => {
+  test("resolves model names against the available catalog, not the parent's cycling scope", () => {
     const available = [
       { provider: "huggingface", id: "moonshotai/Kimi-K3", name: "Kimi K3" },
     ];
-    const scoped = [
-      {
-        model: {
-          provider: "fireworks-kimi",
-          id: "kimi-k3-fast",
-          name: "Kimi K3 Fast",
-        },
-      },
-    ];
-    const resolveModel = createModelResolver(
-      delegationModelCandidates(scoped, available),
-    );
+    const resolveModel = createModelResolver(available);
     expect(resolveRequestedModel("Kimi K3", undefined, resolveModel)).toBe(
-      "fireworks-kimi/kimi-k3-fast",
+      "huggingface/moonshotai/Kimi-K3",
     );
   });
 
-  test("falls back to the in-scope family member when the exact version is unavailable", () => {
-    const available = [
-      { provider: "provider-b", id: "glm-5.6", name: "GLM 5.6" },
-    ];
-    const scoped = [
-      {
-        model: {
-          provider: "provider-a",
-          id: "glm-5.2-fast",
-          name: "GLM 5.2 Fast",
-        },
-      },
-    ];
-    const resolveModel = createModelResolver(
-      delegationModelCandidates(scoped, available),
-    );
-    expect(resolveRequestedModel("GLM 5.6", undefined, resolveModel)).toBe(
-      "provider-a/glm-5.2-fast",
-    );
-  });
-
-  test("serves every available model when the parent scope is empty", () => {
+  test("picks the requested model regardless of the parent's cycling list", () => {
     const available = [
       { provider: "provider-a", id: "glm-5.2-fast", name: "GLM 5.2 Fast" },
       { provider: "provider-b", id: "glm-5.6", name: "GLM 5.6" },
     ];
-    const resolveModel = createModelResolver(
-      delegationModelCandidates([], available),
-    );
+    const resolveModel = createModelResolver(available);
     expect(resolveRequestedModel("GLM 5.6", undefined, resolveModel)).toBe(
       "provider-b/glm-5.6",
     );
   });
 
-  test("does not cross model families when the requested version is absent", () => {
-    const scoped = [
-      {
-        model: {
-          provider: "provider-a",
-          id: "glm-5.2-fast",
-          name: "GLM 5.2 Fast",
-        },
-      },
-    ];
-    const resolveModel = createModelResolver(
-      delegationModelCandidates(scoped, []),
-    );
+  test("rejects unknown bare names but defers qualified refs to the child", () => {
+    const available = [{ provider: "provider-a", id: "glm-5.2-fast" }];
+    const resolveModel = createModelResolver(available);
     expect(
       resolveRequestedModel("GPT 5.6", undefined, resolveModel),
     ).toBeUndefined();
+    expect(
+      resolveRequestedModel("provider-a/unknown", undefined, resolveModel),
+    ).toBe("provider-a/unknown");
+    expect(
+      resolveRequestedModel("provider-a/glm-5.2-fast", undefined, resolveModel),
+    ).toBe("provider-a/glm-5.2-fast");
   });
 
   test("picks the nearest available version within a family", () => {
-    const scoped = [
-      { model: { provider: "zai", id: "glm-5.2-fast", name: "GLM 5.2 Fast" } },
-      { model: { provider: "zai", id: "glm-5.8-fast", name: "GLM 5.8 Fast" } },
+    const available = [
+      { provider: "zai", id: "glm-5.2-fast", name: "GLM 5.2 Fast" },
+      { provider: "zai", id: "glm-5.8-fast", name: "GLM 5.8 Fast" },
     ];
-    const resolveModel = createModelResolver(
-      delegationModelCandidates(scoped, []),
-    );
+    const resolveModel = createModelResolver(available);
     expect(resolveRequestedModel("glm 5.6", undefined, resolveModel)).toBe(
       "zai/glm-5.8-fast",
     );
@@ -190,38 +149,32 @@ describe("subagent model selection", () => {
   });
 
   test("prefers an exact version over nearby versions in the same family", () => {
-    const scoped = [
-      { model: { provider: "zai", id: "glm-5.6-fast", name: "GLM 5.6 Fast" } },
-      { model: { provider: "zai", id: "glm-5.8-fast", name: "GLM 5.8 Fast" } },
+    const available = [
+      { provider: "zai", id: "glm-5.6-fast", name: "GLM 5.6 Fast" },
+      { provider: "zai", id: "glm-5.8-fast", name: "GLM 5.8 Fast" },
     ];
-    const resolveModel = createModelResolver(
-      delegationModelCandidates(scoped, []),
-    );
+    const resolveModel = createModelResolver(available);
     expect(resolveRequestedModel("glm 5.6", undefined, resolveModel)).toBe(
       "zai/glm-5.6-fast",
     );
   });
 
   test("a brand-only query resolves to the newest same-family candidate", () => {
-    const scoped = [
-      { model: { provider: "zai", id: "glm-5.2-fast", name: "GLM 5.2 Fast" } },
-      { model: { provider: "zai", id: "glm-5.8-fast", name: "GLM 5.8 Fast" } },
+    const available = [
+      { provider: "zai", id: "glm-5.2-fast", name: "GLM 5.2 Fast" },
+      { provider: "zai", id: "glm-5.8-fast", name: "GLM 5.8 Fast" },
     ];
-    const resolveModel = createModelResolver(
-      delegationModelCandidates(scoped, []),
-    );
+    const resolveModel = createModelResolver(available);
     expect(resolveRequestedModel("glm", undefined, resolveModel)).toBe(
       "zai/glm-5.8-fast",
     );
   });
 
   test("a brandless version query does not guess across families", () => {
-    const scoped = [
-      { model: { provider: "zai", id: "glm-5.2-fast", name: "GLM 5.2 Fast" } },
+    const available = [
+      { provider: "zai", id: "glm-5.2-fast", name: "GLM 5.2 Fast" },
     ];
-    const resolveModel = createModelResolver(
-      delegationModelCandidates(scoped, []),
-    );
+    const resolveModel = createModelResolver(available);
     expect(
       resolveRequestedModel("5.6", undefined, resolveModel),
     ).toBeUndefined();

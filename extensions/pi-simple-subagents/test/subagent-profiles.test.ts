@@ -191,7 +191,7 @@ describe("profiles reload", () => {
 });
 
 describe("profile diagnostics", () => {
-  test("eligibility error lists every configured candidate with its reason", () => {
+  test("eligibility error lists every unavailable candidate", () => {
     const message = formatProfileEligibilityError(
       "coder",
       [
@@ -202,14 +202,14 @@ describe("profile diagnostics", () => {
       12,
     );
     expect(message).toContain(
-      'Profile "coder" has no eligible candidate models (0 of 2',
+      'Profile "coder" has no available candidate models (0 of 2',
     );
-    expect(message).toContain("12 models in scope");
+    expect(message).toContain("12 available models");
     expect(message).toContain(
-      "- open-weights/glm-flash-latest:max: not in the current delegation model scope",
+      "- open-weights/glm-flash-latest:max: not available (unknown model or provider authentication missing)",
     );
     expect(message).toContain(
-      "- open-weights/kimi-code-latest: not in the current delegation model scope",
+      "- open-weights/kimi-code-latest: not available (unknown model or provider authentication missing)",
     );
   });
 
@@ -220,7 +220,7 @@ describe("profile diagnostics", () => {
       new Set(["open-weights/glm-flash-latest"]),
     );
     expect(message).toContain("- open-weights/glm-flash-latest: eligible");
-    expect(message).not.toContain("12 models in scope");
+    expect(message).not.toContain("12 available models");
   });
 
   test("attempt summaries report each candidate and bounded reason", () => {

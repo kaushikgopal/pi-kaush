@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Resolve subagent profiles and bare model overrides from Pi's refreshed,
+  authenticated catalog instead of the parent's `enabledModels`/`--models`
+  cycling scope. Delegation may use available models outside that scope.
+- Honor agent `profile:` frontmatter with invocation overrides, reject agents
+  declaring both `profile` and `model`, and report unavailable candidates
+  without crashing parallel calls.
+- Use the current `pi` executable when a long-lived parent outlives its Node
+  installation; surface subprocess spawn errors instead of silent failures.
+
 ## 0.1.1
 
 - Advertise user agents discovered at extension load in the model-facing tool

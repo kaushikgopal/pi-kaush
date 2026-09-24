@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import type { SubagentLimitsConfig } from "./_limits.ts";
 
 export type SubagentTimeoutReason = "inactivity" | "runtime";
@@ -98,4 +100,27 @@ export function formatDuration(durationMs: number): string {
     return `${seconds} second${seconds === 1 ? "" : "s"}`;
   }
   return `${durationMs} ms`;
+}
+
+export function getPiInvocation(
+  args: string[],
+  runtimePath = process.execPath,
+  scriptPath = process.argv[1],
+): { command: string; args: string[] } {
+  // A long-lived Pi process can outlive a Homebrew Node upgrade. Its old
+  // process.execPath then vanishes, so use the currently installed Pi instead.
+  if (!existsSync(runtimePath)) return { command: "pi", args };
+
+  const isBunVirtualScript = scriptPath?.startsWith("/$bunfs/root/");
+  const script =
+    scriptPath && !isBunVirtualScript ? resolve(scriptPath) : undefined;
+  if (script && existsSync(script)) {
+    return { command: runtimePath, args: [script, ...args] };
+  }
+
+  const execName = basename(runtimePath).toLowerCase();
+  const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
+  if (!isGenericRuntime) return { command: runtimePath, args };
+
+  return { command: "pi", args };
 }

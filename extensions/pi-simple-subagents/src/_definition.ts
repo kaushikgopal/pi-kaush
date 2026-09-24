@@ -18,6 +18,7 @@ export interface AgentConfig {
   emoji?: string;
   tools?: string[];
   model?: string;
+  profile?: string;
   confirmProjectAgents?: boolean;
   systemPrompt: string;
   source: "user" | "project";
@@ -30,6 +31,7 @@ interface AgentFrontmatter extends Record<string, unknown> {
   emoji?: string;
   tools?: string;
   model?: string;
+  profile?: string;
   confirmProjectAgents?: boolean;
 }
 
@@ -85,6 +87,9 @@ function loadAgentsFromDir(
       ...(emoji ? { emoji } : {}),
       ...(tools && tools.length > 0 ? { tools } : {}),
       ...(frontmatter.model ? { model: frontmatter.model } : {}),
+      ...(typeof frontmatter.profile === "string" && frontmatter.profile.trim()
+        ? { profile: frontmatter.profile.trim() }
+        : {}),
       ...(typeof frontmatter.confirmProjectAgents === "boolean"
         ? { confirmProjectAgents: frontmatter.confirmProjectAgents }
         : {}),
