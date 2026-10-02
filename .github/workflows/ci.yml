@@ -20,5 +20,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      # verbatim-compaction's package:check runs bun test
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: npm ci --ignore-scripts
       - run: npm run check
