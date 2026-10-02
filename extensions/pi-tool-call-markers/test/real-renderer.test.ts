@@ -359,13 +359,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
       streaming?: boolean,
     ) => void;
     const traceItalic = () => {
+      // Pi 1.0 nests the trace Markdown in a MouseRegion; unwrap one level.
+      const unwrap = (node: unknown): unknown =>
+        (node as { child?: unknown })?.child ?? node;
       const children = (
         assistant as unknown as {
-          contentContainer?: {
-            children?: Array<{ defaultTextStyle?: { italic?: boolean } }>;
-          };
+          contentContainer?: { children?: unknown[] };
         }
-      ).contentContainer?.children;
+      ).contentContainer?.children?.map(unwrap) as
+        | Array<{ defaultTextStyle?: { italic?: boolean } }>
+        | undefined;
       return children?.find((child) => child.defaultTextStyle !== undefined)
         ?.defaultTextStyle?.italic;
     };

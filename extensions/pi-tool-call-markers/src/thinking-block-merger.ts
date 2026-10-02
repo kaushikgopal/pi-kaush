@@ -148,10 +148,23 @@ type MarkdownLikeChild = {
 // the italic default style is what identifies the trace: Pi passes it for
 // thinking content and for nothing else. Callers gate on the row actually
 // carrying thinking, so no other italic block is touched.
-function unitalicizeSettledThinking(row: AssistantMessageRow): void {
+// Pi 1.0 wraps each thinking child in a MouseRegion (click toggles
+// visibility); older versions hang the Markdown/Text directly. Walk both
+// shapes so the restyle reaches the node either way.
+function contentNodes(row: AssistantMessageRow): unknown[] {
   const children = row.contentContainer?.children;
-  if (!Array.isArray(children)) return;
+  if (!Array.isArray(children)) return [];
+  const nodes: unknown[] = [];
   for (const child of children) {
+    nodes.push(child);
+    const inner = (child as { child?: unknown } | undefined)?.child;
+    if (inner !== undefined && inner !== null) nodes.push(inner);
+  }
+  return nodes;
+}
+
+function unitalicizeSettledThinking(row: AssistantMessageRow): void {
+  for (const child of contentNodes(row)) {
     const markdown = child as MarkdownLikeChild | undefined;
     const style = markdown?.defaultTextStyle;
     if (style?.italic !== true) continue;
@@ -174,11 +187,9 @@ function restyleHiddenThinkingLabel(row: AssistantMessageRow): void {
     return;
   }
   const label = row.hiddenThinkingLabel;
-  const children = row.contentContainer?.children;
-  if (!Array.isArray(children)) return;
   if (!stylesThinkingLabels()) return;
   const styled = visibleThoughtLabel(label);
-  for (const child of children) {
+  for (const child of contentNodes(row)) {
     const textChild = child as TextLikeChild | undefined;
     if (
       typeof textChild?.text !== "string" ||
