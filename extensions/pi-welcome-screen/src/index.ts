@@ -8,6 +8,11 @@ import {
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
+  backgroundAnsi,
+  type Color,
+  foregroundAnsi,
+  isAppleTerminalSession,
+  rgbColor,
   type Component,
   type Container,
   Spacer,
@@ -31,7 +36,11 @@ const LAYOUT_NOTICE =
   "pi-welcome-screen: unrecognized Pi layout — using native panel";
 const RESOURCE_PANEL_INDEX = 1;
 
-const PI_BANNER = ["█████████", "███   ███", "██████   ███", "███      ███"];
+// Pi 1.0 brand logo: fixed colors across themes, mirroring pi's own piLogoLines().
+const PI_BRAND_CORAL = rgbColor(228, 138, 122);
+const PI_BRAND_BLUE = rgbColor(79, 142, 179);
+const PI_BRAND_YELLOW = rgbColor(234, 182, 93);
+const ANSI_RESET = "\x1b[0m";
 
 type WelcomeSection = "Context" | "Skills" | "Prompts" | "Extensions";
 const WELCOME_SECTIONS: readonly WelcomeSection[] = [
@@ -1224,17 +1233,29 @@ function appendExtensionsSection(
   }
 }
 
+function piLogoLines(theme: Theme): string[] {
+  const mode = theme.getColorMode();
+  const fg = (color: Color) => foregroundAnsi(color, mode);
+  // The fourth cell of the top line is empty, so it is padded to the bottom line's width.
+  const top = `${fg(PI_BRAND_CORAL)}${backgroundAnsi(PI_BRAND_BLUE, mode)}▀${ANSI_RESET}${fg(PI_BRAND_CORAL)}▀█${ANSI_RESET} `;
+  const bottom = `${fg(PI_BRAND_BLUE)}█▀${ANSI_RESET} ${fg(PI_BRAND_YELLOW)}█${ANSI_RESET}`;
+  return [top, bottom];
+}
+
+/** Text fallback for terminals that misrender half-block pixels (Apple Terminal). */
+function piWordmark(theme: Theme): string {
+  const mode = theme.getColorMode();
+  return `${foregroundAnsi(PI_BRAND_CORAL, mode)}P${ANSI_RESET}${foregroundAnsi(PI_BRAND_YELLOW, mode)}i${ANSI_RESET}`;
+}
+
 function renderBrandColumn(theme: Theme, columnWidth: number): string[] {
   const lines: string[] = [];
-  const bannerWidth = Math.max(...PI_BANNER.map((line) => visibleWidth(line)));
-  for (const bannerLine of PI_BANNER) {
-    lines.push(
-      centerBlockLine(
-        theme.bold(theme.fg("accent", bannerLine)),
-        bannerWidth,
-        columnWidth,
-      ),
-    );
+  const logo = isAppleTerminalSession()
+    ? [piWordmark(theme)]
+    : piLogoLines(theme);
+  const logoWidth = Math.max(...logo.map((line) => visibleWidth(line)));
+  for (const logoLine of logo) {
+    lines.push(centerBlockLine(logoLine, logoWidth, columnWidth));
   }
   lines.push("");
   const versionSummary = theme.fg(

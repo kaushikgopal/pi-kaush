@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Replace the purple block-letter banner with Pi 1.0's half-block brand logo in its fixed coral/blue/yellow colors, centered in the same header position. Apple Terminal, which misrenders half-block pixels, gets the coral/yellow `Pi` wordmark fallback, matching Pi's own behavior.
 - Reserve two internal padding columns on both sides of the welcome layout at normal widths, degrading only when a tiny terminal needs the content space.
 - Tint project-scope skills one step brighter on the welcome screen (`muted` instead of `dim`); global, path, and package skills keep the dim default. Scope comes from Pi's expanded Skills listing, degrading to the dim default when it is unavailable.
 - Extend the project-scope tint to prompts and context files. Prompt scope comes from Pi's expanded Prompts listing; context files are classified by their display shape, since Pi renders working-directory files as relative paths and everything else as home-abbreviated or absolute paths.

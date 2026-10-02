@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ExtensionHealth, ExtensionHealthMap } from "../src/index.ts";
 
+const stripAnsi = (text: string) =>
+  text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+
 const localExtensionFixture = vi.hoisted(() => ({
   filenames: [] as string[],
 }));
@@ -19,6 +22,14 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => "/tmp/pi-agent",
 }));
 vi.mock("@earendil-works/pi-tui", () => ({
+  rgbColor: (r: number, g: number, b: number) => ({ r, g, b }),
+  foregroundAnsi(color: { r: number; g: number; b: number }) {
+    return `\x1B[38;2;${color.r};${color.g};${color.b}m`;
+  },
+  backgroundAnsi(color: { r: number; g: number; b: number }) {
+    return `\x1B[48;2;${color.r};${color.g};${color.b}m`;
+  },
+  isAppleTerminalSession: () => false,
   Spacer: class Spacer {
     constructor(private readonly height = 1) {}
     invalidate() {}
@@ -66,6 +77,7 @@ const { Spacer } = await import("@earendil-works/pi-tui");
 const plainTheme = {
   bold: (text: string) => text,
   fg: (_color: string, text: string) => text,
+  getColorMode: () => "truecolor" as const,
 };
 
 function emptyComponent() {
@@ -404,17 +416,17 @@ describe("welcome resource formatting", () => {
     expect(wide[versionSummaryIndex]?.trim()).toBe("v0.80.6");
     expect(wide[lastLogoLineIndex + 1]).toBe("");
     expect(versionSummaryIndex).toBe(lastLogoLineIndex + 2);
-    expect(wide.every((line) => line.length <= 78)).toBe(true);
+    expect(wide.every((line) => stripAnsi(line).length <= 78)).toBe(true);
     expect(wide.filter(Boolean).every((line) => line.startsWith("  "))).toBe(
       true,
     );
     expect(wide.join("\n")).not.toContain("[Themes]");
     expect(wide.join("\n")).not.toContain("[Version]");
-    expect(wide.filter((line) => line.includes("█"))).toHaveLength(4);
-    expect(wide.some((line) => line.includes("██████   ███"))).toBe(true);
+    expect(wide.filter((line) => line.includes("█"))).toHaveLength(2);
+    expect(wide.some((line) => line.includes("▀█"))).toBe(true);
 
     const narrow = renderCenteredWelcome(resources, plainTheme as never, 24);
-    expect(narrow.every((line) => line.length <= 22)).toBe(true);
+    expect(narrow.every((line) => stripAnsi(line).length <= 22)).toBe(true);
     expect(narrow.filter(Boolean).every((line) => line.startsWith("  "))).toBe(
       true,
     );
@@ -448,7 +460,7 @@ describe("welcome resource formatting", () => {
     expect(lines[versionIndex + 1]?.trim()).toBe(
       "pi-welcome-screen: unrecognized Pi layout — using native panel",
     );
-    expect(lines.every((line) => line.length <= 80)).toBe(true);
+    expect(lines.every((line) => stripAnsi(line).length <= 80)).toBe(true);
   });
 
   test("uses one, two, or three equal-width grid columns as space allows", () => {
@@ -488,7 +500,7 @@ describe("welcome resource formatting", () => {
     const firstResourceRow = twoColumns.findIndex((line) =>
       line.includes("[Context]"),
     );
-    expect(twoColumns[firstLogoRow]?.indexOf("█")).toBe(38);
+    expect(stripAnsi(twoColumns[firstLogoRow] ?? "").indexOf("▀")).toBe(42);
     expect(firstLogoRow).toBe(1);
     expect(firstResourceRow - versionRow - 1).toBe(firstLogoRow);
     expect(
@@ -507,9 +519,9 @@ describe("welcome resource formatting", () => {
     );
     expect(threeColumnTopRow?.indexOf("[Context]")).toBe(46);
     expect(threeColumnTopRow?.indexOf("[Extensions]")).toBe(90);
-    expect(threeColumns.every((line) => !/[\[•]/.test(line.slice(0, 40)))).toBe(
-      true,
-    );
+    expect(
+      threeColumns.every((line) => !/[\[•]/.test(stripAnsi(line).slice(0, 40))),
+    ).toBe(true);
     const threeColumnFirstLogoRow = threeColumns.findIndex((line) =>
       line.includes("█"),
     );
@@ -522,7 +534,9 @@ describe("welcome resource formatting", () => {
           (threeColumns.length - threeColumnVersionRow - 1),
       ),
     ).toBeLessThanOrEqual(1);
-    expect(threeColumns.every((line) => line.length <= 130)).toBe(true);
+    expect(threeColumns.every((line) => stripAnsi(line).length <= 130)).toBe(
+      true,
+    );
   });
 
   test("columns local extensions and lists vendored packages separately", () => {
@@ -625,13 +639,14 @@ describe("welcome resource formatting", () => {
     const colorCalls: Array<{ color: string; text: string }> = [];
     const recordingTheme = {
       bold: (text: string) => text,
+      getColorMode: () => "truecolor" as const,
       fg(color: string, text: string) {
         colorCalls.push({ color, text });
         return text;
       },
     };
 
-    renderCenteredWelcome(
+    const rendered = renderCenteredWelcome(
       {
         context: ["AGENTS.md"],
         skills: ["artifactor"],
@@ -659,17 +674,14 @@ describe("welcome resource formatting", () => {
     expect(colorCalls.find(({ text }) => text.includes("•"))?.color).toBe(
       "dim",
     );
-    expect(
-      colorCalls
-        .filter(({ color }) => color === "accent")
-        .every(({ text }) => text.includes("█")),
-    ).toBe(true);
+    expect(rendered.some((line) => line.includes("▀█"))).toBe(true);
   });
 
   test("renders project skills in muted and other skills in dim", () => {
     const colorCalls: Array<{ color: string; text: string }> = [];
     const recordingTheme = {
       bold: (text: string) => text,
+      getColorMode: () => "truecolor" as const,
       fg(color: string, text: string) {
         colorCalls.push({ color, text });
         return text;
@@ -700,6 +712,7 @@ describe("welcome resource formatting", () => {
     const colorCalls: Array<{ color: string; text: string }> = [];
     const recordingTheme = {
       bold: (text: string) => text,
+      getColorMode: () => "truecolor" as const,
       fg(color: string, text: string) {
         colorCalls.push({ color, text });
         return text;
@@ -749,6 +762,7 @@ describe("welcome resource formatting", () => {
       },
       {
         bold: (text: string) => text,
+        getColorMode: () => "truecolor" as const,
         fg: (color: string, text: string) =>
           `\x1B[${escapeCodes[color] ?? "39"}m${text}\x1B[0m`,
       } as never,
@@ -975,7 +989,7 @@ describe("welcome resource-panel bridge", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 180));
     const rendered = header.render(80).join("\n");
-    expect(rendered).toContain("█████████");
+    expect(stripAnsi(rendered)).toContain("▀█");
     expect(rendered).toContain(
       "pi-welcome-screen: unrecognized Pi layout — using native panel",
     );
@@ -1230,6 +1244,7 @@ import("ci-sleep");
     const taggedTheme = {
       bold: (text: string) => text,
       name: "test",
+      getColorMode: () => "truecolor" as const,
       fg: (color: string, text: string) => `[${color}]${text}[/${color}]`,
     };
     const rendered = renderCenteredWelcome(
