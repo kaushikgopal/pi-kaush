@@ -17,9 +17,9 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-coding-agent": "0.80.6",
-    "@earendil-works/pi-tui": "0.80.6",
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@earendil-works/pi-tui": "1.0.0",
     "@types/node": "26.1.1",
     "prettier": "3.6.2",
     "typescript": "5.9.3",
