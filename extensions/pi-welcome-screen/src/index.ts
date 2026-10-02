@@ -408,6 +408,13 @@ interface CollapsedTextComponent extends Component {
   getExpandedText?: () => string;
 }
 
+// Pi 1.0 resource sections: ExpandableText stores its content thunks behind a
+// `build` callback and the current expansion in `state.expanded`.
+interface ExpandableTextComponent extends Component {
+  build?: () => string;
+  state?: { expanded?: boolean };
+}
+
 interface ResourcePanel extends Component {
   children: Component[];
   addChild(component: Component): void;
@@ -454,6 +461,52 @@ function getSectionHeading(text: string): string | undefined {
     .match(/^\[([^\]]+)\]$/)?.[1];
 }
 
+/** Collapsed section text across Pi 0.84 method API and Pi 1.0 ExpandableText shape. */
+function readCollapsedText(child: Component): string | undefined {
+  const method = child as CollapsedTextComponent;
+  if (typeof method.getCollapsedText === "function") {
+    return method.getCollapsedText();
+  }
+  const expandable = child as ExpandableTextComponent;
+  if (
+    typeof expandable.build !== "function" ||
+    !expandable.state ||
+    typeof expandable.state.expanded !== "boolean"
+  ) {
+    return undefined;
+  }
+  const wasExpanded = expandable.state.expanded;
+  try {
+    expandable.state.expanded = false;
+    return expandable.build();
+  } finally {
+    expandable.state.expanded = wasExpanded;
+  }
+}
+
+/** Expanded section text across both Pi shapes, or undefined when unavailable. */
+function readExpandedText(child: Component): string | undefined {
+  const method = child as CollapsedTextComponent;
+  if (typeof method.getExpandedText === "function") {
+    return method.getExpandedText();
+  }
+  const expandable = child as ExpandableTextComponent;
+  if (
+    typeof expandable.build !== "function" ||
+    !expandable.state ||
+    typeof expandable.state.expanded !== "boolean"
+  ) {
+    return undefined;
+  }
+  const wasExpanded = expandable.state.expanded;
+  try {
+    expandable.state.expanded = true;
+    return expandable.build();
+  } finally {
+    expandable.state.expanded = wasExpanded;
+  }
+}
+
 function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
   const sections: string[] = [];
   const knownChildren: Component[] = [];
@@ -462,24 +515,24 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
   let expandedPromptsText: string | undefined;
 
   for (const child of panel.children) {
-    const collapsible = child as CollapsedTextComponent;
-    if (typeof collapsible.getCollapsedText !== "function") continue;
+    const text = readCollapsedText(child);
+    if (text === undefined) continue;
 
-    const text = collapsible.getCollapsedText();
     const heading = getSectionHeading(text);
     if (WELCOME_SECTIONS.some((section) => section === heading)) {
       knownChildren.push(child);
       sections.push(text);
-      if (typeof collapsible.getExpandedText === "function") {
+      const expanded = readExpandedText(child);
+      if (expanded !== undefined) {
         if (
           heading === "Extensions" ||
           /(?:^|\n)\s*\[Extensions\]\s*(?:\n|$)/.test(stripAnsi(text))
         ) {
-          expandedExtensionsText = collapsible.getExpandedText();
+          expandedExtensionsText = expanded;
         } else if (heading === "Skills") {
-          expandedSkillsText = collapsible.getExpandedText();
+          expandedSkillsText = expanded;
         } else if (heading === "Prompts") {
-          expandedPromptsText = collapsible.getExpandedText();
+          expandedPromptsText = expanded;
         }
       }
     } else if (heading === "Themes") {
@@ -1519,8 +1572,10 @@ class WelcomeHeader implements Component {
     private readonly theme: Theme,
     forceInitialRender: boolean,
     notify: (message: string, type?: "info" | "warning" | "error") => void,
+    quiet = false,
   ) {
     this.notify = notify;
+    if (quiet) return;
     // session_start runs just before Pi populates its loaded-resource panel.
     this.resourceReadyTimer = setTimeout(
       () => this.captureResourcesWhenReady(forceInitialRender, 0),
@@ -1691,11 +1746,23 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", (event, ctx) => {
     if (ctx.mode !== "tui") return;
 
+    // Respect Pi's quietStartup: true silences the header entirely, and
+    // "header" keeps the header but hides the loaded resources this
+    // extension summarizes, so it renders the brand block only.
+    const quietStartup = pi.getSettings().quietStartup;
+    if (quietStartup === true) return;
+
     const notify = (message: string, type?: "info" | "warning" | "error") =>
       ctx.ui.notify(message, type);
     ctx.ui.setHeader(
       (tui, theme) =>
-        new WelcomeHeader(tui, theme, event.reason === "startup", notify),
+        new WelcomeHeader(
+          tui,
+          theme,
+          event.reason === "startup",
+          notify,
+          quietStartup === "header",
+        ),
     );
   });
 }

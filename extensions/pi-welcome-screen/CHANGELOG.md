@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix resource capture on Pi 1.0, whose resource sections became `ExpandableText` components without the `getCollapsedText`/`getExpandedText` methods the panel reader relied on; the extension now reads both the Pi 0.84 method API and the Pi 1.0 build-thunk shape, so the custom welcome layout engages instead of silently leaving the native resource listing.
+- Respect Pi's `quietStartup` setting: `true` leaves the header to Pi entirely, and `"header"` renders the centered brand block without resource sections, matching what Pi's own startup hides.
+
 - Replace the purple block-letter banner with Pi 1.0's half-block brand logo in its fixed coral/blue/yellow colors, centered in the same header position. Apple Terminal, which misrenders half-block pixels, gets the coral/yellow `Pi` wordmark fallback, matching Pi's own behavior.
 - Reserve two internal padding columns on both sides of the welcome layout at normal widths, degrading only when a tiny terminal needs the content space.
 - Tint project-scope skills one step brighter on the welcome screen (`muted` instead of `dim`); global, path, and package skills keep the dim default. Scope comes from Pi's expanded Skills listing, degrading to the dim default when it is unavailable.

@@ -815,6 +815,27 @@ describe("welcome resource-panel bridge", () => {
     };
   }
 
+  // Pi 1.0 resource sections: ExpandableText keeps content behind a `build`
+  // thunk and the current expansion in `state.expanded`; it exposes no
+  // getCollapsedText/getExpandedText methods.
+  function makePi100Section(
+    heading: string,
+    body: string,
+    options: { expanded?: string } = {},
+  ) {
+    const component: any = {
+      ...emptyComponent(),
+      state: { expanded: false },
+      build() {
+        const collapsed = `[${heading}]\n${body}`;
+        return component.state.expanded
+          ? (options.expanded ?? collapsed)
+          : collapsed;
+      },
+    };
+    return component;
+  }
+
   function makeKnownResourceChildren(
     contextFile = "AGENTS.md",
     onContextRead?: () => void,
@@ -848,6 +869,7 @@ describe("welcome resource-panel bridge", () => {
       on(event: string, handler: (event: any, context: any) => void) {
         if (event === "session_start") sessionStart = handler;
       },
+      getSettings: () => ({ quietStartup: false }),
     } as never);
 
     let headerFactory:
@@ -978,6 +1000,100 @@ describe("welcome resource-panel bridge", () => {
 
     header.dispose?.();
     expect(panel.children).toEqual(nativeChildren);
+  });
+
+  test("captures resources from Pi 1.0's ExpandableText resource sections", async () => {
+    const nativeChildren = [
+      new Spacer(1),
+      makePi100Section("Context", "  AGENTS.md"),
+      new Spacer(1),
+      makePi100Section("Skills", "  artifactor"),
+      new Spacer(1),
+      makePi100Section("Prompts", "  /implement"),
+      new Spacer(1),
+      makePi100Section("Extensions", "  welcome-screen", {
+        expanded: [
+          "[Extensions]",
+          "  welcome-screen",
+          "    ~/dev/pi-kaush/extensions/pi-welcome-screen/src",
+        ].join("\n"),
+      }),
+      new Spacer(1),
+    ];
+    const panel = makeContainer(nativeChildren);
+    const documentContainer = makeContainer([
+      makeContainer(),
+      panel,
+      makeContainer(),
+    ]);
+    const tui = {
+      children: [
+        documentContainer,
+        ...Array.from({ length: 6 }, emptyComponent),
+      ],
+      requestRender() {},
+    };
+
+    const header = installHeader()(tui, plainTheme);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const rendered = header.render(80).join("\n");
+    expect(rendered).toContain("• AGENTS.md");
+    expect(stripAnsi(rendered)).toContain("[Extensions]");
+    expect(panel.children).toEqual([]);
+
+    header.dispose?.();
+    expect(panel.children).toEqual(nativeChildren);
+    // The build thunk's expansion state must survive inspection untouched.
+    expect(
+      nativeChildren.every((child) => (child as any).state?.expanded !== true),
+    ).toBe(true);
+  });
+
+  test("stays out of the header when quietStartup silences it", async () => {
+    let sessionStart: ((event: any, context: any) => void) | undefined;
+    let settings: Record<string, unknown> = { quietStartup: true };
+    welcomeScreen({
+      on(event: string, handler: (event: any, context: any) => void) {
+        if (event === "session_start") sessionStart = handler;
+      },
+      getSettings: () => settings,
+    } as never);
+    let headerInstalls = 0;
+    sessionStart?.(
+      { reason: "startup" },
+      {
+        mode: "tui",
+        ui: {
+          setHeader() {
+            headerInstalls += 1;
+          },
+        },
+      },
+    );
+    expect(headerInstalls).toBe(0);
+
+    settings = { quietStartup: "header" };
+    let header: any;
+    sessionStart?.(
+      { reason: "startup" },
+      {
+        mode: "tui",
+        ui: {
+          setHeader(factory: (tui: unknown, theme: unknown) => any) {
+            headerInstalls += 1;
+            header = factory(undefined, plainTheme);
+          },
+        },
+      },
+    );
+    expect(headerInstalls).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Brand-only render: logo and version, no resource sections or notices.
+    const rendered = header.render(80).join("\n");
+    expect(stripAnsi(rendered)).toContain("▀█");
+    expect(rendered).not.toContain("[Context]");
+    expect(rendered).not.toContain("pi-welcome-screen: unrecognized Pi layout");
   });
 
   test("warns only after the TUI layout remains unrecognized", async () => {
