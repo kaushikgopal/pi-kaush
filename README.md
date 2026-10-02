@@ -29,7 +29,7 @@ Every package is independently versioned and publishable to npm. Runtime source 
 
 `@pi-kaush/pi-openai-compaction` is retired and its source is no longer in this repository. Use the provider-neutral [`@pi-kaush/pi-verbatim-compaction`](./extensions/pi-verbatim-compaction) instead.
 
-[`@pi-kaush/pi-inline-skill-identifier`](./extensions/pi-inline-skill-identifier) and [`@pi-kaush/pi-inline-agent-identifier`](./extensions/pi-inline-agent-identifier) are deprecated. Use the consolidated [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) package instead. Both deprecated packages remain on npm for existing users but receive no feature work.
+`@pi-kaush/pi-inline-skill-identifier` and `@pi-kaush/pi-inline-agent-identifier` are deprecated and no longer shipped from this repository. Use the consolidated [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier) package instead. The deprecated packages remain on npm for existing users but receive no feature work.
 
 ## Use an extension
 
