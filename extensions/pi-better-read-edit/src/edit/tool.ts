@@ -7,6 +7,7 @@ import {
   type EditToolDetails,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { constants } from "node:fs";
 import { access, realpath, stat, writeFile } from "node:fs/promises";
 import {
@@ -71,6 +72,25 @@ type PlannedFile = {
   device: number;
   inode: number;
 };
+
+const editOutputSchema = Type.Object({
+  output: Type.String({ description: "The model-facing edit summary" }),
+  files: Type.Array(Type.String(), {
+    description: "Canonical paths of the edited files",
+  }),
+  file_edits: Type.Array(
+    Type.Object({
+      path: Type.String(),
+      first_changed_line: Type.Optional(Type.Number()),
+    }),
+    { description: "Per-file location of the first applied change" },
+  ),
+  recovery_warnings: Type.Optional(
+    Type.Array(Type.String(), {
+      description: "Non-fatal recoveries applied during planning",
+    }),
+  ),
+});
 
 export type BetterEditDetails = EditToolDetails & {
   files: string[];
@@ -846,6 +866,8 @@ export default function registerEditTool(
       "On unseen-range errors, read the suggested ranges and retry with the returned tag.",
     ],
     parameters: editSchema,
+    outputSchema: editOutputSchema,
+    annotations: { readOnlyHint: false, openWorldHint: false },
     prepareArguments: normalizeEditArguments,
     async execute(_toolCallId, params: EditParams, signal, _onUpdate, ctx) {
       const input = normalizeEditArguments(params) as EditParams;
@@ -857,14 +879,23 @@ export default function registerEditTool(
       );
       const plan = await buildPlan(input, ctx.cwd, registry, snapshots);
       const applied = await applyPlan(plan, snapshots, signal);
+      const output = `Updated ${applied.details.files.length} file(s).\n\n${applied.windows.join("\n\n")}${applied.details.recoveryWarnings?.length ? `\n\nWarnings:\n${applied.details.recoveryWarnings.map((warning) => `- ${warning}`).join("\n")}` : ""}`;
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Updated ${applied.details.files.length} file(s).\n\n${applied.windows.join("\n\n")}${applied.details.recoveryWarnings?.length ? `\n\nWarnings:\n${applied.details.recoveryWarnings.map((warning) => `- ${warning}`).join("\n")}` : ""}`,
-          },
-        ],
+        content: [{ type: "text" as const, text: output }],
         details: applied.details,
+        structuredContent: {
+          output,
+          files: applied.details.files,
+          file_edits: applied.details.fileEdits.map((edit) => ({
+            path: edit.path,
+            ...(edit.firstChangedLine !== undefined
+              ? { first_changed_line: edit.firstChangedLine }
+              : {}),
+          })),
+          ...(applied.details.recoveryWarnings?.length
+            ? { recovery_warnings: applied.details.recoveryWarnings }
+            : {}),
+        },
       };
     },
   });

@@ -430,3 +430,48 @@ describe("structured edit input", () => {
     ).toHaveProperty("script", "conflict");
   });
 });
+
+describe("structured content for programmatic callers", () => {
+  test("tagged read reports source, tag, and continuation offset", async () => {
+    const file = join(root, "tagged.txt");
+    await writeFile(
+      file,
+      `${Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")}\n`,
+    );
+    const read = await tools
+      .get("read")
+      .execute(
+        "read-1",
+        { path: file, limit: 10 },
+        undefined,
+        undefined,
+        context,
+      );
+    expect(read.structuredContent).toMatchObject({
+      path: file,
+      source: "tagged",
+      tag: read.details.hashlineAnchor.tag,
+      next_offset: 11,
+    });
+    expect(read.structuredContent.output).toContain("[");
+    expect(read.structuredContent.output).toContain("line 10");
+  });
+
+  test("edit reports per-file first changed line", async () => {
+    const file = join(root, "sc-edit.txt");
+    await writeFile(file, "one\ntwo\nthree\n");
+    const tag = await taggedRead(file);
+    const result = await edit([
+      {
+        path: file,
+        tag,
+        edits: [{ startLine: 2, deleteCount: 1, newLines: ["TWO"] }],
+      },
+    ]);
+    expect(result.structuredContent).toMatchObject({
+      files: [file],
+      file_edits: [{ path: file, first_changed_line: 2 }],
+    });
+    expect(result.structuredContent.output).toContain("Updated 1 file(s).");
+  });
+});

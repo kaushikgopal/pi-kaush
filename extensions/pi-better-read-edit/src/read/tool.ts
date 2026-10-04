@@ -10,11 +10,13 @@ import {
   type ReadToolDetails,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { JsonValue } from "@earendil-works/pi-ai";
 import {
   isSqlitePath,
   resolveLocalPath,
   tryReadProjection,
   untaggedRangeResult,
+  type ReadResult,
 } from "./artifacts.ts";
 import { tryHashlineRead } from "./local-text.ts";
 import type { HashlineSnapshotStore } from "../hashline/snapshot-store.ts";
@@ -217,6 +219,57 @@ function withUntaggedFallbackNotice<
   updateDisplayedMetrics();
   return result;
 }
+const readOutputSchema = Type.Object({
+  output: Type.String({ description: "The model-facing read output" }),
+  path: Type.String({
+    description: "Display path, matching the [path#TAG] header on tagged reads",
+  }),
+  source: Type.Union(
+    [
+      Type.Literal("tagged"),
+      Type.Literal("projection"),
+      Type.Literal("untagged"),
+    ],
+    {
+      description:
+        "tagged output is edit-authorized via tag; projection and untagged cannot authorize edits",
+    },
+  ),
+  tag: Type.Optional(
+    Type.String({ description: "Session tag for edit, on tagged reads only" }),
+  ),
+  next_offset: Type.Optional(
+    Type.Number({ description: "Offset that continues a capped tagged read" }),
+  ),
+});
+
+function withStructuredContent<
+  T extends {
+    content: ReadonlyArray<{ type: string; text?: string }>;
+    details?: unknown;
+  },
+>(
+  source: "tagged" | "projection" | "untagged",
+  path: string,
+  result: T,
+  extra?: { tag?: string; nextOffset?: number },
+): T & { structuredContent: JsonValue } {
+  return {
+    ...result,
+    structuredContent: {
+      output: result.content
+        .map((part) => (part.type === "text" ? (part.text ?? "") : ""))
+        .join("\n"),
+      path,
+      source,
+      ...(extra?.tag ? { tag: extra.tag } : {}),
+      ...(extra?.nextOffset !== undefined
+        ? { next_offset: extra.nextOffset }
+        : {}),
+    },
+  };
+}
+
 export default function registerReadTool(
   pi: ExtensionAPI,
   snapshots: HashlineSnapshotStore,
@@ -235,6 +288,8 @@ export default function registerReadTool(
       "Resource projections are deliberately untagged and cannot authorize file edits.",
     ],
     parameters: readSchema,
+    outputSchema: readOutputSchema,
+    annotations: { readOnlyHint: true, openWorldHint: true },
     prepareArguments: normalizeReadInput,
     async execute(
       toolCallId: string,
@@ -254,7 +309,11 @@ export default function registerReadTool(
             "offset/limit apply to ordinary local text only; use selector/ranges for projections.",
           );
         }
-        return routed.result;
+        return withStructuredContent(
+          "projection",
+          routed.path ?? input.path,
+          routed.result,
+        );
       }
 
       const readPath = routed?.path ?? input.path;
@@ -280,7 +339,19 @@ export default function registerReadTool(
           unavailableReason = reason;
         },
       );
-      if (tagged) return tagged;
+      if (tagged) {
+        return withStructuredContent(
+          "tagged",
+          tagged.details.hashlineAnchor.displayPath,
+          tagged,
+          {
+            tag: tagged.details.hashlineAnchor.tag,
+            ...(tagged.details.continuation
+              ? { nextOffset: tagged.details.continuation.nextOffset }
+              : {}),
+          },
+        );
+      }
 
       if (selector && isLineSelector(selector)) {
         const absolutePath = resolveLocalPath(ctx.cwd, readPath);
@@ -294,9 +365,13 @@ export default function registerReadTool(
             `Local range source exceeds the ${LOCAL_READ_CAP_BYTES}-byte safety cap.`,
           );
         }
-        return withUntaggedFallbackNotice(
-          untaggedRangeResult(absolutePath, bounded.text, selector),
-          unavailableReason,
+        return withStructuredContent(
+          "untagged",
+          absolutePath,
+          withUntaggedFallbackNotice(
+            untaggedRangeResult(absolutePath, bounded.text, selector),
+            unavailableReason,
+          ),
         );
       }
       const fallbackPath = resolveLocalPath(ctx.cwd, readPath);
@@ -336,7 +411,11 @@ export default function registerReadTool(
         signal,
         onUpdate,
       );
-      return withUntaggedFallbackNotice(fallback, unavailableReason);
+      return withStructuredContent(
+        "untagged",
+        fallbackPath,
+        withUntaggedFallbackNotice(fallback, unavailableReason),
+      );
     },
   });
 }
