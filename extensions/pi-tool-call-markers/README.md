@@ -98,10 +98,10 @@ When Pi exposes its per-row hidden-thinking and streaming fields, hidden reasoni
 
 ```text
 ⠋ Thinking…  →  ⠙ Thinking…  →  …
-+ Thought · 2.5s
+✦ Thought · 2.5s
 ```
 
-The live label samples Pi's native braille spinner sequence from the content updates Pi already renders; it does not add a timer. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `+ Thought`. There is no interval, timeout, render request, model call, or network work.
+The live label samples Pi's native braille spinner sequence from the content updates Pi already renders; it does not add a timer. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `✦ Thought`. There is no interval, timeout, render request, model call, or network work.
 
 Pi renders thinking labels and traces italic. This package drops those italics: both labels read as plain collapsed rows (the live spinner keeps its thinking-level tint, the settled row the muted tone, and a theme that resolves no color still loses the italics), and a visible trace stays italic only while it streams, then settles into ordinary transcript text. `PI_TOOL_CALL_MARKERS_THOUGHT_COLOR=inherit` is the opt-out that keeps Pi's native italic `thinkingText` styling.
 
@@ -135,7 +135,7 @@ Names are comma-separated and matched exactly. Listed rows never join a group, a
 
 ### Collapsed-row colors
 
-Collapsed rows (tool calls, `+ Thought`, subagents) default to the theme's `syntaxComment` color — it ships with every Pi theme and reads as a muted tone — with the row's anchor and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
+Collapsed rows (tool calls, `✦ Thought`, subagents) default to the theme's `syntaxComment` color — it ships with every Pi theme and reads as a muted tone — with the row's anchor and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
 
 A theme can override each collapsed kind independently with optional color tokens:
 

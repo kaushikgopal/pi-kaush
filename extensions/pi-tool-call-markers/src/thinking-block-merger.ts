@@ -10,7 +10,7 @@ const SPINNER_INTERVAL_MS = 80;
 // Visual treatment for the collapsed thinking label. The live "Thinking…"
 // spinner tints with the session's active thinking-level color
 // (thinkingOff…thinkingMax), so progress reads as activity; the settled
-// "+ Thought" row drops to the muted token collapsed tool calls use, so
+// "✦ Thought" row drops to the muted token collapsed tool calls use, so
 // finished reasoning stops advertising the level. "inherit" keeps Pi's
 // native styling (italic + thinkingText) for both states, and "mdheading"
 // rides the theme's mdHeading token for both. The env var overrides the
@@ -105,10 +105,10 @@ function labelStyle(
   return styledWith(token, theme);
 }
 
-// The settled label is the finalized "+ Thought" row; every other label is
+// The settled label is the finalized "✦ Thought" row; every other label is
 // the live spinner.
 function isSettledThoughtLabel(label: string): boolean {
-  return label.startsWith("+ Thought");
+  return label.startsWith("✦ Thought");
 }
 
 export function visibleThoughtLabel(label: string): string {
@@ -351,9 +351,9 @@ function lifecycleLabel(
 
   const settled = timings.get(row);
   if (settled?.finishedAt !== undefined) {
-    return `+ Thought · ${formatThoughtDuration(settled.startedAt, settled.finishedAt)}`;
+    return `✦ Thought · ${formatThoughtDuration(settled.startedAt, settled.finishedAt)}`;
   }
-  return "+ Thought";
+  return "✦ Thought";
 }
 
 function stripThinkingBlocks(

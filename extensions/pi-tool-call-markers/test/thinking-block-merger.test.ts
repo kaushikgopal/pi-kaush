@@ -195,11 +195,11 @@ describe("thinking block merger", () => {
 
     vi.setSystemTime(3_460);
     assistant.updateContent(message, false);
-    expect(assistant.hiddenThinkingLabel).toBe("+ Thought · 2.5s");
+    expect(assistant.hiddenThinkingLabel).toBe("✦ Thought · 2.5s");
 
     // Pi can rebuild a finalized row without a streaming argument on resize.
     assistant.updateContent(message);
-    expect(assistant.hiddenThinkingLabel).toBe("+ Thought · 2.5s");
+    expect(assistant.hiddenThinkingLabel).toBe("✦ Thought · 2.5s");
     expect(globalSetter).not.toHaveBeenCalled();
   });
 
@@ -212,13 +212,13 @@ describe("thinking block merger", () => {
     expect(assistant.hiddenThinkingLabel).toBe("Thinking...");
     vi.setSystemTime(3_000);
     assistant.updateContent(thinkingMessage("later"), false);
-    expect(assistant.hiddenThinkingLabel).toBe("+ Thought · 2.0s");
+    expect(assistant.hiddenThinkingLabel).toBe("✦ Thought · 2.0s");
   });
 
   test("uses a timeless final label for restored and older-runtime rows", () => {
     const assistant = new MockAssistantMessageComponent();
     assistant.updateContent(thinkingMessage());
-    expect(assistant.hiddenThinkingLabel).toBe("+ Thought");
+    expect(assistant.hiddenThinkingLabel).toBe("✦ Thought");
   });
 
   test("keeps per-row timestamps isolated", () => {
@@ -235,8 +235,8 @@ describe("thinking block merger", () => {
     vi.setSystemTime(5_500);
     second.updateContent(thinkingMessage("second"), false);
 
-    expect(first.hiddenThinkingLabel).toBe("+ Thought · 1.5s");
-    expect(second.hiddenThinkingLabel).toBe("+ Thought · 3.5s");
+    expect(first.hiddenThinkingLabel).toBe("✦ Thought · 1.5s");
+    expect(second.hiddenThinkingLabel).toBe("✦ Thought · 3.5s");
   });
 
   test("leaves visible-thinking rows and unsupported label shapes native", () => {
@@ -331,10 +331,10 @@ describe("thinking block merger", () => {
 
     vi.setSystemTime(3_500);
     assistant.updateContent(thinkingMessage(), false);
-    expect(assistant.hiddenThinkingLabel).toBe("+ Thought · 2.5s");
+    expect(assistant.hiddenThinkingLabel).toBe("✦ Thought · 2.5s");
     // Settled rows quiet down to the muted tool-call tone.
     expect(assistant.labelChild?.text).toBe(
-      "\x1b[23m\x1b[38;2;110;118;129m+ Thought · 2.5s\x1b[39m",
+      "\x1b[23m\x1b[38;2;110;118;129m✦ Thought · 2.5s\x1b[39m",
     );
   });
 
@@ -385,18 +385,18 @@ describe("thinking block merger", () => {
       getFgAnsi: (color: string) =>
         fgAnsiStrict({ mdHeading: "\x1b[38;5;215m" }, color),
     });
-    expect(visibleThoughtLabel("+ Thought")).toBe(
-      "\x1b[23m\x1b[38;5;215m+ Thought\x1b[39m",
+    expect(visibleThoughtLabel("✦ Thought")).toBe(
+      "\x1b[23m\x1b[38;5;215m✦ Thought\x1b[39m",
     );
   });
 
   test("keeps native italic styling only for the inherit variant", () => {
     vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "inherit");
     startSession({ getColorMode: () => "truecolor" });
-    expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+    expect(visibleThoughtLabel("✦ Thought")).toBe("✦ Thought");
 
     startSession(undefined);
-    expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+    expect(visibleThoughtLabel("✦ Thought")).toBe("✦ Thought");
   });
 
   test("drops italics even when the theme resolves no color", () => {
@@ -406,11 +406,11 @@ describe("thinking block merger", () => {
         throw new Error("Unknown theme color");
       },
     });
-    expect(visibleThoughtLabel("+ Thought")).toBe("\x1b[23m+ Thought");
+    expect(visibleThoughtLabel("✦ Thought")).toBe("\x1b[23m✦ Thought");
     expect(visibleThoughtLabel("⠋ Thinking…")).toBe("\x1b[23m⠋ Thinking…");
 
     startSession(undefined);
-    expect(visibleThoughtLabel("+ Thought")).toBe("\x1b[23m+ Thought");
+    expect(visibleThoughtLabel("✦ Thought")).toBe("\x1b[23m✦ Thought");
   });
 
   test("tints the live label with the level token and settles muted", () => {
@@ -428,8 +428,8 @@ describe("thinking block merger", () => {
     expect(visibleThoughtLabel("⠋ Thinking…")).toBe(
       "\x1b[23m\x1b[38;5;67m⠋ Thinking…\x1b[39m",
     );
-    expect(visibleThoughtLabel("+ Thought")).toBe(
-      "\x1b[23m\x1b[38;5;244m+ Thought\x1b[39m",
+    expect(visibleThoughtLabel("✦ Thought")).toBe(
+      "\x1b[23m\x1b[38;5;244m✦ Thought\x1b[39m",
     );
   });
 
@@ -451,11 +451,11 @@ describe("thinking block merger", () => {
     expect(assistant.lastMessage?.content).toEqual([
       { type: "thinking", thinking: "one\n\ntwo" },
     ]);
-    expect(visibleThoughtLabel("+ Thought")).not.toBe("+ Thought");
+    expect(visibleThoughtLabel("✦ Thought")).not.toBe("✦ Thought");
     expect(MockAssistantMessageComponent.prototype.updateContent).toBe(patched);
 
     finalShutdown!();
-    expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+    expect(visibleThoughtLabel("✦ Thought")).toBe("✦ Thought");
     expect(MockAssistantMessageComponent.prototype.updateContent).not.toBe(
       patched,
     );
@@ -463,9 +463,9 @@ describe("thinking block merger", () => {
 
   test("drops styling again on shutdown", () => {
     startSession(mockTheme());
-    expect(visibleThoughtLabel("+ Thought")).not.toBe("+ Thought");
+    expect(visibleThoughtLabel("✦ Thought")).not.toBe("✦ Thought");
     for (const handler of shutdownHandlers.splice(0)) handler();
-    expect(visibleThoughtLabel("+ Thought")).toBe("+ Thought");
+    expect(visibleThoughtLabel("✦ Thought")).toBe("✦ Thought");
     install();
   });
 
