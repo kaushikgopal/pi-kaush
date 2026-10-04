@@ -4,6 +4,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import registerOutputCeiling from "./context/output-ceiling.ts";
 import registerEditTool from "./edit/tool.ts";
 import registerReadTool from "./read/tool.ts";
 import { HashlineSnapshotStore } from "./hashline/snapshot-store.ts";
@@ -35,6 +36,7 @@ export default function piBetterReadEdit(pi: ExtensionAPI): void {
   // Keep the default deterministic before session/model events establish a route.
   registerBetterTools();
   if (typeof pi.on !== "function") return;
+  registerOutputCeiling(pi);
   pi.on("session_start", (_event, ctx) => routeTools(ctx, ctx.model));
   pi.on("model_select", (event, ctx) => routeTools(ctx, event.model));
 }
