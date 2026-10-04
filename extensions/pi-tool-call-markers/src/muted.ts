@@ -1,6 +1,6 @@
 // Collapsed-row color policy.
 //
-// Collapsed blocks (tool calls, settled "✦ Thought" labels, subagent rows)
+// Collapsed blocks (tool calls, settled "+ Thought" labels, subagent rows)
 // default to the theme's `syntaxComment` token — it ships with every Pi
 // theme and reads as a muted tone — instead of the louder
 // muted/toolTitle/toolOutput split. A theme can override each collapsed
