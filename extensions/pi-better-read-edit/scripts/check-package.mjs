@@ -18,6 +18,7 @@ const expected = [
   "Makefile",
   "package.json",
   // extension source
+  "src/context/output-ceiling.ts",
   "src/edit/input.ts",
   "src/edit/tool.ts",
   "src/hashline/apply.ts",
