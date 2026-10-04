@@ -42,6 +42,7 @@ const TOOL_CALL_GLYPHS: ReadonlyMap<string, string> = new Map([
   ["web_search", "↗"],
   ["fetch_content", "↗"],
   ["get_search_content", "↗"],
+  ["codemode", "¢¢"],
 ]);
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
@@ -835,6 +836,68 @@ function renderedCallSummary(
     : fgCollapsed(theme, "muted", "(no arguments)");
 }
 
+// Codemode carries its tunables in the script's first line —
+// `// @options: {"max_output_tokens": 2500, "timeout_ms": 120000}` — so a
+// collapsed row shows those params instead of a script preview. The
+// prefix and first-line handling mirror pi-codemode's parseCodemodeSource;
+// anything absent or unparsable returns undefined so the row keeps the
+// ordinary summary paths.
+const CODEMODE_OPTIONS_PREFIX = "// @options:";
+
+function codemodeOptionsLabel(row: ToolExecutionRow): string | undefined {
+  if (row.toolName !== "codemode") return undefined;
+  const code = (row.args as { code?: unknown } | undefined)?.code;
+  if (typeof code !== "string") return undefined;
+  const newline = code.indexOf("\n");
+  const head = newline === -1 ? code : code.slice(0, newline);
+  const firstLine = head.replace(/\r$/, "").trimStart();
+  if (!firstLine.startsWith(CODEMODE_OPTIONS_PREFIX)) return undefined;
+  const directive = firstLine.slice(CODEMODE_OPTIONS_PREFIX.length).trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(directive);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return undefined;
+  const params = Object.entries(parsed as Record<string, unknown>).map(
+    ([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`,
+  );
+  return params.length > 0 ? params.join(", ") : undefined;
+}
+
+// The nested calls a script makes stream through result.details.calls with
+// a status per call — the clearest one-line account of what the script did
+// (or is doing, while partial). Repeats collapse to `name ×N` in first-seen
+// order; anything unshaped returns undefined.
+function codemodeCallsSummary(row: ToolExecutionRow): string | undefined {
+  const calls = row.result?.details?.calls;
+  if (!Array.isArray(calls) || calls.length === 0) return undefined;
+  const counts = new Map<string, number>();
+  for (const call of calls) {
+    if (!isRecord(call)) continue;
+    const name = call.name;
+    if (typeof name !== "string" || name.length === 0) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  if (counts.size === 0) return undefined;
+  return [...counts]
+    .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+    .join(", ");
+}
+
+// Codemode's collapsed label pairs what the script did with how it ran:
+// `read ×2, fffind · "max_output_tokens": 2500`. Without either part the row
+// falls through to the ordinary summary paths.
+function codemodeCallLabel(row: ToolExecutionRow): string | undefined {
+  if (row.toolName !== "codemode") return undefined;
+  const parts = [codemodeCallsSummary(row), codemodeOptionsLabel(row)].filter(
+    (part) => part !== undefined,
+  );
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 // The collapsed-row seam lives here and nowhere else: which anchor a row
 // takes, how that anchor is styled, and the call text that follows it.
 // Anchors always render bold and take no joining colon — `│ ● src/a.ts`,
@@ -864,9 +927,13 @@ function collapsedSeam(
   // is gone once settled — while ordinary rows scrape the rendered call
   // line, which already drops its heading token.
   const selfRendered = row.getRenderShell?.() === "self";
-  const source = selfRendered
-    ? selfRenderedCallLabel(row)
-    : renderedCallSummary(row, budget, theme);
+  // Codemode rows pair the script's nested calls with its `@options` params;
+  // with neither, they fall through to the ordinary summary paths.
+  const source =
+    codemodeCallLabel(row) ??
+    (selfRendered
+      ? selfRenderedCallLabel(row)
+      : renderedCallSummary(row, budget, theme));
   const plain = sanitizeInline(stripAnsi(source)).trim();
   // The anchor stands in for the label's leading token. Only self-rendered
   // labels still carry it; a subagent fallback keeps `subagent` as its own

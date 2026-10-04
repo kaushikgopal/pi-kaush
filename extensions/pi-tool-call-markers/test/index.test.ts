@@ -303,6 +303,79 @@ describe("tool-call-markers grouping", () => {
     expect(output).toContain("│ * prototype property");
   });
 
+  test("codemode rows show the script's @options params", () => {
+    const chat = new MockContainer();
+    const row = succeeded("codemode", "ignored");
+    row.args = {
+      code: '// @options: {"max_output_tokens": 2500, "timeout_ms": 120000}\nconst total = 1;',
+    };
+    chat.addChild(row);
+
+    const output = renderPlain(chat);
+    expect(output).toContain(
+      '│ ¢¢ "max_output_tokens": 2500, "timeout_ms": 120000',
+    );
+    expect(output).not.toContain("const total = 1;");
+  });
+
+  test("codemode rows without parsable options keep the args summary", () => {
+    const chat = new MockContainer();
+    for (const code of [
+      "const total = 1;",
+      '// @options: {"max_output_tokens": }\nconst total = 1;',
+    ]) {
+      const row = succeeded("codemode", "");
+      row.args = { code };
+      row.updateResult({ isError: false, output: "result:script" });
+      chat.addChild(row);
+    }
+
+    const output = renderPlain(chat);
+    expect(output).toContain('│ ¢¢ {"code":"const total = 1;"}');
+    expect(output).toContain('│ ¢¢ {"code":"// @options:');
+  });
+
+  test("codemode rows pair nested calls with the options params", () => {
+    const chat = new MockContainer();
+    const row = succeeded("codemode", "");
+    row.args = {
+      code: '// @options: {"max_output_tokens": 2500, "timeout_ms": 120000}\nconst a = await tools.read({ path: "a.md" });',
+    };
+    row.updateResult({
+      isError: false,
+      output: "result:script",
+      details: {
+        calls: [{ name: "read" }, { name: "read" }, { name: "fffind" }],
+      },
+    });
+    chat.addChild(row);
+
+    const output = renderPlain(chat);
+    expect(output).toContain(
+      '│ ¢¢ read ×2, fffind · "max_output_tokens": 2500, "timeout_ms": 120000',
+    );
+  });
+
+  test("live codemode rows show streamed calls while running", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("codemode", "");
+    row.args = { code: "const a = await tools.bash({ command: 'ls' });" };
+    row.updateResult(
+      {
+        isError: false,
+        output: "",
+        details: {
+          calls: [{ name: "bash", status: "running" }],
+        },
+      },
+      true,
+    );
+    chat.addChild(row);
+
+    const output = renderPlain(chat);
+    expect(output).toContain("│ ¢¢ bash …");
+  });
+
   test("omits tool-name headers and separators between tool types", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("fffind", "AGENTS.local.md"));
