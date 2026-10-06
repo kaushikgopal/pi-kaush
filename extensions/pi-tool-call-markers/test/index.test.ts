@@ -313,7 +313,7 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      '│ ¢¢ "max_output_tokens": 2500, "timeout_ms": 120000',
+      '│ ¢ "max_output_tokens": 2500, "timeout_ms": 120000',
     );
     expect(output).not.toContain("const total = 1;");
   });
@@ -331,8 +331,8 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).toContain('│ ¢¢ {"code":"const total = 1;"}');
-    expect(output).toContain('│ ¢¢ {"code":"// @options:');
+    expect(output).toContain('│ ¢ {"code":"const total = 1;"}');
+    expect(output).toContain('│ ¢ {"code":"// @options:');
   });
 
   test("codemode rows pair nested calls with the options params", () => {
@@ -352,7 +352,7 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      '│ ¢¢ read ×2, fffind · "max_output_tokens": 2500, "timeout_ms": 120000',
+      '│ ¢ read ×2, fffind · "max_output_tokens": 2500, "timeout_ms": 120000',
     );
   });
 
@@ -373,7 +373,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain("│ ¢¢ bash …");
+    expect(output).toContain("│ ¢ bash …");
   });
 
   test("omits tool-name headers and separators between tool types", () => {

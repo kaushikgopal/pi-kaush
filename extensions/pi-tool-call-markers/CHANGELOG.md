@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- Give the codemode tool its own `¢¢` anchor and collapsed label. Codemode
+- Give the codemode tool its own `¢` anchor and collapsed label. Codemode
   rows used to collapse to a script preview; they now show the nested
   calls the script ran (repeats deduped to `name ×N`) followed by the
-  script's `// @options:` params — `¢¢ read ×2, fffind · "max_output_tokens":
+  script's `// @options:` params — `¢ read ×2, fffind · "max_output_tokens":
 2500, "timeout_ms": 120000` — so the row says what the script did and
   how it ran. While the script streams, the call list grows live; scripts
   with neither calls nor a parsable options line keep the generic args

@@ -21,7 +21,7 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 ```
 
 - **Two-column outer inset.** Tool markers and image output align with an inset conversation surface. Very narrow terminals reduce the decoration before useful content.
-- **`│` tool-call rail.** Every collapsed call anchors on a bold glyph instead of its tool name — `●` read, `+` write, `±` edit, `○` local search, `≡` ls, `↗` web search and fetch, `¢¢` codemode, and `$` bash; unmapped tools fall back to `*` — with a single space between the anchor and the call text, no joining colon. Grouped rows flow directly across tool types.
+- **`│` tool-call rail.** Every collapsed call anchors on a bold glyph instead of its tool name — `●` read, `+` write, `±` edit, `○` local search, `≡` ls, `↗` web search and fetch, `¢` codemode, and `$` bash; unmapped tools fall back to `*` — with a single space between the anchor and the call text, no joining colon. Grouped rows flow directly across tool types.
 - **Semantic, low-contrast status.** The anchor and the call content share the collapsed mute, pending state is warning-colored, and failures remain error-colored. Ordinary tool states have no background.
 - **Width-safe outcome tails.** Long summaries truncate before useful tails such as `→ done`, `→ 42 lines`, `→ +2/-1`, or a `bash` duration.
 - **Stable running groups.** Adjacent calls group as they appear, including settled failures, which stay error-colored inside the group. Pending state and elapsed `bash` time settle into the final outcome without changing the row count.

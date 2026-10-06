@@ -42,7 +42,7 @@ const TOOL_CALL_GLYPHS: ReadonlyMap<string, string> = new Map([
   ["web_search", "↗"],
   ["fetch_content", "↗"],
   ["get_search_content", "↗"],
-  ["codemode", "¢¢"],
+  ["codemode", "¢"],
 ]);
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
