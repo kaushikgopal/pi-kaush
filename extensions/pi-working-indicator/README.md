@@ -2,11 +2,9 @@
 
 Minimal Pi working indicator: a traveling wave of small squares replaces the native braille spinner and label.
 
-While Pi streams a response, the editor area shows eight adjacent squares with a bright
-four-square window sweeping left-to-right at 80 ms. The wave uses the user message rail color
-(`borderAccent` — the purple ▎ bar on your messages), dim squares use the theme's dim color,
-and the "Working" label is removed — just the squares. Run `/working-indicator` after a theme
-switch to re-resolve the color.
+While Pi streams a response, the editor area shows eight adjacent squares: a prominent center
+square sweeps left-to-right at 80 ms with two muted squares trailing it and the rest dim —
+a three-tier gray-scale wave. The "Working" label is removed — just the squares. Run `/working-indicator` after a theme switch to re-resolve the color.
 
 ## Commands
 

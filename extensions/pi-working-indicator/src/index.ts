@@ -5,12 +5,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 const CELLS = 8;
-const LIT_WINDOW = 4; // lit squares per frame, including the leading head
+const LIT_WINDOW = 3; // lit squares per frame: the head plus two neighbors
 const INTERVAL_MS = 80;
 const SQUARE = "▪";
-
-// The user message rail (▎) color, so the wave matches the chat's accent.
-const ACCENT_TOKEN = "borderAccent" as const;
 
 export interface WaveColors {
   /** Leading edge of the wave. */
@@ -41,10 +38,10 @@ export function waveFrames(
   );
 }
 
-const accentWave = (ctx: ExtensionContext): WorkingIndicatorOptions => ({
+const wave = (ctx: ExtensionContext): WorkingIndicatorOptions => ({
   frames: waveFrames({
-    head: (square) => `\x1b[1m${ctx.ui.theme.fg(ACCENT_TOKEN, square)}\x1b[22m`,
-    lit: (square) => ctx.ui.theme.fg(ACCENT_TOKEN, square),
+    head: (square) => `\x1b[1m${ctx.ui.theme.fg("text", square)}\x1b[22m`,
+    lit: (square) => ctx.ui.theme.fg("muted", square),
     dim: (square) => ctx.ui.theme.fg("dim", square),
   }),
   intervalMs: INTERVAL_MS,
@@ -52,7 +49,7 @@ const accentWave = (ctx: ExtensionContext): WorkingIndicatorOptions => ({
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
-    ctx.ui.setWorkingIndicator(accentWave(ctx));
+    ctx.ui.setWorkingIndicator(wave(ctx));
     ctx.ui.setWorkingMessage("");
   });
 
@@ -63,8 +60,8 @@ export default function (pi: ExtensionAPI) {
       switch (args.trim().toLowerCase()) {
         case "":
         case "wave":
-          ctx.ui.setWorkingIndicator(accentWave(ctx));
-          ctx.ui.notify("Working indicator: accent wave, no label", "info");
+          ctx.ui.setWorkingIndicator(wave(ctx));
+          ctx.ui.notify("Working indicator: muted wave, no label", "info");
           break;
         case "none":
           ctx.ui.setWorkingIndicator({ frames: [] });
