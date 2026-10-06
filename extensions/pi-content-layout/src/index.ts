@@ -50,15 +50,6 @@ type EditorFactory = (
   keybindings: KeybindingsManager,
 ) => EditorComponent;
 
-type EmbeddedStatusEditorOptions = NonNullable<
-  ConstructorParameters<typeof CustomEditor>[3]
-> & { embedWorkingStatus: true };
-
-// Newer Pi consumes this option; older editors keep the transcript status row.
-const EMBEDDED_STATUS_EDITOR_OPTIONS: EmbeddedStatusEditorOptions = {
-  embedWorkingStatus: true,
-};
-
 type ThemeGetter = () => Theme | undefined;
 
 type RenderRow = {
@@ -539,12 +530,7 @@ export default function contentLayout(pi: ExtensionAPI): void {
     const factory: EditorFactory = (tui, editorTheme, keybindings) => {
       const editor = previous
         ? previous(tui, editorTheme, keybindings)
-        : new CustomEditor(
-            tui,
-            editorTheme,
-            keybindings,
-            EMBEDDED_STATUS_EDITOR_OPTIONS,
-          );
+        : new CustomEditor(tui, editorTheme, keybindings);
       return decorateEditor(editor);
     };
     editorRegistration = { factory, previous };
