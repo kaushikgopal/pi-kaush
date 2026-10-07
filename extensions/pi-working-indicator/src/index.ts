@@ -53,6 +53,12 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setWorkingMessage("");
   });
 
+  // Re-resolve theme tokens each turn so theme switches between turns
+  // are picked up (Pi exposes no theme-change event to extensions).
+  pi.on("agent_start", async (_event, ctx) => {
+    ctx.ui.setWorkingIndicator(wave(ctx));
+  });
+
   pi.registerCommand("working-indicator", {
     description:
       "Toggle the working indicator: wave, none, or reset to Pi's native spinner.",
