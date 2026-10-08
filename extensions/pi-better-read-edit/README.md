@@ -42,6 +42,16 @@ A trusted project's `.pi/settings.json` may contain the same block. Its `avoidMo
 - **Resource safety:** adapter inputs are bounded and PDF/archive/HTML/SQLite commands consume private snapshots. URL reads reject private, metadata, cloud-platform, and documentation destinations; validate every redirect; pin validated DNS; forbid HTTPS downgrade; and cap bodies. SQLite allows only bounded ordinary rowid-table views. Archive members reject traversal, duplicate, and noncanonical aliases.
 - **Zero runtime dependencies:** it uses public Pi APIs, Pi's `typebox` peer, and Node's standard library.
 
+## Codemode
+
+Tagged reads and edits work through `tools.read()` and `tools.edit()`, including with `codemode.mode: "only"`. A script can read and edit in the same invocation, or reuse a tag in a later invocation.
+
+Pi does not put nested tool results in the transcript. The extension persists successful nested read/edit anchors as small, branch-scoped custom session entries instead. These entries contain authorization metadata, not file contents, and survive resume/reload. Direct tool calls keep their existing storage.
+
+For nested calls, displayed-line authorization covers the exact lines returned to the script, not just the summary the script prints for the model. Unseen lines, unobserved EOF, stale versions, and abandoned-branch tags still fail closed. Failed child calls and untagged projections mint no authorization; successful child calls retain theirs even if the enclosing script later fails, because completed tool calls are not rolled back.
+
+Reread files whose tags came only from nested calls made before this fix; their authorization metadata was not saved.
+
 ## Edit format
 
 A local text read returns a header and exact source coordinates:

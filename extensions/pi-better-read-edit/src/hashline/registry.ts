@@ -6,6 +6,8 @@ import {
   type LineRange,
 } from "./contract.ts";
 
+export const NESTED_HASHLINE_ENTRY_TYPE = "pi-better-read-edit:nested-anchors";
+
 type StoredRecord = {
   record: HashlineRecord;
   seenRanges: LineRange[];
@@ -60,6 +62,13 @@ export class HashlineRegistry {
   ): HashlineRegistry {
     const registry = new HashlineRegistry();
     for (const entry of branch ?? []) {
+      if (
+        entry.type === "custom" &&
+        entry.customType === NESTED_HASHLINE_ENTRY_TYPE
+      ) {
+        registry.addDetails(entry.data);
+        continue;
+      }
       const result = toolResultFromEntry(entry);
       if (!result || result.isError) continue;
       registry.addDetails(result.details);
