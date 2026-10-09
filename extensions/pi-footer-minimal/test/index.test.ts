@@ -12,6 +12,8 @@ type Handler = (event: unknown, context: Record<string, any>) => void;
 
 const theme = {
   fg: (_color: string, text: string) => text,
+  style: (text: string, options: { fg?: string; dim?: boolean }) =>
+    `${options.dim ? "\x1b[2m" : ""}${options.fg === "dim" ? "\x1b[38;5;245m" : ""}${text}\x1b[22m\x1b[39m`,
 };
 
 type HarnessOptions = {
@@ -26,7 +28,10 @@ type HarnessOptions = {
     contextWindow: number;
   }>;
   thinkingLevel?: string;
-  footerTheme?: { fg(color: string, text: string): string };
+  footerTheme?: {
+    fg(color: string, text: string): string;
+    style?(text: string, options: { fg?: string; dim?: boolean }): string;
+  };
 };
 
 function usageEntry(
@@ -290,6 +295,82 @@ describe("usage and context", () => {
     expect(mainLine(footer, 200)).toContain(
       `[${expectedColor}]${percent.toFixed(1)}%/262k[/${expectedColor}]`,
     );
+  });
+});
+
+describe("below-footer status rows", () => {
+  test("renders sanitized rows below the main footer when stats are hidden", () => {
+    const statuses = new Map([
+      [
+        "below-footer:managed-subagents",
+        "\x1b[31;1m🧪 表 worker\x1b[0m\r\n second\trow\u0001\x1b]0;hidden title\x07",
+      ],
+    ]);
+    const footer = createHarness({ statuses }).start();
+
+    const lines = footer.render(80);
+    expect(lines).toHaveLength(3);
+    expect(plain(lines[0] ?? "")).not.toContain("worker");
+    expect(plain(lines[1] ?? "")).toContain("🧪 表 worker");
+    expect(plain(lines[2] ?? "")).toContain("second row");
+    expect(plain(lines[2] ?? "")).not.toContain("hidden title");
+    for (const line of lines) {
+      expect(line.startsWith("  ")).toBe(true);
+      expect(line.endsWith("  ")).toBe(true);
+      expect(visibleWidth(line)).toBe(80);
+    }
+
+    for (const width of [1, 2, 3, 4, 5, 8, 12, 40]) {
+      for (const line of footer.render(width))
+        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    }
+  });
+
+  test("puts contributed rows after optional stats without duplicating reserved statuses", () => {
+    const statuses = new Map([
+      ["below-footer:managed-subagents", "worker row"],
+      ["ordinary-extension", "ordinary status"],
+      ["mcp", "MCP 1/2"],
+    ]);
+    const harness = createHarness({ statuses });
+    const footer = harness.start();
+    harness.commands.get("footer-more-stats")?.("on", harness.context);
+
+    const lines = footer.render(100);
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toContain("ordinary status");
+    expect(lines[1]).toContain("🔌 1/2");
+    expect(lines[1]).not.toContain("worker row");
+    expect(plain(lines[2] ?? "")).toContain("worker row");
+  });
+
+  test.each([
+    ["light", "\x1b[38;5;244m"],
+    ["dark", "\x1b[38;5;250m"],
+  ])("dims contributed rows in the %s theme", (_appearance, dimForeground) => {
+    const footer = createHarness({
+      statuses: new Map([["below-footer:workers", "\x1b[31mworker\x1b[0m"]]),
+      footerTheme: {
+        fg: (_color, text) => text,
+        style: (text, options) =>
+          `${options.dim ? "\x1b[2m" : ""}${options.fg === "dim" ? dimForeground : ""}${text}\x1b[22m\x1b[39m`,
+      },
+    }).start();
+
+    const row = footer.render(80)[1] ?? "";
+    expect(row).toContain("\x1b[2m");
+    expect(row).toContain(dimForeground);
+    expect(row).not.toContain("\x1b[31m");
+    expect(plain(row)).toContain("worker");
+  });
+
+  test("removes contributed rows when their status is cleared", () => {
+    const statuses = new Map([["below-footer:workers", "worker row"]]);
+    const footer = createHarness({ statuses }).start();
+
+    expect(footer.render(80)).toHaveLength(2);
+    statuses.clear();
+    expect(footer.render(80)).toHaveLength(1);
   });
 });
 

@@ -8,7 +8,10 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const stripAnsi = (text: string) =>
-  text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+  text
+    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)|\x9D[^\x07]*(?:\x07|\x9C)/g, "")
+    .replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "")
+    .replace(/\x9B[0-?]*[ -/]*[@-~]/g, "");
 const sanitize = (text: string) =>
   text
     .replace(/[\r\n\t]/g, " ")
@@ -44,6 +47,23 @@ function padFooterLine(line: string, width: number): string {
   const margin = " ".repeat(EDGE_PAD);
   const fill = " ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)));
   return `${margin}${clipped}${fill}${margin}`;
+}
+
+function belowFooterStatusRows(
+  statuses: ReadonlyMap<string, string>,
+): string[] {
+  return Array.from(statuses.entries())
+    .filter(([key]) => key.startsWith("below-footer:"))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([, value]) => stripAnsi(value).split("\n"))
+    .map((line) =>
+      line
+        .replace(/\r/g, " ")
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
+        .replace(/ +/g, " ")
+        .trim(),
+    )
+    .filter(Boolean);
 }
 
 const THINKING_COLORS: Record<string, ThemeColor> = {
@@ -100,6 +120,7 @@ export default function (pi: ExtensionAPI) {
         const contentWidth =
           width > EDGE_PAD * 2 ? width - EDGE_PAD * 2 : width;
         const statuses = footerData.getExtensionStatuses();
+        const belowFooterRows = belowFooterStatusRows(statuses);
 
         // Cumulative session usage (same entries native pi counts)
         let input = 0,
@@ -252,7 +273,10 @@ export default function (pi: ExtensionAPI) {
             }
           }
           const statusBits = Array.from(statuses.entries())
-            .filter(([key]) => key !== "active-agent")
+            .filter(
+              ([key]) =>
+                key !== "active-agent" && !key.startsWith("below-footer:"),
+            )
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([key, text]) => {
               if (key !== "mcp") return sanitize(text);
@@ -293,6 +317,15 @@ export default function (pi: ExtensionAPI) {
               ),
             );
           }
+        }
+        for (const row of belowFooterRows) {
+          const clipped = truncateToWidth(row, contentWidth, "…");
+          lines.push(
+            padFooterLine(
+              theme.style(clipped, { fg: "dim", dim: true }),
+              width,
+            ),
+          );
         }
         return lines;
       }
