@@ -1,39 +1,20 @@
 /**
- * Profiles layer for the subagent tool, backed by the canonical
- * @pi-kaush/pi-model-profiles package (the shared machine-local
- * ~/.pi/agent/profiles.yaml). This module keeps the subagent-facing names and
- * adds the reload + diagnostics helpers the delegation flow needs; parsing,
- * validation, and candidate formatting live in the canonical package.
+ * Subagent-specific profile helpers: mtime-keyed reloads and diagnostics.
+ * Parsing, validation, and candidate formatting come straight from the
+ * canonical @pi-kaush/pi-model-profiles package (~/.pi/agent/profiles.yaml).
  */
 import {
-  formatProfileCandidate as formatModelProfileCandidate,
-  formatProfileGuidance as formatModelProfileGuidance,
+  formatProfileCandidate,
   loadModelProfiles,
-  parseModelProfiles,
-  resolveProfilesPath as resolveModelProfilesPath,
-  type ModelProfile,
   type ModelProfileCandidate,
   type ModelProfilesConfig,
 } from "@pi-kaush/pi-model-profiles";
 import * as fs from "node:fs";
 
-export type ProfileThinkingLevel = ModelProfileCandidate["thinkingLevel"];
-export type SubagentProfileCandidate = ModelProfileCandidate;
-export type SubagentProfile = ModelProfile;
-export type SubagentProfilesConfig = ModelProfilesConfig;
-
-export function parseSubagentProfiles(value: unknown): SubagentProfilesConfig {
-  return parseModelProfiles(value);
-}
-
-export function loadSubagentProfiles(filePath: string): SubagentProfilesConfig {
-  return loadModelProfiles(filePath);
-}
-
 /** Cached profiles snapshot keyed by source-file mtime. */
 export interface SubagentProfilesCache {
   mtimeMs: number;
-  config: SubagentProfilesConfig;
+  config: ModelProfilesConfig;
 }
 
 /**
@@ -61,13 +42,13 @@ export function loadSubagentProfilesCurrent(
 /** Reports why configured profile candidates are absent from Pi's available catalog. */
 export function formatProfileEligibilityError(
   profileName: string,
-  candidates: readonly SubagentProfileCandidate[],
+  candidates: readonly ModelProfileCandidate[],
   availableModels: ReadonlySet<string>,
   catalogSize?: number,
 ): string {
   const lines = candidates.map((candidate) => {
     const eligible = availableModels.has(candidate.model.toLowerCase());
-    return `- ${formatModelProfileCandidate(candidate)}: ${eligible ? "eligible" : "not available (unknown model or provider authentication missing)"}`;
+    return `- ${formatProfileCandidate(candidate)}: ${eligible ? "eligible" : "not available (unknown model or provider authentication missing)"}`;
   });
   const catalog =
     catalogSize === undefined ? "" : ` (${catalogSize} available models)`;
@@ -100,19 +81,4 @@ export function formatProfileAttemptSummaries(
     return `${model} — ${reason.replace(/\s+/g, " ")}`;
   });
   return `Profile "${profileName}" exhausted ${attempts.length} candidate(s). Attempts: ${parts.join("; ")}.`;
-}
-
-/** Resolve the shared runtime profiles file under Pi's agent directory (pass getAgentDir()). */
-export function resolveProfilesPath(agentDir: string): string {
-  return resolveModelProfilesPath(agentDir);
-}
-
-export function formatProfileCandidate(
-  candidate: SubagentProfileCandidate,
-): string {
-  return formatModelProfileCandidate(candidate);
-}
-
-export function formatProfileGuidance(config: SubagentProfilesConfig): string {
-  return formatModelProfileGuidance(config);
 }

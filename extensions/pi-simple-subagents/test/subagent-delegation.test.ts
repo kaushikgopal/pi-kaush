@@ -8,11 +8,9 @@ import {
   buildSubagentEnvironment,
   buildSharedTaskPrompt,
   createDelegationTrace,
-  hasDelegatedToolActivity,
   createModelResolver,
   resolveRequestedModel,
   resolveModelReference,
-  sessionIdFromJsonEvent,
 } from "../src/_delegation.ts";
 import {
   formatAgentDisplayName,
@@ -347,36 +345,6 @@ describe("parallel shared context", () => {
     expect(buildSharedTaskPrompt("Inspect server changes", "   ")).toBe(
       "Inspect server changes",
     );
-  });
-});
-
-describe("profile fallback safety", () => {
-  test("only treats actual delegated tool activity as a side-effect boundary", () => {
-    expect(
-      hasDelegatedToolActivity([
-        { role: "assistant", content: [{ type: "text" }] },
-      ]),
-    ).toBe(false);
-    expect(
-      hasDelegatedToolActivity([
-        { role: "assistant", content: [{ type: "toolCall" }] },
-      ]),
-    ).toBe(true);
-    expect(
-      hasDelegatedToolActivity([{ role: "toolResult", content: [] }]),
-    ).toBe(true);
-  });
-});
-
-describe("child session correlation", () => {
-  test("extracts only JSON session header ids", () => {
-    expect(
-      sessionIdFromJsonEvent({ type: "session", id: "child-session" }),
-    ).toBe("child-session");
-    expect(
-      sessionIdFromJsonEvent({ type: "message_end", id: "entry-id" }),
-    ).toBeUndefined();
-    expect(sessionIdFromJsonEvent({ type: "session", id: 42 })).toBeUndefined();
   });
 });
 

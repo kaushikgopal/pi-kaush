@@ -5,42 +5,35 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { SessionConcurrencyGate } from "../src/_concurrency.ts";
 import type { SubagentLimitsConfig } from "../src/_limits.ts";
 import {
-  createHerdrHost,
-  createRpcHost,
-  createRpcRecordReader,
   deriveAssignmentView,
-  detectManagedHost,
   getManagedRuntime,
-  handleRpcRecord,
-  HerdrCommandError,
-  herdrAgentName,
-  herdrForwardEnvironment,
   ManagedError,
+  type ManagedLaunch,
+  type ManagedRuntimePorts,
+  managedRuntimeHostKind,
+} from "../src/_managed.ts";
+import {
+  defaultSleep,
   type ManagedHostLaunch,
   type ManagedHostPort,
   type ManagedHostProcess,
-  type ManagedLaunch,
-  type ManagedRuntimePorts,
   ManagedStartupError,
-  parseElapsedSeconds,
-  parseHerdrError,
-} from "../src/_managed.ts";
+} from "../src/_managed-host.ts";
 import {
   ManagedChildBridge,
   managedBridgeOptionsFromEnv,
 } from "../src/_managed-child.ts";
 import {
   type ChildStatus,
-  emptyUsage,
   managedParentDir,
   managedPaths,
   readChildStatus,
-  parseManagedConfig,
   readManagedConfig,
   writeArchivedAssignment,
   writeJsonAtomic,
 } from "../src/_managed-store.ts";
-import { SubagentProcessRegistry } from "../src/_process-tree.ts";
+import { decodeManagedBootEnv } from "../src/_managed-protocol.ts";
+import { emptyUsage } from "../src/_usage.ts";
 
 // ------------------------------------------------------------ fake child
 
@@ -107,8 +100,6 @@ const user = (text: string) => ({
   content: [{ type: "text", text }],
 });
 
-const SLOW_EXIT_MS = 150;
-
 /**
  * In-process stand-in for a Pi child: real bridge, real files, scripted model.
  * Mirrors Pi's ordering: input echo, validation, before_agent_start, then the
@@ -136,6 +127,8 @@ class FakeWorker {
     readonly boot: number,
     private readonly behavior: Behavior,
     private readonly mode: StartMode,
+    /** Released by the test; a slowExit worker finishes its shutdown only then. */
+    private readonly slowExitGate: () => Promise<void>,
   ) {
     this.process = {
       placement: { kind: "rpc", pid: this.pid },
@@ -211,13 +204,12 @@ class FakeWorker {
       shutdown: () => {
         this.shutdownRequests++;
         if (this.mode === "ignoreShutdown") return;
-        setTimeout(
-          () => {
-            this.bridge?.onShutdown();
-            this.markExited();
-          },
-          this.mode === "slowExit" ? SLOW_EXIT_MS : 1,
-        );
+        const finish = () => {
+          this.bridge?.onShutdown();
+          this.markExited();
+        };
+        if (this.mode === "slowExit") void this.slowExitGate().then(finish);
+        else setTimeout(finish, 1);
       },
       hasPendingMessages: () =>
         this.steerQueue.length + this.followUps.length > 0,
@@ -328,6 +320,7 @@ class FakeHost implements ManagedHostPort {
   startModes: StartMode[] = [];
   launchErrors: (Error | undefined)[] = [];
   launchGate: Promise<void> | undefined;
+  slowExitGate: Promise<void> = Promise.resolve();
 
   async launch(request: ManagedHostLaunch): Promise<ManagedHostProcess> {
     const failure = this.launchErrors.shift();
@@ -338,6 +331,7 @@ class FakeHost implements ManagedHostPort {
       this.workers.length,
       (prompt, context) => this.behavior(prompt, context),
       this.startModes.shift() ?? "ok",
+      () => this.slowExitGate,
     );
     this.workers.push(worker);
     setTimeout(() => worker.start(), 2);
@@ -373,7 +367,7 @@ const LIMITS: SubagentLimitsConfig = {
   persistChildSessions: true,
 };
 
-const RUNTIMES = Symbol.for("pi-simple-subagents.managed-runtimes");
+const RUNTIMES = Symbol.for("pi-simple-subagents.managed-runtime-states.v1");
 
 const roots: string[] = [];
 afterEach(() => {
@@ -404,26 +398,27 @@ function setup(
   const gate = new SessionConcurrencyGate(limits.maxConcurrency);
   const host = options.host ?? new FakeHost();
   const parentSessionId = options.parentSessionId ?? "parent-session";
+  const ports: Partial<ManagedRuntimePorts> = {
+    host,
+    pollMs: 5,
+    graceMs: options.graceMs ?? 100,
+    startupTimeoutMs: 1_000,
+    bridgePath: "/ext/_managed-child.ts",
+    invocation: (args) => ({ command: "pi", args }),
+    parentPid: process.pid,
+    processIdentity: (pid) => host.identity(pid),
+    orphanExitTimeoutMs: 300,
+    ...options.ports,
+  };
   const runtime = getManagedRuntime({
     parentSessionId,
     agentDir,
     limits,
     gate,
     env: options.env ?? {},
-    ports: {
-      host,
-      pollMs: 5,
-      graceMs: options.graceMs ?? 100,
-      startupTimeoutMs: 1_000,
-      bridgePath: "/ext/_managed-child.ts",
-      invocation: (args) => ({ command: "pi", args }),
-      parentPid: process.pid,
-      processIdentity: (pid) => host.identity(pid),
-      orphanExitTimeoutMs: 300,
-      ...options.ports,
-    },
+    ports,
   });
-  return { agentDir, limits, gate, host, runtime, parentSessionId };
+  return { agentDir, limits, gate, host, runtime, parentSessionId, ports };
 }
 
 function launch(overrides: Partial<ManagedLaunch> = {}): ManagedLaunch {
@@ -471,6 +466,24 @@ async function expectCode(
     return error as ManagedError;
   }
   throw new Error(`expected ManagedError ${code}`);
+}
+
+/** A clock that moves only when the runtime sleeps, so timeouts expire without real waiting. */
+function virtualClock(): Pick<ManagedRuntimePorts, "now" | "sleep"> {
+  let now = Date.now();
+  return {
+    now: () => now,
+    sleep: async (ms) => {
+      now += ms;
+      await tick(0);
+    },
+  };
+}
+
+/** Real sleeps, except the shutdown grace window never elapses, so no forced kill races the test. */
+function holdGrace(graceMs: number): ManagedRuntimePorts["sleep"] {
+  return (ms, signal) =>
+    ms === graceMs ? new Promise<void>(() => {}) : defaultSleep(ms, signal);
 }
 
 // ----------------------------------------------------------------- tests
@@ -536,6 +549,22 @@ describe("managed runtime lifecycle", () => {
 
     const dir = path.join(managedParentDir(agentDir, "parent-session"), handle);
     const paths = managedPaths(dir);
+    // The first task is seq 1, so the initial boot's control floor is 1 and it
+    // replays nothing on resume.
+    expect(decodeManagedBootEnv(host.last.request.env)).toEqual({
+      kind: "ok",
+      boot: {
+        dir,
+        bootId: expect.any(String),
+        parentPid: process.pid,
+        expectedSessionId: handle,
+        resumeFloorSeq: 0,
+        controlFloorSeq: 1,
+        freshAttempt: false,
+        holdOnInitialModelError: false,
+        limits: { maxRuntimeMs: 0, maxInactivityMs: 0 },
+      },
+    });
     expect(fs.statSync(paths.config).mode & 0o777).toBe(0o600);
     expect(fs.statSync(paths.status).mode & 0o777).toBe(0o600);
     expect(fs.readFileSync(paths.systemPrompt, "utf8")).toContain(
@@ -949,6 +978,41 @@ describe("managed runtime capacity and ownership", () => {
     expect(nextGate.status.active).toBe(0);
   });
 
+  test("a /reload with a new gate moves live slots to it", async () => {
+    const { runtime, gate, agentDir, limits, parentSessionId, ports } = setup();
+    const { handle } = await runtime.spawn(launch());
+    vi.resetModules();
+    const fresh = await import("../src/_managed.ts");
+    const nextGate = new SessionConcurrencyGate(2);
+    const reloaded = fresh.getManagedRuntime({
+      parentSessionId,
+      agentDir,
+      limits,
+      gate: nextGate,
+      ports,
+    });
+    expect(reloaded).not.toBe(runtime);
+    expect(gate.status.active).toBe(0);
+    expect(nextGate.status.active).toBe(1);
+    await reloaded.stop(handle);
+    await tick();
+    expect(nextGate.status.active).toBe(0);
+    expect(gate.status.active).toBe(0);
+  });
+
+  test("an aborted spawn reports aborted, not capacity", async () => {
+    const { runtime, gate } = setup();
+    const controller = new AbortController();
+    controller.abort();
+    const error = await expectCode(
+      runtime.spawn(launch(), controller.signal),
+      "aborted",
+    );
+    expect(error.message).toBe("Subagent was aborted before it started.");
+    expect(gate.status.active).toBe(0);
+    expect(runtime.list()).toEqual([]);
+  });
+
   test("open is unsupported outside Herdr", async () => {
     const { runtime } = setup();
     const { handle } = await runtime.spawn(launch());
@@ -1101,7 +1165,12 @@ describe("managed runtime delivery and fallback safety", () => {
   });
 
   test("wait never returns the failed attempt while a slow fallback teardown runs", async () => {
-    const { runtime, host } = setup({ graceMs: 1_000 });
+    const { runtime, host } = setup({
+      graceMs: 1_000,
+      ports: { sleep: holdGrace(1_000) },
+    });
+    const teardown = deferred();
+    host.slowExitGate = teardown.promise;
     host.startModes = ["slowExit"];
     host.behavior = (_prompt, context) =>
       context.model === "fake/bad"
@@ -1111,10 +1180,17 @@ describe("managed runtime delivery and fallback safety", () => {
       launch({ modelCandidates: ["fake/bad", "fake/good"] }),
     );
     const seen = new Set<string>();
+    let pollsDuringTeardown = 0;
     const deadline = Date.now() + 3_000;
     for (;;) {
       const view = await runtime.wait(handle, { assignmentId, timeoutMs: 0 });
       seen.add(view.state);
+      // Let several polls observe the held worker before its teardown finishes.
+      if (
+        host.workers[0]?.shutdownRequests === 1 &&
+        ++pollsDuringTeardown === 5
+      )
+        teardown.resolve();
       if (view.terminal) {
         expect(view).toMatchObject({
           state: "completed",
@@ -1293,7 +1369,6 @@ describe("managed runtime session safety", () => {
         status: raw,
         inboxText: (id) =>
           id === "a2" ? { seq: 2, text: "unread" } : undefined,
-        live: liveBootId !== undefined,
         ...(liveBootId ? { liveBootId } : {}),
         assignmentId: "a2",
       });
@@ -1347,7 +1422,11 @@ describe("managed runtime session safety", () => {
     await first.runtime.wait(handle, { timeoutMs: 2_000 });
 
     forgetRuntimes();
-    const second = setup({ agentDir: first.agentDir, host: first.host });
+    const second = setup({
+      agentDir: first.agentDir,
+      host: first.host,
+      ports: virtualClock(),
+    });
     const [result] = await second.runtime.restore();
     expect(result).toMatchObject({ handle, restored: false });
     expect(result?.error).toContain("still running");
@@ -1375,712 +1454,8 @@ describe("managed runtime session safety", () => {
   });
 });
 
-describe("rpc host", () => {
-  test("parses LF-delimited records across chunk boundaries and skips transcript lines", () => {
-    const records: Record<string, unknown>[] = [];
-    const reader = createRpcRecordReader((record) => records.push(record));
-    const dialog = JSON.stringify({
-      type: "extension_ui_request",
-      id: "d1",
-      method: "confirm",
-      title: "Proceed\u2028now? é",
-    });
-    const bytes = Buffer.from(
-      `${JSON.stringify({ type: "message_update", text: "x".repeat(5_000) })}\n${dialog}\r\n{"type":"extension_error","error":"boom"}`,
-    );
-    const split = bytes.indexOf(Buffer.from("é")) + 1; // inside the two-byte é
-    reader.push(bytes.subarray(0, split));
-    reader.push(bytes.subarray(split));
-    expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({
-      id: "d1",
-      title: "Proceed\u2028now? é",
-    });
-    reader.end();
-    expect(records[1]).toMatchObject({
-      type: "extension_error",
-      error: "boom",
-    });
-
-    const oversized: unknown[] = [];
-    const strict = createRpcRecordReader((record) => oversized.push(record));
-    strict.push(
-      `{"type":"extension_ui_request","id":"big","method":"editor","prefill":"${"y".repeat(1_100_000)}"}\n`,
-    );
-    expect(oversized).toEqual([]);
-  });
-
-  test("cancels dialogs by id, logs extension errors, and never copies notification text", () => {
-    const responses: unknown[] = [];
-    const log: string[] = [];
-    const respond = (response: Record<string, unknown>) =>
-      responses.push(response);
-    handleRpcRecord(
-      { type: "extension_ui_request", id: "q", method: "select" },
-      respond,
-      (entry) => log.push(entry),
-    );
-    handleRpcRecord(
-      {
-        type: "extension_ui_request",
-        id: "n",
-        method: "notify",
-        notifyType: "error",
-        message: "secret-ish text",
-      },
-      respond,
-      (entry) => log.push(entry),
-    );
-    handleRpcRecord(
-      {
-        type: "extension_error",
-        extensionPath: "/x/ext.ts",
-        event: "input",
-        error: "bad",
-      },
-      respond,
-      (entry) => log.push(entry),
-    );
-    expect(responses).toEqual([
-      { type: "extension_ui_response", id: "q", cancelled: true },
-    ]);
-    expect(log.join("\n")).not.toContain("secret-ish");
-    expect(log.at(-1)).toBe("extension error in input (ext.ts): bad");
-  });
-
-  test("answers a real child's dialog with a cancel and stops it by closing stdin", async () => {
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-rpc-"));
-    roots.push(dir);
-    const paths = managedPaths(dir);
-    fs.mkdirSync(dir, { recursive: true });
-    const script = path.join(dir, "child.mjs");
-    const reply = path.join(dir, "reply.json");
-    fs.writeFileSync(
-      script,
-      `
-import * as fs from "node:fs";
-process.stdout.write(JSON.stringify({ type: "extension_ui_request", id: "d1", method: "confirm", title: "ok?" }) + "\\n");
-process.stdout.write(JSON.stringify({ type: "extension_error", extensionPath: "/e/x.ts", event: "input", error: "kaboom" }) + "\\n");
-let buffer = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => {
-  buffer += chunk;
-  if (buffer.includes("\\n")) fs.writeFileSync(${JSON.stringify(reply)}, buffer.split("\\n")[0]);
-});
-process.stdin.on("end", () => process.exit(0));
-`,
-    );
-    const host = createRpcHost(new SubagentProcessRegistry());
-    const proc = await host.launch({
-      handle: "mw-rpc",
-      bootId: "b",
-      label: "x",
-      cwd: dir,
-      command: process.execPath,
-      args: [script],
-      piArgs: [],
-      env: {},
-      paths,
-    });
-    await waitFor(() => fs.existsSync(reply), 5_000);
-    expect(JSON.parse(fs.readFileSync(reply, "utf8"))).toEqual({
-      type: "extension_ui_response",
-      id: "d1",
-      cancelled: true,
-    });
-    proc.requestStop?.();
-    await proc.exited;
-    const stderr = fs.readFileSync(paths.stderr, "utf8");
-    expect(stderr).toContain("cancelled a confirm dialog");
-    expect(stderr).toContain("extension error in input (x.ts): kaboom");
-  });
-});
-
-describe("herdr host", () => {
-  function herdrHost(
-    exec: (bin: string, args: readonly string[]) => Promise<string>,
-    forwardEnv?: Record<string, string>,
-    sleep: (ms: number, signal?: AbortSignal) => Promise<void> = () => tick(2),
-  ) {
-    return createHerdrHost({
-      parentPaneId: "parent-pane",
-      tabId: "caller-tab",
-      bin: "herdr",
-      exec,
-      registry: new SubagentProcessRegistry(),
-      isPidAlive: () => false,
-      sleep,
-      pollMs: 2,
-      ...(forwardEnv ? { forwardEnv } : {}),
-    });
-  }
-
-  function request(
-    dir: string,
-    overrides: Partial<ManagedHostLaunch> = {},
-  ): ManagedHostLaunch {
-    return {
-      handle: "mw-abcdef",
-      bootId: "boot-123",
-      label: "🤖 c3po abcdef",
-      cwd: "/work",
-      command: "/usr/bin/node",
-      args: ["/pi/cli.js", "--name", "it's"],
-      piArgs: ["--name", "it's"],
-      env: { PI_MANAGED_SUBAGENT_DIR: dir },
-      paths: managedPaths(dir),
-      ownedPlacements: [],
-      ...overrides,
-    };
-  }
-
-  const paneCreated = JSON.stringify({
-    result: { pane: { pane_id: "p-9" } },
-  });
-
-  test("splits below the caller without focus and closes only its pane", async () => {
-    const calls: string[][] = [];
-    const host = herdrHost(
-      async (_bin, args) => {
-        calls.push([...args]);
-        return args[0] === "pane" ? paneCreated : "{}";
-      },
-      { PI_OFFLINE: "1" },
-    );
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-"));
-    roots.push(dir);
-    const proc = await host.launch(request(dir));
-    expect(proc.placement).toEqual({
-      kind: "herdr",
-      tabId: "caller-tab",
-      paneId: "p-9",
-      layout: "split",
-    });
-    expect(proc.readyConfirmed).toBe(true);
-    expect(calls[0]).toEqual([
-      "pane",
-      "split",
-      "--pane",
-      "parent-pane",
-      "--direction",
-      "down",
-      "--cwd",
-      "/work",
-      "--no-focus",
-      "--env",
-      "PI_OFFLINE=1",
-      "--env",
-      `PI_MANAGED_SUBAGENT_DIR=${dir}`,
-    ]);
-    expect(calls[1]).toEqual([
-      "agent",
-      "start",
-      herdrAgentName("mw-abcdef", "boot-123"),
-      "--kind",
-      "pi",
-      "--pane",
-      "p-9",
-      "--timeout",
-      "15000",
-      "--",
-      "--name",
-      "it's",
-    ]);
-    expect(calls.flat()).not.toContain("--approve");
-    expect(calls.some((args) => args[0] === "tab")).toBe(false);
-
-    await host.focus(proc.placement);
-    expect(calls.at(-1)).toEqual(["agent", "focus", "p-9"]);
-    await host.focus({ kind: "herdr", tabId: "old-tab", paneId: "old-pane" });
-    expect(calls.at(-1)).toEqual(["agent", "focus", "old-pane"]);
-    await proc.terminate();
-    await proc.exited;
-    expect(calls.at(-1)).toEqual(["pane", "close", "p-9"]);
-    expect(calls.some((args) => args[0] === "tab")).toBe(false);
-    expect(readChildStatus(managedPaths(dir).status)).toBeUndefined();
-  });
-  test("retries pane-busy startup until Herdr accepts the agent", async () => {
-    const calls: string[][] = [];
-    const delays: number[] = [];
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-busy-"));
-    roots.push(dir);
-    const host = herdrHost(
-      async (_bin, args) => {
-        calls.push([...args]);
-        if (args[0] === "pane") return paneCreated;
-        if (args[0] === "agent" && args[1] === "start") {
-          const attempts = calls.filter(
-            (call) => call[0] === "agent" && call[1] === "start",
-          );
-          if (attempts.length < 3)
-            throw new HerdrCommandError("agent_pane_busy", "pane busy");
-        }
-        return "{}";
-      },
-      undefined,
-      // The PID liveness poll shares this sleep; record only startup retries
-      // and yield so the poll loop cannot starve the event loop.
-      async (ms) => {
-        if (ms === 2) return tick(2);
-        delays.push(ms);
-      },
-    );
-
-    const proc = await host.launch(request(dir));
-
-    expect(
-      calls.filter((call) => call[0] === "agent" && call[1] === "start"),
-    ).toHaveLength(3);
-    expect(delays).toEqual([100, 100]);
-    await proc.terminate();
-    expect(calls.at(-1)).toEqual(["pane", "close", "p-9"]);
-  });
-
-  test("exhausting pane-busy retries closes the allocated pane", async () => {
-    const calls: string[][] = [];
-    const delays: number[] = [];
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-busy-"));
-    roots.push(dir);
-    const host = herdrHost(
-      async (_bin, args) => {
-        calls.push([...args]);
-        if (args[0] === "pane") return paneCreated;
-        if (args[0] === "agent" && args[1] === "start")
-          throw new HerdrCommandError("agent_pane_busy", "pane busy");
-        return "{}";
-      },
-      undefined,
-      async (ms) => {
-        delays.push(ms);
-      },
-    );
-
-    const error = await host.launch(request(dir)).then(
-      () => undefined,
-      (failure: unknown) => failure,
-    );
-
-    expect(error).toBeInstanceOf(ManagedStartupError);
-    expect((error as ManagedStartupError).retryable).toBe(false);
-    expect(
-      calls.filter((call) => call[0] === "agent" && call[1] === "start"),
-    ).toHaveLength(30);
-    expect(delays).toHaveLength(29);
-    expect(delays.every((ms) => ms === 100)).toBe(true);
-    expect(
-      calls.filter((call) => call[0] === "pane" && call[1] === "close"),
-    ).toEqual([["pane", "close", "p-9"]]);
-  });
-
-  test("does not retry non-busy startup failures", async () => {
-    const calls: string[][] = [];
-    const delays: number[] = [];
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-failure-"));
-    roots.push(dir);
-    const host = herdrHost(
-      async (_bin, args) => {
-        calls.push([...args]);
-        if (args[0] === "pane") return paneCreated;
-        if (args[0] === "agent" && args[1] === "start")
-          throw new HerdrCommandError("agent_not_ready", "blocked");
-        return "{}";
-      },
-      undefined,
-      async (ms) => {
-        delays.push(ms);
-      },
-    );
-
-    const error = await host.launch(request(dir)).then(
-      () => undefined,
-      (failure: unknown) => failure,
-    );
-
-    expect(error).toBeInstanceOf(ManagedStartupError);
-    expect(calls.filter((call) => call[0] === "agent")).toHaveLength(1);
-    expect(delays).toEqual([]);
-    expect(calls.at(-1)).toEqual(["pane", "close", "p-9"]);
-  });
-
-  test("cancellation during a pane-busy retry delay closes the pane", async () => {
-    const calls: string[][] = [];
-    const controller = new AbortController();
-    const delayStarted = deferred();
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-abort-"));
-    roots.push(dir);
-    const host = herdrHost(
-      async (_bin, args) => {
-        calls.push([...args]);
-        if (args[0] === "pane") return paneCreated;
-        if (args[0] === "agent" && args[1] === "start")
-          throw new HerdrCommandError("agent_pane_busy", "pane busy");
-        return "{}";
-      },
-      undefined,
-      (_ms, signal) =>
-        new Promise<void>((_resolve, reject) => {
-          const abort = () =>
-            reject(
-              new ManagedError("aborted", "Managed worker launch was aborted."),
-            );
-          if (!signal) {
-            reject(new Error("retry delay did not receive an abort signal"));
-            return;
-          }
-          if (signal.aborted) {
-            abort();
-            return;
-          }
-          signal.addEventListener("abort", abort, { once: true });
-          delayStarted.resolve();
-        }),
-    );
-
-    const launching = host
-      .launch(request(dir, { signal: controller.signal }))
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-    await delayStarted.promise;
-    controller.abort();
-    const error = await launching;
-
-    expect(error).toMatchObject({ code: "aborted" });
-    expect(calls.filter((call) => call[0] === "agent")).toHaveLength(1);
-    expect(calls.at(-1)).toEqual(["pane", "close", "p-9"]);
-  });
-
-  test("reports blocked startup and closes only the owned pane", async () => {
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-"));
-    roots.push(dir);
-    for (const [code, retryable] of [
-      ["agent_not_ready", false],
-      ["timeout", false],
-      ["agent_start_failed", true],
-    ] as const) {
-      const calls: string[][] = [];
-      const host = herdrHost(async (_bin, args) => {
-        calls.push([...args]);
-        if (args[0] === "agent") throw new HerdrCommandError(code, "failed");
-        return paneCreated;
-      });
-      const error = await host.launch(request(dir)).then(
-        () => undefined,
-        (failure: unknown) => failure,
-      );
-      expect(error).toBeInstanceOf(ManagedStartupError);
-      expect((error as ManagedStartupError).retryable).toBe(retryable);
-      expect(calls.at(-1)).toEqual(["pane", "close", "p-9"]);
-      expect(calls.some((args) => args[0] === "tab")).toBe(false);
-    }
-  });
-
-  test("never closes the parent when a split response wrongly identifies it", async () => {
-    const calls: string[][] = [];
-    const host = herdrHost(async (_bin, args) => {
-      calls.push([...args]);
-      return JSON.stringify({ result: { pane: { pane_id: "parent-pane" } } });
-    });
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-parent-"));
-    roots.push(dir);
-    await expect(host.launch(request(dir))).rejects.toThrow("new pane ID");
-    expect(calls.map((args) => args.slice(0, 2))).toEqual([["pane", "split"]]);
-  });
-
-  test("keeps the latest lower split as anchor when an earlier worker is still starting", async () => {
-    const anchors: string[] = [];
-    const starts: string[] = [];
-    const firstReady = deferred();
-    let sequence = 0;
-    const host = herdrHost(async (_bin, args) => {
-      if (args[0] === "pane" && args[1] === "split") {
-        anchors.push(argValue(args, "--pane")!);
-        return JSON.stringify({
-          result: { pane: { pane_id: `child-${++sequence}` } },
-        });
-      }
-      if (args[0] === "agent" && args[1] === "start") {
-        const pane = argValue(args, "--pane")!;
-        starts.push(pane);
-        if (pane === "child-1") await firstReady.promise;
-      }
-      return "{}";
-    });
-    const dirs = Array.from({ length: 3 }, () => {
-      const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-order-"));
-      roots.push(dir);
-      return dir;
-    });
-    const firstLaunch = host.launch(request(dirs[0]!, { handle: "mw-first" }));
-    await waitFor(() => starts.includes("child-1"));
-    const second = await host.launch(
-      request(dirs[1]!, { handle: "mw-second" }),
-    );
-    const third = await host.launch(
-      request(dirs[2]!, {
-        handle: "mw-third",
-        ownedPlacements: [second.placement],
-      }),
-    );
-    expect(anchors).toEqual(["parent-pane", "child-1", "child-2"]);
-    firstReady.resolve();
-    const first = await firstLaunch;
-    await Promise.all(
-      [first, second, third].map((process) => process.terminate()),
-    );
-  });
-
-  test("allocates a vertical stack serially while starts remain independent", async () => {
-    const anchors: string[] = [];
-    const started: string[] = [];
-    const startGate = deferred();
-    let pane = 0;
-    const host = herdrHost(async (_bin, args) => {
-      if (args[0] === "pane") {
-        anchors.push(argValue(args, "--pane")!);
-        return JSON.stringify({
-          result: {
-            pane: { pane_id: `child-${++pane}`, tab_id: "caller-tab" },
-          },
-        });
-      }
-      if (args[0] === "agent") {
-        started.push(argValue(args, "--pane")!);
-        await startGate.promise;
-      }
-      return "{}";
-    });
-    const dirs = Array.from({ length: 3 }, () => {
-      const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-stack-"));
-      roots.push(dir);
-      return dir;
-    });
-    const launches = dirs.map((dir, index) =>
-      host.launch(request(dir, { handle: `mw-stack${index}` })),
-    );
-
-    await waitFor(() => started.length === 3);
-    expect(anchors).toEqual(["parent-pane", "child-1", "child-2"]);
-    startGate.resolve();
-    const processes = await Promise.all(launches);
-    expect(processes.map((proc) => proc.placement)).toEqual([
-      {
-        kind: "herdr",
-        tabId: "caller-tab",
-        paneId: "child-1",
-        layout: "split",
-      },
-      {
-        kind: "herdr",
-        tabId: "caller-tab",
-        paneId: "child-2",
-        layout: "split",
-      },
-      {
-        kind: "herdr",
-        tabId: "caller-tab",
-        paneId: "child-3",
-        layout: "split",
-      },
-    ]);
-    await Promise.all(processes.map((proc) => proc.terminate()));
-  });
-
-  test("falls back from stale split anchors to a live owned pane then the caller", async () => {
-    const tried: string[] = [];
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-anchor-"));
-    roots.push(dir);
-    const host = herdrHost(async (_bin, args) => {
-      if (args[0] === "pane" && args[1] === "split") {
-        const anchor = argValue(args, "--pane")!;
-        tried.push(anchor);
-        if (anchor === "stale")
-          throw new HerdrCommandError("pane_not_found", "anchor closed");
-        return paneCreated;
-      }
-      return "{}";
-    });
-    const proc = await host.launch(
-      request(dir, {
-        ownedPlacements: [
-          {
-            kind: "herdr",
-            tabId: "caller-tab",
-            paneId: "older",
-            layout: "split",
-          },
-          {
-            kind: "herdr",
-            tabId: "caller-tab",
-            paneId: "stale",
-            layout: "split",
-          },
-        ],
-      }),
-    );
-    expect(tried).toEqual(["stale", "older"]);
-    await proc.terminate();
-
-    const parentFallback = herdrHost(async (_bin, args) => {
-      if (args[0] === "pane" && args[1] === "split") {
-        const anchor = argValue(args, "--pane")!;
-        tried.push(anchor);
-        if (anchor !== "parent-pane")
-          throw new HerdrCommandError("pane_not_found", "anchor closed");
-        return paneCreated;
-      }
-      return "{}";
-    });
-    const next = await parentFallback.launch(
-      request(dir, {
-        handle: "mw-parent-fallback",
-        ownedPlacements: [
-          {
-            kind: "herdr",
-            tabId: "caller-tab",
-            paneId: "older",
-            layout: "split",
-          },
-          {
-            kind: "herdr",
-            tabId: "caller-tab",
-            paneId: "stale",
-            layout: "split",
-          },
-        ],
-      }),
-    );
-    expect(tried.slice(2)).toEqual(["stale", "older", "parent-pane"]);
-    await next.terminate();
-  });
-
-  test("does not replay an ambiguous pane split failure", async () => {
-    const calls: string[][] = [];
-    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-herdr-ambiguous-"));
-    roots.push(dir);
-    const host = herdrHost(async (_bin, args) => {
-      calls.push([...args]);
-      throw new Error("connection lost after split request");
-    });
-    await expect(host.launch(request(dir))).rejects.toBeInstanceOf(
-      ManagedStartupError,
-    );
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.slice(0, 2)).toEqual(["pane", "split"]);
-  });
-
-  test("falls back to RPC when caller context or Herdr CLI is missing", () => {
-    const context = {
-      HERDR_ENV: "1",
-      HERDR_WORKSPACE_ID: "ws-1",
-      HERDR_TAB_ID: "caller-tab",
-      HERDR_PANE_ID: "parent-pane",
-      HERDR_BIN_PATH: "/missing/herdr",
-    };
-    expect(
-      detectManagedHost(context, new SubagentProcessRegistry(), 2).kind,
-    ).toBe("rpc");
-    expect(
-      detectManagedHost(
-        {
-          ...context,
-          HERDR_BIN_PATH: process.execPath,
-          HERDR_PANE_ID: undefined,
-        },
-        new SubagentProcessRegistry(),
-        2,
-      ).kind,
-    ).toBe("rpc");
-  });
-
-  test("forwards only non-secret Pi configuration into panes", () => {
-    expect(
-      herdrForwardEnvironment({
-        PI_CODING_AGENT_DIR: "/agent",
-        PI_OFFLINE: "1",
-        PI_API_KEY: "secret",
-        OPENAI_API_KEY: "secret",
-        PI_MANAGED_SUBAGENT_DIR: "/leak",
-        PI_TELEMETRY: "",
-      }),
-    ).toEqual({ PI_CODING_AGENT_DIR: "/agent", PI_OFFLINE: "1" });
-  });
-
-  test("parses Herdr's structured errors and builds valid agent names", () => {
-    expect(
-      parseHerdrError(
-        'noise\n{"error":{"code":"agent_not_ready","message":"blocked"}}\n',
-      ),
-    ).toEqual({ code: "agent_not_ready", message: "blocked" });
-    expect(parseHerdrError("plain failure")).toBeUndefined();
-    const name = herdrAgentName("mw-ABC_def-0123456789", "Boot-XYZ-0123456789");
-    expect(name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
-  });
-
-  test("accepts legacy Herdr tab placement and split pane markers", () => {
-    const base = {
-      v: 1,
-      handle: "mw-abc123",
-      parentSessionId: "parent",
-      createdAt: 1,
-      launch: {
-        agent: { name: "coder", source: "user" },
-        modelCandidates: ["model"],
-        cwd: "/repo",
-        trace: {
-          rootSessionId: "root",
-          parentSessionId: "parent",
-          parentToolCallId: "",
-          depth: 0,
-        },
-        isolation: {},
-        taskPreview: "task",
-      },
-      lifecycle: "running",
-      candidateIndex: 0,
-      sessionId: "session-1",
-      attempts: [],
-      nextSeq: 1,
-      lastAssignmentId: "assignment-1",
-      updatedAt: 2,
-    };
-    expect(
-      parseManagedConfig({
-        ...base,
-        placement: { kind: "herdr", tabId: "old-tab", paneId: "old-pane" },
-      })?.placement,
-    ).toEqual({ kind: "herdr", tabId: "old-tab", paneId: "old-pane" });
-    expect(
-      parseManagedConfig({
-        ...base,
-        placement: {
-          kind: "herdr",
-          tabId: "current-tab",
-          paneId: "split-pane",
-          layout: "split",
-        },
-      })?.placement,
-    ).toEqual({
-      kind: "herdr",
-      tabId: "current-tab",
-      paneId: "split-pane",
-      layout: "split",
-    });
-  });
-});
-
-describe("process identity", () => {
-  test("parses ps elapsed times", () => {
-    expect(parseElapsedSeconds("  05:07\n")).toBe(307);
-    expect(parseElapsedSeconds("02:05:07")).toBe(7_507);
-    expect(parseElapsedSeconds("3-02:05:07")).toBe(266_707);
-    expect(parseElapsedSeconds("garbage")).toBeUndefined();
-  });
-});
-
 describe("managed runtime result listing", () => {
-  test("refreshes the default Herdr adapter after reload without launching a pane", async () => {
+  test("a reload detects the default host again without launching a pane", async () => {
     const agentDir = fs.mkdtempSync(
       path.join(tmpdir(), "managed-runtime-reload-"),
     );
@@ -2101,61 +1476,35 @@ describe("managed runtime result listing", () => {
       },
     };
     const runtime = getManagedRuntime(options);
-    const oldHost = (runtime as unknown as { ports: { host: ManagedHostPort } })
-      .ports.host;
-    expect(oldHost.kind).toBe("herdr");
+    expect(managedRuntimeHostKind(runtime)).toBe("herdr");
 
     vi.resetModules();
     const fresh = await import("../src/_managed.ts");
     const reloaded = fresh.getManagedRuntime({ ...options, env: {} });
-    const newHost = (
-      reloaded as unknown as { ports: { host: ManagedHostPort } }
-    ).ports.host;
-    expect(reloaded).toBe(runtime);
-    expect(newHost).not.toBe(oldHost);
-    expect(newHost.kind).toBe("rpc");
+    expect(reloaded).not.toBe(runtime);
+    expect(fresh.managedRuntimeHostKind(reloaded)).toBe("rpc");
+    // The accessor reads runtimes from any module revision.
+    expect(managedRuntimeHostKind(reloaded)).toBe("rpc");
+    expect(fresh.managedRuntimeHostKind(runtime)).toBe("herdr");
   });
 
-  test("a /reload re-evaluation upgrades the surviving runtime in place", async () => {
-    const { runtime, host, gate, limits, agentDir, parentSessionId } = setup();
+  test("a /reload re-evaluation builds a fresh runtime over the surviving workers", async () => {
+    const { runtime, host, gate, limits, agentDir, parentSessionId, ports } =
+      setup();
     const { handle, assignmentId } = await runtime.spawn(launch());
     await runtime.wait(handle, { assignmentId, timeoutMs: 2_000 });
-    const options = { parentSessionId, agentDir, limits, gate, env: {} };
-    const revision = Object.getPrototypeOf(runtime);
-    // Reuse within one module revision leaves the runtime untouched.
+    const options = { parentSessionId, agentDir, limits, gate, env: {}, ports };
+    // Reuse within one module revision returns the same runtime.
     expect(getManagedRuntime(options)).toBe(runtime);
-    expect(Object.getPrototypeOf(runtime)).toBe(revision);
-
-    // Stand in for a runtime built by a revision without result listing.
-    const legacy = Object.create(Object.prototype);
-    for (const name of Object.getOwnPropertyNames(revision))
-      if (name !== "listResults" && name !== "workerResults")
-        Object.defineProperty(
-          legacy,
-          name,
-          Object.getOwnPropertyDescriptor(revision, name)!,
-        );
-    Object.setPrototypeOf(runtime, legacy);
-    delete (runtime as { resultCache?: unknown }).resultCache;
-    expect("listResults" in runtime).toBe(false);
     const pid = runtime.status(handle).placement;
-    const hostAdapter = (
-      runtime as unknown as { ports: { host: ManagedHostPort } }
-    ).ports.host;
     const prompts = host.last.prompts.length;
 
     vi.resetModules();
     const fresh = await import("../src/_managed.ts");
     const reloaded = fresh.getManagedRuntime(options);
 
-    expect(reloaded).toBe(runtime);
-    expect(
-      (reloaded as unknown as { ports: { host: ManagedHostPort } }).ports.host,
-    ).toBe(hostAdapter);
-    expect(Object.getPrototypeOf(reloaded)).not.toBe(legacy);
-    expect(
-      (reloaded as unknown as { resultCache: unknown }).resultCache,
-    ).toBeInstanceOf(Map);
+    expect(reloaded).not.toBe(runtime);
+    expect(fresh.getManagedRuntime(options)).toBe(reloaded);
     expect(reloaded.listResults()).toMatchObject([
       { handle, id: assignmentId, state: "completed" },
     ]);
@@ -2292,7 +1641,12 @@ describe("managed runtime result listing", () => {
   });
 
   test("never lists a failed attempt while its fallback is pending, or a launch failure", async () => {
-    const { runtime, host } = setup({ graceMs: 1_000 });
+    const { runtime, host } = setup({
+      graceMs: 1_000,
+      ports: { sleep: holdGrace(1_000) },
+    });
+    const teardown = deferred();
+    host.slowExitGate = teardown.promise;
     host.startModes = ["slowExit"];
     host.behavior = (_prompt, context) =>
       context.model === "fake/bad"
@@ -2302,9 +1656,15 @@ describe("managed runtime result listing", () => {
       launch({ modelCandidates: ["fake/bad", "fake/good"] }),
     );
     const seen: string[] = [];
+    let pollsDuringTeardown = 0;
     const deadline = Date.now() + 3_000;
     while (!seen.includes("completed")) {
       seen.push(...runtime.listResults().map((result) => result.state));
+      if (
+        host.workers[0]?.shutdownRequests === 1 &&
+        ++pollsDuringTeardown === 5
+      )
+        teardown.resolve();
       if (Date.now() > deadline) throw new Error("fallback never finished");
       await tick(3);
     }

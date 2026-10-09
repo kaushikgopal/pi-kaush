@@ -1,13 +1,15 @@
 import * as path from "node:path";
 import type { AgentDiscoveryResult } from "./_definition.ts";
-import type { ManagedLaunch, ManagedIsolation } from "./_managed.ts";
-import {
-  formatProfileCandidate,
-  formatProfileEligibilityError,
-  type SubagentProfilesConfig,
-} from "./_profiles.ts";
+import type {
+  ManagedIsolation,
+  ManagedLaunch,
+  ManagedWorkerView,
+} from "./_managed.ts";
+import { workerIdentity } from "./_managed-format.ts";
+import type { ModelProfilesConfig } from "@pi-kaush/pi-model-profiles";
+import { planProfileAttempts } from "./_profile-attempts.ts";
 import { resolveRequestedModel, type DelegationTrace } from "./_delegation.ts";
-import { truncateUtf8Head } from "./_transcript.ts";
+import { truncateUtf8WithMarker } from "./_text.ts";
 
 export interface ManagedIsolationOptions extends ManagedIsolation {
   readonly noMcp?: boolean;
@@ -30,7 +32,7 @@ export type ManagedLaunchPreparation =
 /** Resolve all parent-owned launch choices before asking the engine to start a worker. */
 export function prepareManagedLaunch(input: {
   readonly discovery: AgentDiscoveryResult;
-  readonly profiles: SubagentProfilesConfig;
+  readonly profiles: ModelProfilesConfig;
   readonly availableModelReferences: ReadonlySet<string>;
   readonly resolveModel: (spec: string) => string | undefined;
   readonly defaultCwd: string;
@@ -55,12 +57,20 @@ export function prepareManagedLaunch(input: {
       error: `Unknown agent: "${input.request.agent}". Available agents: ${available}.`,
     };
   }
-  if (agent.profile && agent.model) {
-    return {
-      ok: false,
-      error: `Agent "${agent.name}": declare either "profile" or "model" in frontmatter, not both.`,
-    };
-  }
+  const plan = planProfileAttempts({
+    agentName: agent.name,
+    agent,
+    ...(input.request.model !== undefined
+      ? { model: input.request.model }
+      : {}),
+    ...(input.request.profile !== undefined
+      ? { profile: input.request.profile }
+      : {}),
+    profiles: input.profiles,
+    availableModels: input.availableModelReferences,
+  });
+  if (plan.kind === "rejected" && plan.problem === "conflictingAgentConfig")
+    return { ok: false, error: plan.reason };
   if (input.request.tools && input.request.tools.length === 0) {
     return {
       ok: false,
@@ -76,61 +86,31 @@ export function prepareManagedLaunch(input: {
     };
   }
 
-  const requestedModelSpec = input.request.model?.trim();
-  const profileName = requestedModelSpec
-    ? undefined
-    : input.request.profile?.trim() || agent.profile;
+  let profileName: string | undefined;
   let modelCandidates: string[] = [];
-
-  if (requestedModelSpec) {
-    const model = resolveRequestedModel(
-      requestedModelSpec,
-      undefined,
-      input.resolveModel,
-    );
-    if (!model) {
-      return {
-        ok: false,
-        error: `Model "${requestedModelSpec}" is not available in Pi's model catalog or its provider has no authentication.`,
-      };
+  switch (plan.kind) {
+    case "rejected":
+      return { ok: false, error: plan.reason };
+    case "ladder":
+      profileName = plan.profile;
+      modelCandidates = [...plan.candidates];
+      break;
+    case "direct": {
+      const requestedModelSpec = plan.model?.trim() || agent.model?.trim();
+      if (!requestedModelSpec) break;
+      const model = resolveRequestedModel(
+        plan.model,
+        agent.model,
+        input.resolveModel,
+      );
+      if (!model)
+        return {
+          ok: false,
+          error: `Model "${requestedModelSpec}" is not available in Pi's model catalog or its provider has no authentication.`,
+        };
+      modelCandidates = [model];
+      break;
     }
-    modelCandidates = [model];
-  } else if (profileName) {
-    const profile = input.profiles.profiles[profileName];
-    if (!profile) {
-      return {
-        ok: false,
-        error: `Unknown subagent profile "${profileName}". Available profiles: ${Object.keys(input.profiles.profiles).join(", ")}.`,
-      };
-    }
-    const candidates = profile.candidates.filter((candidate) =>
-      input.availableModelReferences.has(candidate.model.toLowerCase()),
-    );
-    if (candidates.length === 0) {
-      return {
-        ok: false,
-        error: formatProfileEligibilityError(
-          profileName,
-          profile.candidates,
-          input.availableModelReferences,
-          input.availableModelReferences.size,
-        ),
-      };
-    }
-    modelCandidates = candidates.map(formatProfileCandidate);
-  } else if (agent.model?.trim()) {
-    const model = resolveRequestedModel(
-      undefined,
-      agent.model,
-      input.resolveModel,
-    );
-    if (!model) {
-      return {
-        ok: false,
-        error: `Model "${agent.model.trim()}" is not available in Pi's model catalog or its provider has no authentication.`,
-      };
-    }
-    modelCandidates = [model];
   }
 
   const tools = input.request.tools ?? agent.tools;
@@ -164,164 +144,21 @@ export function prepareManagedLaunch(input: {
   return { ok: true, launch };
 }
 
-const CONTROL_FIELDS = [
-  "handle",
-  "assignmentId",
-  "message",
-  "delivery",
-  "waitTimeoutMs",
-] as const;
-const INVOCATION_FIELDS = [
-  "agent",
-  "task",
-  "profile",
-  "model",
-  "context",
-  "tasks",
-  "chain",
-  "cwd",
-  "agentScope",
-  "confirmProjectAgents",
-  "isolation",
-  "tools",
-] as const;
-
-function supplied(value: unknown): boolean {
-  return value !== undefined && value !== null;
-}
-
-/** Reject mixed control and launch requests instead of silently discarding input. */
-export function validateManagedAction(
-  action: string,
-  params: Record<string, unknown>,
-): string | undefined {
-  const controls = CONTROL_FIELDS.filter((field) => supplied(params[field]));
-  const invocation = INVOCATION_FIELDS.filter((field) =>
-    supplied(params[field]),
-  );
-  const emptyToolOverride = (value: unknown): boolean =>
-    Array.isArray(value) && value.length === 0;
-  const taskOverrides = [params.tasks, params.chain].flatMap((value) =>
-    Array.isArray(value)
-      ? value.filter(
-          (item): item is Record<string, unknown> =>
-            typeof item === "object" && item !== null,
-        )
-      : [],
-  );
-  if (
-    emptyToolOverride(params.tools) ||
-    taskOverrides.some((item) => emptyToolOverride(item.tools))
-  )
-    return "An empty tools override is not supported; omit tools to use the agent's configured tools.";
-  if (action === "run") {
-    return controls.length > 0
-      ? `Action "run" does not accept managed control fields: ${controls.join(", ")}.`
-      : undefined;
-  }
-  if (action === "spawn") {
-    if (controls.length > 0)
-      return `Action "spawn" does not accept managed control fields: ${controls.join(", ")}.`;
-    if (supplied(params.chain))
-      return 'Managed spawn does not support chains; use action "run" for bounded chains.';
-    const single = supplied(params.agent) || supplied(params.task);
-    const batch = supplied(params.tasks);
-    if (batch && (!Array.isArray(params.tasks) || params.tasks.length === 0))
-      return 'Action "spawn" requires a non-empty tasks[] batch.';
-    if (Number(single) + Number(batch) !== 1)
-      return 'Action "spawn" requires exactly one agent/task or a tasks[] batch.';
-    if (single && (!supplied(params.agent) || !supplied(params.task)))
-      return 'Action "spawn" single mode requires both agent and task.';
-    if (batch && (supplied(params.agent) || supplied(params.task)))
-      return 'Action "spawn" tasks[] cannot be mixed with top-level agent or task.';
-    if (batch && (supplied(params.profile) || supplied(params.model)))
-      return 'Action "spawn" tasks[] takes profile/model on each task, not at the top level.';
-    if (supplied(params.context) && !batch)
-      return 'Action "spawn" context is supported only with tasks[].';
-    return undefined;
-  }
-  if (!["status", "list", "send", "wait", "stop", "resume"].includes(action))
-    return `Unknown subagent action "${action}".`;
-
-  if (invocation.length > 0)
-    return `Action "${action}" does not accept launch fields: ${invocation.join(", ")}.`;
-  if (action === "list") {
-    if (controls.length > 0)
-      return `Action "list" does not accept control fields: ${controls.join(", ")}.`;
-    return undefined;
-  }
-  if (
-    !supplied(params.handle) ||
-    typeof params.handle !== "string" ||
-    !params.handle.trim()
-  )
-    return `Action "${action}" requires a non-empty handle.`;
-  if (action === "send") {
-    if (
-      !supplied(params.message) ||
-      typeof params.message !== "string" ||
-      !params.message.trim()
-    )
-      return 'Action "send" requires a non-empty message.';
-    if (supplied(params.assignmentId) || supplied(params.waitTimeoutMs))
-      return 'Action "send" does not accept assignmentId or waitTimeoutMs.';
-    if (
-      supplied(params.delivery) &&
-      params.delivery !== "auto" &&
-      params.delivery !== "followUp"
-    )
-      return 'Action "send" delivery must be "auto" or "followUp".';
-    return undefined;
-  }
-  if (action === "wait") {
-    if (supplied(params.message) || supplied(params.delivery))
-      return 'Action "wait" does not accept message or delivery.';
-    if (
-      supplied(params.waitTimeoutMs) &&
-      (typeof params.waitTimeoutMs !== "number" ||
-        !Number.isFinite(params.waitTimeoutMs) ||
-        params.waitTimeoutMs < 0 ||
-        params.waitTimeoutMs > 86_400_000)
-    )
-      return "waitTimeoutMs must be between 0 and 86400000.";
-    if (
-      supplied(params.assignmentId) &&
-      (typeof params.assignmentId !== "string" || !params.assignmentId.trim())
-    )
-      return "assignmentId must be a non-empty string.";
-    return undefined;
-  }
-  if (controls.some((field) => field !== "handle"))
-    return `Action "${action}" accepts only handle.`;
-  return undefined;
-}
-
 export const MANAGED_TOOL_OUTPUT_LIMIT_BYTES = 50 * 1024;
 
+/** Bounds a managed tool result to `MANAGED_TOOL_OUTPUT_LIMIT_BYTES`, marker included. */
 export function boundManagedToolOutput(text: string): string {
-  const preview = truncateUtf8Head(text, MANAGED_TOOL_OUTPUT_LIMIT_BYTES);
-  return preview.truncated
-    ? `${preview.value}\n… managed result truncated; inspect the worker or assignment for details.`
-    : text;
+  return truncateUtf8WithMarker(
+    text,
+    MANAGED_TOOL_OUTPUT_LIMIT_BYTES,
+    "\n… managed result truncated; inspect the worker or assignment for details.",
+  );
 }
 
-export function formatManagedWorkerSummary(worker: {
-  readonly handle: string;
-  readonly agent: { readonly name: string; readonly emoji?: string };
-  readonly profile?: string;
-  readonly model?: string;
-  readonly lifecycle: string;
-  readonly childState?: string;
-  readonly hostKind: string;
-  readonly activeAssignmentId?: string;
-  readonly queued: number;
-  readonly lastAssignmentId: string;
-  readonly lastError?: string;
-}): string {
+export function formatManagedWorkerSummary(worker: ManagedWorkerView): string {
   const state = worker.childState
     ? `${worker.lifecycle}/${worker.childState}`
     : worker.lifecycle;
-  const profile = worker.profile ? ` · ${worker.profile}` : "";
   const model = worker.model ? ` · ${worker.model}` : "";
   const assignment = worker.activeAssignmentId
     ? ` · active ${worker.activeAssignmentId}`
@@ -329,15 +166,16 @@ export function formatManagedWorkerSummary(worker: {
   const error = worker.lastError
     ? ` · error: ${worker.lastError.slice(0, 240)}`
     : "";
-  return `${worker.handle} · ${worker.agent.emoji ?? "🤖"} ${worker.agent.name}${profile} · ${state} · ${worker.hostKind}${model}${assignment} · queued ${worker.queued}${error}`;
+  return `${worker.handle} · ${workerIdentity(worker)} · ${state} · ${worker.hostKind}${model}${assignment} · queued ${worker.queued}${error}`;
 }
 
 export function truncateManagedText(
   text: string,
   maxBytes = 12 * 1024,
 ): string {
-  const preview = truncateUtf8Head(text, maxBytes);
-  return preview.truncated
-    ? `${preview.value}\n… result preview truncated.`
-    : text;
+  return truncateUtf8WithMarker(
+    text,
+    maxBytes,
+    "\n… result preview truncated.",
+  );
 }

@@ -10,54 +10,58 @@
  * or the model context receives its tagged user message (`message_start`).
  * Every message carries its own marker, so a steer is merged only when the
  * model actually received it, and nothing is ever re-sent.
+ *
+ * Pure parts live beside this shell: `_managed-ledger.ts` (assignment states
+ * and outcomes) and `_managed-delivery.ts` (delivery evidence and markers).
  */
-import { StringEnum } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { parseChildMessage } from "./_child-events.ts";
+import {
+  formatAssignmentPrompt,
+  formatSteerPrompt,
+  DeliveryTracker,
+} from "./_managed-delivery.ts";
 import {
   createSubagentExecutionWatchdog,
   formatSubagentTimeoutMessage,
   type SubagentExecutionWatchdog,
+  type TimerScheduler,
 } from "./_execution.ts";
+import {
+  type ArchiveEffect,
+  AssignmentLedger,
+  type RunCapture,
+  settleRunOutcome,
+} from "./_managed-ledger.ts";
 import {
   type ChildAssignment,
   type ChildStatus,
-  type ChildWorkerState,
-  emptyUsage,
-  isManagedBootActivated,
+  decodeManagedBootEnv,
   isTerminalAssignmentState,
-  MANAGED_BOOT_ID_ENV,
-  MANAGED_CONTROL_FLOOR_ENV,
-  MANAGED_DIR_ENV,
-  MANAGED_ENV_KEYS,
-  MANAGED_FRESH_ATTEMPT_ENV,
-  MANAGED_HOLD_ON_MODEL_ERROR_ENV,
-  MANAGED_MAX_INACTIVITY_ENV,
-  MANAGED_MAX_RUNTIME_ENV,
   MANAGED_MESSAGE_PREVIEW_BYTES,
-  MANAGED_PARENT_PID_ENV,
-  MANAGED_RESULT_PREVIEW_BYTES,
-  MANAGED_RESUME_FLOOR_ENV,
-  MANAGED_SESSION_ID_ENV,
-  MANAGED_STATUS_ASSIGNMENT_LIMIT,
   type ManagedInboxMessage,
   type ManagedOutcome,
-  type ManagedUsage,
+  type TerminalAssignmentState,
+} from "./_managed-protocol.ts";
+import {
+  isManagedBootActivated,
   managedPaths,
   readChildStatus,
   readInbox,
-  type TerminalAssignmentState,
   writeArchivedAssignment,
   writeJsonAtomic,
 } from "./_managed-store.ts";
-import { truncateUtf8Head } from "./_transcript.ts";
+import { errorText } from "./_parse.ts";
+import { isPidAlive } from "./_process-tree.ts";
+import { truncateUtf8Head } from "./_text.ts";
+import { addTurnUsage, emptyUsage } from "./_usage.ts";
 import {
+  registerSubagentYield,
   SUBAGENT_YIELD_TOOL_NAME,
   subagentYieldFromMessage,
-  type SubagentYieldDetails,
 } from "./_yield.ts";
 
 const DELIVERY_CONFIRM_MS = 30_000;
@@ -86,6 +90,43 @@ export type ManagedSendUserMessage = (
   options?: { deliverAs: "steer" | "followUp" },
 ) => void;
 
+/** Timers the bridge and its watchdog use. Handles are opaque to the bridge. */
+export interface BridgeScheduler {
+  setTimeout(callback: () => void, delayMs: number): unknown;
+  clearTimeout(handle: unknown): void;
+  setInterval(callback: () => void, delayMs: number): unknown;
+  clearInterval(handle: unknown): void;
+}
+
+type TimerHandle = ReturnType<typeof setTimeout>;
+
+/** Real timers that never keep the process alive on their own. */
+const realScheduler: BridgeScheduler = {
+  setTimeout(callback, delayMs) {
+    const timer = setTimeout(callback, delayMs);
+    timer.unref?.();
+    return timer;
+  },
+  // SAFETY: handles passed back here came from `setTimeout` above.
+  clearTimeout: (handle) => clearTimeout(handle as TimerHandle),
+  setInterval(callback, delayMs) {
+    const timer = setInterval(callback, delayMs);
+    timer.unref?.();
+    return timer;
+  },
+  // SAFETY: handles passed back here came from `setInterval` above.
+  clearInterval: (handle) => clearInterval(handle as TimerHandle),
+};
+
+function watchdogScheduler(scheduler: BridgeScheduler): TimerScheduler {
+  return {
+    set(callback, delayMs) {
+      const handle = scheduler.setTimeout(callback, delayMs);
+      return () => scheduler.clearTimeout(handle);
+    },
+  };
+}
+
 export interface ManagedChildBridgeOptions {
   readonly dir: string;
   readonly bootId: string;
@@ -109,6 +150,8 @@ export interface ManagedChildBridgeOptions {
   };
   readonly sendUserMessage: ManagedSendUserMessage;
   readonly now?: () => number;
+  /** Defaults to real, unref'd timers; also drives the execution watchdog. */
+  readonly scheduler?: BridgeScheduler;
   readonly isPidAlive?: (pid: number) => boolean;
   /** Last resort for an orphaned worker whose graceful shutdown did not finish. */
   readonly forceExit?: () => void;
@@ -118,129 +161,66 @@ export interface ManagedChildBridgeOptions {
   readonly settleGraceMs?: number;
 }
 
-interface RunCapture {
-  yielded?: SubagentYieldDetails;
-  lastText?: string;
-  stopReason?: string;
-  errorMessage?: string;
-  timedOut?: string;
-}
+/**
+ * Whether this bridge owns Pi and `status.json`. Only `attached` may drive Pi;
+ * `disposed` (reload, replaced session) and `exited` (shutdown recorded) no
+ * longer write status, except the single final write at shutdown.
+ */
+type BridgeLifecycle =
+  | { readonly kind: "unattached" }
+  | { readonly kind: "attached"; readonly ctx: BridgeContext }
+  | { readonly kind: "disposed" }
+  | { readonly kind: "exited" };
 
-interface PendingDelivery {
-  readonly id: string;
-  readonly marker: string;
-  /** Our own input echo was the latest input; a transformed prompt may then be ours. */
-  inputSeen: boolean;
-  /** Echoed while Pi was busy, so Pi queued it; it starts when the queue drains. */
-  queued: boolean;
-  deadline: number;
-}
+/** One running segment: what it captured, its watchdog, and any abort we requested. */
+class ActiveRun {
+  readonly capture: RunCapture = {};
+  /** Set when we aborted Pi ourselves, so an idle gap is not a retry backoff. */
+  abortRequestedAt: number | undefined;
+  private readonly watchdog: SubagentExecutionWatchdog;
 
-function defaultIsPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as { code?: unknown }).code === "EPERM";
+  constructor(
+    limits: ManagedChildBridgeOptions["limits"],
+    scheduler: BridgeScheduler,
+    onTimeout: (run: ActiveRun, message: string) => void,
+  ) {
+    this.watchdog = createSubagentExecutionWatchdog(
+      limits,
+      (reason) => onTimeout(this, formatSubagentTimeoutMessage(reason, limits)),
+      watchdogScheduler(scheduler),
+    );
+  }
+
+  recordActivity(): void {
+    this.watchdog.recordActivity();
+  }
+
+  end(): void {
+    this.watchdog.stop();
   }
 }
 
-function capped(
-  value: string,
-  bytes: number,
-): { value: string; truncated: boolean } {
-  return truncateUtf8Head(value, bytes);
-}
-
-export function assignmentMarker(assignmentId: string): string {
-  return `[Managed assignment ${assignmentId}]`;
-}
-
-function steerMarker(steerId: string): string {
-  return `(update ${steerId})`;
-}
-
-export function formatAssignmentPrompt(
-  assignmentId: string,
-  text: string,
-): string {
-  return [
-    assignmentMarker(assignmentId),
-    text,
-    "",
-    'Assignment rule: when this assignment is complete or cannot continue, call the "yield" tool once with status, result, and any useful artifact paths. Yield ends this assignment only; you remain available for later assignments in this session.',
-  ].join("\n");
-}
-
-export function formatSteerPrompt(
-  targetId: string,
-  steerId: string,
-  text: string,
-): string {
-  return `[Update for managed assignment ${targetId}] ${steerMarker(steerId)}\n${text}`;
-}
-
-function userMessageText(message: unknown): string | undefined {
-  if (!message || typeof message !== "object") return undefined;
-  const msg = message as { role?: unknown; content?: unknown };
-  if (msg.role !== "user") return undefined;
-  if (typeof msg.content === "string") return msg.content;
-  if (!Array.isArray(msg.content)) return undefined;
-  return msg.content
-    .filter(
-      (part): part is { type: "text"; text: string } =>
-        !!part && part.type === "text" && typeof part.text === "string",
-    )
-    .map((part) => part.text)
-    .join("\n");
-}
-
-function addUsage(target: ManagedUsage, usage: unknown): void {
-  if (!usage || typeof usage !== "object") return;
-  const value = usage as {
-    input?: unknown;
-    output?: unknown;
-    cacheRead?: unknown;
-    cacheWrite?: unknown;
-    totalTokens?: unknown;
-    cost?: { total?: unknown };
-  };
-  const n = (v: unknown) =>
-    typeof v === "number" && Number.isFinite(v) ? v : 0;
-  target.input += n(value.input);
-  target.output += n(value.output);
-  target.cacheRead += n(value.cacheRead);
-  target.cacheWrite += n(value.cacheWrite);
-  target.cost += n(value.cost?.total);
-  target.contextTokens = n(value.totalTokens) || target.contextTokens;
-}
-
 export class ManagedChildBridge {
-  private status: ChildStatus;
-  private ctx: BridgeContext | undefined;
+  private readonly status: ChildStatus;
+  private readonly ledger: AssignmentLedger;
+  private readonly delivery = new DeliveryTracker();
+  private lifecycle: BridgeLifecycle = { kind: "unattached" };
+  private run: ActiveRun | undefined;
   private readonly paths;
   private readonly now: () => number;
+  private readonly scheduler: BridgeScheduler;
   private readonly isPidAlive: (pid: number) => boolean;
   private readonly confirmMs: number;
   private readonly graceMs: number;
-  private pendingDelivery: PendingDelivery | undefined;
-  /** Steers handed to Pi whose tagged message the model has not received yet. */
-  private readonly pendingSteers = new Set<string>();
-  /** Prompts that missed their start deadline; if Pi starts one later, it is aborted. */
-  private readonly expired = new Set<string>();
-  private run: RunCapture = {};
-  private watchdog: SubagentExecutionWatchdog | undefined;
-  private timers: ReturnType<typeof setInterval>[] = [];
-  private stopped = false;
-  private shutdownRecorded = false;
-  private abortRequestedAt: number | undefined;
+  private timers: unknown[] = [];
+  /** Pi idle while we believe it busy; it may outlive or precede any run. */
   private idleSince: number | undefined;
-  private quietSince: number | undefined;
 
   constructor(private readonly options: ManagedChildBridgeOptions) {
     this.paths = managedPaths(options.dir);
     this.now = options.now ?? Date.now;
-    this.isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
+    this.scheduler = options.scheduler ?? realScheduler;
+    this.isPidAlive = options.isPidAlive ?? isPidAlive;
     this.confirmMs = options.deliveryConfirmMs ?? DELIVERY_CONFIRM_MS;
     this.graceMs = options.settleGraceMs ?? SETTLE_GRACE_MS;
     this.status = {
@@ -255,6 +235,7 @@ export class ManagedChildBridge {
       toolActivity: false,
       updatedAt: this.now(),
     };
+    this.ledger = new AssignmentLedger(this.status);
   }
 
   get snapshot(): ChildStatus {
@@ -263,8 +244,8 @@ export class ManagedChildBridge {
 
   /** Called on session_start. Restores prior status without replaying interrupted work. */
   start(ctx: BridgeContext): void {
-    if (this.ctx) return;
-    this.ctx = ctx;
+    if (this.lifecycle.kind !== "unattached") return;
+    this.lifecycle = { kind: "attached", ctx };
     const previous = readChildStatus(this.paths.status);
     // Only a fresh model attempt (new session, nothing ran in its history)
     // may process the inbox from the start. Every other boot keeps acks so
@@ -278,25 +259,11 @@ export class ManagedChildBridge {
       this.status.toolActivity = previous.toolActivity;
       if (previous.model) this.status.model = previous.model;
       if (previous.sessionFile) this.status.sessionFile = previous.sessionFile;
-      this.status.assignments = previous.assignments.map((assignment) =>
-        isTerminalAssignmentState(assignment.state)
-          ? assignment
-          : this.terminal(
-              assignment,
-              assignment.state === "accepted" ? "cancelled" : "interrupted",
-              {
-                source: "lifecycle",
-                result:
-                  assignment.state === "accepted"
-                    ? "Worker restarted before this queued assignment started; it was not delivered."
-                    : "Worker restarted before this assignment finished; it was not replayed.",
-              },
-            ),
-      );
+      this.archive(this.ledger.restore(previous.assignments, this.now()));
     }
     const expected = this.options.expectedSessionId;
     if (expected && ctx.sessionId && ctx.sessionId !== expected) {
-      this.detach(expected, ctx.sessionId);
+      this.detach(ctx, expected, ctx.sessionId);
       return;
     }
     if (ctx.sessionId) this.status.sessionId = ctx.sessionId;
@@ -312,99 +279,87 @@ export class ManagedChildBridge {
     }
   }
 
-  /** Reads new inbox files and enforces delivery and settle deadlines. Idempotent. */
+  /** Reads new inbox files once and enforces delivery and settle deadlines. Idempotent. */
   poll(): void {
-    if (!this.ctx || this.stopped) return;
+    const ctx = this.attachedContext();
+    if (!ctx) return;
+    const { controlFloorSeq } = this.options;
     if (
       this.options.waitForActivation &&
       !isManagedBootActivated(this.paths.activation, this.options.bootId)
     ) {
       if (
-        readInbox(this.paths.inbox).some(
-          (message) =>
-            message.kind === "shutdown" &&
-            message.seq > this.options.controlFloorSeq,
-        )
+        hasShutdown(readInbox(this.paths.inbox, { afterSeq: controlFloorSeq }))
       )
         this.beginShutdown();
       return;
     }
     const now = this.now();
     this.checkDeliveryDeadline(now);
-    this.checkMissedSettle(now);
-    this.checkDroppedMessages(now);
+    this.checkMissedSettle(now, ctx);
+    this.checkDroppedMessages(now, ctx);
     if (this.halted()) {
       // A held worker still honors shutdown so fallback does not wait out the grace window.
-      const shutdown = readInbox(this.paths.inbox).some(
-        (message) =>
-          message.kind === "shutdown" &&
-          message.seq > this.status.ackedSeq &&
-          message.seq > this.options.controlFloorSeq,
-      );
-      if (shutdown && this.status.state === "held") this.beginShutdown();
+      if (
+        this.status.state === "held" &&
+        hasShutdown(
+          readInbox(this.paths.inbox, {
+            afterSeq: Math.max(this.status.ackedSeq, controlFloorSeq),
+          }),
+        )
+      )
+        this.beginShutdown();
       return;
     }
     let changed = false;
-    for (const message of readInbox(this.paths.inbox)) {
+    const messages = readInbox(this.paths.inbox, {
+      afterSeq: this.status.ackedSeq,
+    });
+    for (const message of messages) {
       if (message.seq <= this.status.ackedSeq) continue;
       this.status.ackedSeq = message.seq;
       changed = true;
-      this.accept(message);
+      this.accept(message, ctx);
       if (this.halted()) break;
     }
     if (changed) this.flush();
   }
 
-  /** Held (awaiting model fallback) or shutting down: leave further messages unacknowledged. */
-  private halted(): boolean {
-    const state: ChildWorkerState = this.status.state;
-    return this.stopped || state === "held" || state === "stopping";
-  }
-
   /** A worker whose parent died must not keep running: abort, shut down, then exit if stuck. */
   checkParent(): void {
     const parentPid = this.options.parentPid;
-    if (!parentPid || this.stopped || this.isPidAlive(parentPid)) return;
+    if (!parentPid || this.stopped() || this.isPidAlive(parentPid)) return;
     if (this.status.state === "stopping") return;
     this.status.lastError =
       "Parent Pi process exited; shutting down managed worker.";
     this.beginShutdown();
     const forceExit = this.options.forceExit;
-    if (forceExit) {
-      const timer = setTimeout(forceExit, ORPHAN_EXIT_MS);
-      timer.unref?.();
-    }
+    if (forceExit) this.scheduler.setTimeout(forceExit, ORPHAN_EXIT_MS);
   }
 
   /** `input` echo: evidence the prompt reached Pi, not that the model will see it. */
   onInput(text: string, source: string): void {
-    const pending = this.pendingDelivery;
-    if (!pending) return;
-    if (source === "extension" && text.includes(pending.marker)) {
-      pending.inputSeen = true;
-      if (this.ctx && !this.ctx.isIdle()) pending.queued = true;
-      return;
-    }
-    // Someone else's prompt is in flight; an unmarked run start is not ours.
-    pending.inputSeen = false;
+    const ctx = this.attachedContext();
+    this.delivery.observeInput(
+      text,
+      source,
+      ctx && !ctx.isIdle() ? "busy" : "idle",
+    );
   }
 
   /** `before_agent_start`: Pi passed validation and is starting a run for this prompt. */
   onBeforeAgentStart(prompt: string): void {
-    if (!this.ctx || this.stopped) return;
-    const pending = this.pendingDelivery;
-    if (
-      pending &&
-      (prompt.includes(pending.marker) ||
-        (pending.inputSeen && !pending.queued))
-    ) {
-      this.startPrompt(pending.id);
+    const ctx = this.attachedContext();
+    if (!ctx) return;
+    const started = this.delivery.claimRunStart(prompt);
+    if (started !== undefined) {
+      this.startPrompt(started);
       return;
     }
     if (this.observeSteers(prompt)) return;
-    if (this.abortIfExpired(prompt)) return;
+    if (this.abortIfExpired(prompt, ctx)) return;
     // A person typing in the native TUI: hold parent work until the run settles.
-    if (!this.status.activeAssignmentId && this.status.state === "idle") {
+    if (!this.ledger.activeId && this.status.state === "idle") {
       this.status.state = "busy";
       this.flush();
     }
@@ -412,123 +367,103 @@ export class ManagedChildBridge {
 
   /** User `message_start`: the model context now contains this message. */
   onMessageStart(message: unknown): void {
-    if (!this.ctx || this.stopped) return;
-    const text = userMessageText(message);
+    const ctx = this.attachedContext();
+    if (!ctx) return;
+    const parsed = parseChildMessage(message);
+    const text =
+      parsed?.role === "user" ? parsed.textParts.join("\n") : undefined;
     if (!text) return;
-    const pending = this.pendingDelivery;
     // A prompt Pi queued behind another run starts here, without before_agent_start.
-    if (pending && text.includes(pending.marker)) {
-      this.startPrompt(pending.id);
+    const started = this.delivery.claimMessage(text);
+    if (started !== undefined) {
+      this.startPrompt(started);
       return;
     }
     if (this.observeSteers(text)) return;
-    this.abortIfExpired(text);
+    this.abortIfExpired(text, ctx);
   }
 
   onCompactionStart(): void {
-    const pending = this.pendingDelivery;
-    if (pending)
-      pending.deadline = Math.max(
-        pending.deadline,
-        this.now() + COMPACTION_ALLOWANCE_MS,
-      );
+    this.delivery.extendDeadline(this.now() + COMPACTION_ALLOWANCE_MS);
   }
 
   onCompactionEnd(): void {
-    const pending = this.pendingDelivery;
-    if (pending) pending.deadline = this.now() + this.confirmMs;
+    this.delivery.resetDeadline(this.now() + this.confirmMs);
   }
 
   onActivity(): void {
-    this.watchdog?.recordActivity();
+    this.run?.recordActivity();
     const inactivity = this.options.limits.maxInactivityMs;
     const heartbeatMs =
       inactivity > 0 ? Math.min(1_000, inactivity / 2) : 1_000;
     if (
-      this.active()?.state === "running" &&
+      this.ledger.active()?.state === "running" &&
       this.now() - this.status.updatedAt >= heartbeatMs
     )
       this.flush();
   }
 
   onToolStart(toolName: string): void {
-    this.watchdog?.recordActivity();
+    this.run?.recordActivity();
     if (toolName === SUBAGENT_YIELD_TOOL_NAME) return;
     const first = !this.status.toolActivity;
     this.status.toolActivity = true;
-    const active = this.active();
+    const active = this.ledger.active();
     if (active) active.toolActivity = true;
     if (first || active) this.flush();
   }
 
   onMessageEnd(message: unknown): void {
-    this.watchdog?.recordActivity();
-    const active = this.active();
-    const yielded = subagentYieldFromMessage(message);
+    this.run?.recordActivity();
+    const active = this.ledger.active();
+    const running = active?.state === "running" ? active : undefined;
+    const capture = running ? this.run?.capture : undefined;
+    const parsed = parseChildMessage(message);
+    const yielded = subagentYieldFromMessage(parsed);
     if (yielded) {
-      if (active?.state === "running") this.run.yielded = yielded;
+      if (capture) capture.yielded = yielded;
       return;
     }
-    if (!message || typeof message !== "object") return;
-    const msg = message as {
-      role?: unknown;
-      content?: unknown;
-      usage?: unknown;
-      model?: unknown;
-      provider?: unknown;
-      stopReason?: unknown;
-      errorMessage?: unknown;
-    };
-    if (msg.role !== "assistant") return;
-    const model =
-      typeof msg.model === "string"
-        ? typeof msg.provider === "string"
-          ? `${msg.provider}/${msg.model}`
-          : msg.model
-        : undefined;
-    addUsage(this.status.usage, msg.usage);
-    this.status.usage.turns++;
-    if (model) this.status.model = model;
-    if (active?.state === "running") {
-      addUsage(active.usage, msg.usage);
-      active.usage.turns++;
-      if (model) active.model = model;
-      if (Array.isArray(msg.content)) {
-        const text = msg.content
-          .filter(
-            (part): part is { type: "text"; text: string } =>
-              !!part && part.type === "text" && typeof part.text === "string",
-          )
-          .map((part) => part.text)
-          .join("\n");
-        if (text.trim()) this.run.lastText = text;
-      }
-      if (typeof msg.stopReason === "string")
-        this.run.stopReason = msg.stopReason;
-      if (typeof msg.errorMessage === "string")
-        this.run.errorMessage = msg.errorMessage;
+    if (parsed?.role !== "assistant") return;
+    addTurnUsage(this.status.usage, parsed.usage);
+    if (parsed.model) this.status.model = parsed.model;
+    if (running) {
+      addTurnUsage(running.usage, parsed.usage);
+      if (parsed.model) running.model = parsed.model;
+    }
+    if (capture) {
+      const text = parsed.textParts.join("\n");
+      if (text.trim()) capture.lastText = text;
+      if (parsed.stopReason !== undefined)
+        capture.stopReason = parsed.stopReason;
+      if (parsed.errorMessage !== undefined)
+        capture.errorMessage = parsed.errorMessage;
     }
     this.flush();
   }
 
   /** agent_settled: Pi will not continue on its own, so the running assignment ends here. */
   onSettled(): void {
-    if (!this.ctx || this.stopped) return;
+    const ctx = this.attachedContext();
+    if (!ctx) return;
     this.idleSince = undefined;
-    this.abortRequestedAt = undefined;
+    if (this.run) this.run.abortRequestedAt = undefined;
     if (this.status.state === "stopping") {
       // A busy shutdown aborted first; Pi can now finish shutting down.
-      this.ctx.shutdown();
+      ctx.shutdown();
       return;
     }
-    const active = this.active();
+    const active = this.ledger.active();
     if (active?.state === "running") {
-      const { state, outcome, modelError } = this.settleOutcome(active);
+      const { state, outcome, modelError } = settleRunOutcome(
+        this.run?.capture ?? {},
+        active.toolActivity,
+      );
       if (modelError) active.modelError = true;
-      this.finishActive(state, outcome, active.id);
+      this.finishAndAdvance(active.id, state, outcome);
       return;
     }
-    if (!this.status.activeAssignmentId && this.status.state !== "held") {
+    if (!this.ledger.activeId && this.status.state !== "held") {
       // Interactive or untracked runs end here; queued follow-ups may now start.
       this.status.state = "idle";
       this.deliverNext();
@@ -538,8 +473,7 @@ export class ManagedChildBridge {
 
   /** session_shutdown: record honest final states; nothing is replayed later. */
   onShutdown(reason?: string): void {
-    if (this.shutdownRecorded) return;
-    this.shutdownRecorded = true;
+    if (this.lifecycle.kind === "exited") return;
     const replaced =
       reason === "new" || reason === "resume" || reason === "fork";
     if (replaced)
@@ -550,28 +484,46 @@ export class ManagedChildBridge {
         : "Worker shut down",
     );
     this.status.state = "exited";
-    this.dispose();
-    this.flush(true);
+    this.releaseResources();
+    this.lifecycle = { kind: "exited" };
+    this.flushFinal();
   }
 
   dispose(): void {
-    this.stopped = true;
-    this.watchdog?.stop();
-    this.watchdog = undefined;
-    for (const timer of this.timers) clearInterval(timer);
-    this.timers = [];
+    this.releaseResources();
+    if (this.lifecycle.kind !== "exited") this.lifecycle = { kind: "disposed" };
   }
 
   // ------------------------------------------------------------ internals
 
+  private attachedContext(): BridgeContext | undefined {
+    return this.lifecycle.kind === "attached" ? this.lifecycle.ctx : undefined;
+  }
+
+  private stopped(): boolean {
+    return (
+      this.lifecycle.kind === "disposed" || this.lifecycle.kind === "exited"
+    );
+  }
+
+  /** Held (awaiting model fallback) or shutting down: leave further messages unacknowledged. */
+  private halted(): boolean {
+    const state = this.status.state;
+    return this.stopped() || state === "held" || state === "stopping";
+  }
+
+  private releaseResources(): void {
+    this.endRun();
+    for (const timer of this.timers) this.scheduler.clearInterval(timer);
+    this.timers = [];
+  }
+
   private every(ms: number, fn: () => void): void {
-    const timer = setInterval(fn, ms);
-    timer.unref?.();
-    this.timers.push(timer);
+    this.timers.push(this.scheduler.setInterval(fn, ms));
   }
 
   /** The session is not the one the parent launched: stop consuming and shut down. */
-  private detach(expected: string, actual: string): void {
+  private detach(ctx: BridgeContext, expected: string, actual: string): void {
     // Keep the parent's session id so the parent reads these final states.
     this.status.sessionId = expected;
     this.status.lastError = `Managed worker session changed from ${expected} to ${actual} (for example /new, /resume, or /fork); parent control is detached and the worker is stopping.`;
@@ -579,16 +531,19 @@ export class ManagedChildBridge {
     this.status.state = "stopping";
     this.flush();
     this.dispose();
-    this.ctx?.abort();
-    this.ctx?.shutdown();
+    ctx.abort();
+    ctx.shutdown();
   }
 
-  private accept(message: ManagedInboxMessage): void {
+  private accept(message: ManagedInboxMessage, ctx: BridgeContext): void {
     if (message.kind === "shutdown") {
       if (message.seq > this.options.controlFloorSeq) this.beginShutdown();
       return;
     }
-    const preview = capped(message.text, MANAGED_MESSAGE_PREVIEW_BYTES).value;
+    const preview = truncateUtf8Head(
+      message.text,
+      MANAGED_MESSAGE_PREVIEW_BYTES,
+    ).value;
     const assignment: ChildAssignment = {
       id: message.assignmentId,
       seq: message.seq,
@@ -599,105 +554,81 @@ export class ManagedChildBridge {
       usage: emptyUsage(),
       toolActivity: false,
     };
-    this.pushAssignment(assignment);
+    this.ledger.push(assignment);
     if (message.seq <= this.options.resumeFloorSeq) {
-      this.terminal(assignment, "cancelled", {
+      this.terminate(assignment, "cancelled", {
         source: "lifecycle",
         result:
           "Worker was resumed idle; this message was sent before the restart and was not delivered.",
       });
       return;
     }
-    const active = this.active();
+    const active = this.ledger.active();
     const busy =
       active !== undefined ||
-      this.pendingDelivery !== undefined ||
+      this.delivery.pendingPrompt !== undefined ||
       this.status.state === "busy" ||
-      !this.ctx!.isIdle();
+      !ctx.isIdle();
     if (!busy) {
-      this.deliver(assignment);
+      this.deliver(assignment, message.text);
       return;
     }
     if (message.delivery === "auto" && active?.state === "running") {
       // Pending until the model receives the tagged message; never re-sent.
       assignment.disposition = "steer";
       assignment.state = "delivering";
-      this.pendingSteers.add(assignment.id);
+      this.delivery.addSteer(assignment.id);
       try {
         this.options.sendUserMessage(
           formatSteerPrompt(active.id, assignment.id, message.text),
           { deliverAs: "steer" },
         );
       } catch (error) {
-        this.pendingSteers.delete(assignment.id);
-        this.terminal(assignment, "failed", {
+        this.delivery.dropSteer(assignment.id);
+        this.terminate(assignment, "failed", {
           source: "error",
-          result: `Steer delivery failed: ${error instanceof Error ? error.message : String(error)}`,
+          result: `Steer delivery failed: ${errorText(error)}`,
         });
       }
       return;
     }
-    assignment.disposition = "followUp";
-    this.status.queue.push(assignment.id);
+    this.ledger.enqueue(assignment, message.text);
   }
 
-  private deliver(assignment: ChildAssignment): void {
-    const text = formatAssignmentPrompt(
-      assignment.id,
-      this.fullText(assignment),
-    );
-    assignment.state = "delivering";
-    this.status.activeAssignmentId = assignment.id;
+  /** `text` is the full parent-authored text; the assignment keeps only a capped preview. */
+  private deliver(assignment: ChildAssignment, text: string): void {
+    this.ledger.markDelivering(assignment);
     this.status.state = "busy";
-    this.pendingDelivery = {
-      id: assignment.id,
-      marker: assignmentMarker(assignment.id),
-      inputSeen: false,
-      queued: false,
-      deadline: this.now() + this.confirmMs,
-    };
+    this.delivery.sendPrompt(assignment.id, this.now() + this.confirmMs);
     try {
       // followUp: if a run starts first (for example a person typing), Pi queues this
       // prompt behind it instead of rejecting it.
-      this.options.sendUserMessage(text, { deliverAs: "followUp" });
-    } catch (error) {
-      this.finishActive(
-        "failed",
-        {
-          source: "error",
-          result: `Prompt delivery failed: ${error instanceof Error ? error.message : String(error)}`,
-        },
-        assignment.id,
+      this.options.sendUserMessage(
+        formatAssignmentPrompt(assignment.id, text),
+        { deliverAs: "followUp" },
       );
+    } catch (error) {
+      this.finishAndAdvance(assignment.id, "failed", {
+        source: "error",
+        result: `Prompt delivery failed: ${errorText(error)}`,
+      });
     }
-  }
-
-  /** Previews are capped; the inbox file keeps the full parent-authored text. */
-  private fullText(assignment: ChildAssignment): string {
-    const message = readInbox(this.paths.inbox).find(
-      (entry) =>
-        entry.kind === "assignment" && entry.assignmentId === assignment.id,
-    );
-    return message?.kind === "assignment" ? message.text : assignment.preview;
   }
 
   private deliverNext(): void {
-    if (this.status.state === "held" || this.halted()) return;
-    if (this.pendingDelivery || this.status.activeAssignmentId) return;
-    while (this.status.queue.length > 0) {
-      const id = this.status.queue.shift()!;
-      const next = this.find(id);
-      if (next && next.state === "accepted") {
-        this.deliver(next);
-        return;
-      }
+    if (this.halted()) return;
+    if (this.delivery.pendingPrompt || this.ledger.activeId) return;
+    const next = this.ledger.takeNextQueued();
+    if (next) {
+      this.deliver(next.assignment, next.text);
+      return;
     }
-    this.status.state = this.ctx?.isIdle() === false ? "busy" : "idle";
+    this.status.state =
+      this.attachedContext()?.isIdle() === false ? "busy" : "idle";
   }
 
   private startPrompt(id: string): void {
-    this.pendingDelivery = undefined;
-    const assignment = this.find(id);
+    const assignment = this.ledger.find(id);
     if (!assignment || assignment.state !== "delivering") return;
     this.closeSegment();
     this.begin(assignment);
@@ -705,22 +636,18 @@ export class ManagedChildBridge {
 
   /** Marks any tagged steer in `text` as received. Returns true when one matched. */
   private observeSteers(text: string): boolean {
-    let matched = false;
-    for (const id of [...this.pendingSteers]) {
-      if (!text.includes(steerMarker(id))) continue;
-      matched = true;
-      this.pendingSteers.delete(id);
-      const steer = this.find(id);
+    const matched = this.delivery.takeSteersIn(text);
+    for (const id of matched) {
+      const steer = this.ledger.find(id);
       if (!steer || steer.state !== "delivering") continue;
-      const active = this.active();
+      const active = this.ledger.active();
+      const capture = this.run?.capture;
       if (
         active?.state === "running" &&
-        !this.run.yielded &&
-        !this.run.timedOut
+        !capture?.yielded &&
+        !capture?.timedOut
       ) {
-        steer.state = "running";
-        steer.mergedInto = active.id;
-        steer.startedAt = this.now();
+        this.ledger.merge(steer, active.id, this.now());
         this.flush();
         continue;
       }
@@ -728,79 +655,83 @@ export class ManagedChildBridge {
       this.closeSegment();
       this.begin(steer);
     }
-    return matched;
+    return matched.length > 0;
   }
 
   /** A prompt that missed its start deadline was reported failed; it must not run untracked. */
-  private abortIfExpired(text: string): boolean {
-    for (const id of this.expired) {
-      if (!text.includes(assignmentMarker(id))) continue;
-      this.expired.delete(id);
-      this.abortRequestedAt = this.now();
-      this.status.state = "busy";
-      this.flush();
-      this.ctx?.abort();
-      return true;
-    }
-    return false;
+  private abortIfExpired(text: string, ctx: BridgeContext): boolean {
+    if (this.delivery.takeExpiredIn(text) === undefined) return false;
+    if (this.run) this.run.abortRequestedAt = this.now();
+    this.status.state = "busy";
+    this.flush();
+    ctx.abort();
+    return true;
   }
 
   /** Ends the running segment with what it captured so far; a new tagged message starts now. */
   private closeSegment(): void {
-    const active = this.active();
+    const active = this.ledger.active();
     if (active?.state !== "running") return;
-    const { state, outcome } = this.settleOutcome(active);
-    this.finishActive(state, outcome, active.id, false);
-  }
-
-  private begin(assignment: ChildAssignment): void {
-    assignment.state = "running";
-    assignment.startedAt = this.now();
-    this.status.activeAssignmentId = assignment.id;
-    this.status.state = "busy";
-    this.run = {};
-    this.abortRequestedAt = undefined;
-    this.armWatchdog();
+    const { state, outcome } = settleRunOutcome(
+      this.run?.capture ?? {},
+      active.toolActivity,
+    );
+    this.conclude(active.id, state, outcome);
     this.flush();
   }
 
+  private begin(assignment: ChildAssignment): void {
+    this.ledger.markRunning(assignment, this.now());
+    this.status.state = "busy";
+    this.run?.end();
+    this.run = new ActiveRun(
+      this.options.limits,
+      this.scheduler,
+      (run, message) => {
+        run.capture.timedOut = message;
+        run.abortRequestedAt = this.now();
+        this.attachedContext()?.abort();
+      },
+    );
+    this.flush();
+  }
+
+  private endRun(): void {
+    this.run?.end();
+    this.run = undefined;
+  }
+
   private checkDeliveryDeadline(now: number): void {
-    const pending = this.pendingDelivery;
-    if (!pending || pending.queued || now <= pending.deadline) return;
-    const assignment = this.find(pending.id);
-    this.pendingDelivery = undefined;
+    const id = this.delivery.takeOverdue(now);
+    if (id === undefined) return;
+    const assignment = this.ledger.find(id);
     if (!assignment || assignment.state !== "delivering") return;
     // Pi validates the model and credentials after the input echo and reports
     // failures only as an extension error, so a missing run start counts as a
     // model error and may trigger fallback.
     if (!this.status.toolActivity) assignment.modelError = true;
-    this.expired.add(assignment.id);
-    this.finishActive(
-      "failed",
-      {
-        source: "error",
-        result: `Pi did not start this assignment within ${this.confirmMs} ms; the prompt was likely rejected before the run began (for example no usable model or credentials).`,
-      },
-      assignment.id,
-    );
+    this.delivery.markExpired(assignment.id);
+    this.finishAndAdvance(assignment.id, "failed", {
+      source: "error",
+      result: `Pi did not start this assignment within ${this.confirmMs} ms; the prompt was likely rejected before the run began (for example no usable model or credentials).`,
+    });
   }
 
   /** Recovers when Pi is idle but the settle event never arrived (for example after an abort). */
-  private checkMissedSettle(now: number): void {
-    if (this.status.state !== "busy" || !this.ctx!.isIdle()) {
+  private checkMissedSettle(now: number, ctx: BridgeContext): void {
+    if (this.status.state !== "busy" || !ctx.isIdle()) {
       this.idleSince = undefined;
       return;
     }
     this.idleSince ??= now;
     if (now - this.idleSince < this.graceMs) return;
-    const active = this.active();
-    if (active?.state === "running") {
+    if (this.ledger.active()?.state === "running") {
       // Without our own abort, an idle gap may be a retry backoff; keep waiting for settle.
-      if (this.abortRequestedAt === undefined) return;
+      if (this.run?.abortRequestedAt === undefined) return;
       this.onSettled();
       return;
     }
-    if (!this.pendingDelivery && !this.status.activeAssignmentId) {
+    if (!this.delivery.pendingPrompt && !this.ledger.activeId) {
       this.idleSince = undefined;
       this.status.state = "idle";
       this.deliverNext();
@@ -812,227 +743,124 @@ export class ManagedChildBridge {
    * A steer or queued prompt the model never received is reported only once Pi
    * is idle with an empty queue for the grace window; it is never re-sent.
    */
-  private checkDroppedMessages(now: number): void {
-    const queuedPrompt = this.pendingDelivery?.queued
-      ? this.pendingDelivery
-      : undefined;
-    const ctx = this.ctx!;
-    if (
-      (this.pendingSteers.size === 0 && !queuedPrompt) ||
-      !ctx.isIdle() ||
-      ctx.hasPendingMessages?.() !== false
-    ) {
-      this.quietSince = undefined;
-      return;
-    }
-    this.quietSince ??= now;
-    if (now - this.quietSince < this.graceMs) return;
-    this.quietSince = undefined;
-    const dropped = {
-      source: "lifecycle" as const,
+  private checkDroppedMessages(now: number, ctx: BridgeContext): void {
+    const dropped = this.delivery.takeDropped(
+      now,
+      ctx.isIdle() && ctx.hasPendingMessages?.() === false
+        ? "drained"
+        : "active",
+      this.graceMs,
+    );
+    if (!dropped) return;
+    const outcome: ManagedOutcome = {
+      source: "lifecycle",
       result:
         "Pi discarded this message before the model received it (the run ended or was aborted first). It was not re-sent.",
     };
-    for (const id of this.pendingSteers) {
-      const steer = this.find(id);
+    for (const id of dropped.steerIds) {
+      const steer = this.ledger.find(id);
       if (steer && !isTerminalAssignmentState(steer.state))
-        this.terminal(steer, "cancelled", dropped);
+        this.terminate(steer, "cancelled", outcome);
     }
-    this.pendingSteers.clear();
-    if (queuedPrompt) this.finishActive("cancelled", dropped, queuedPrompt.id);
+    if (dropped.queuedPromptId !== undefined)
+      this.finishAndAdvance(dropped.queuedPromptId, "cancelled", outcome);
     else this.flush();
   }
 
-  private settleOutcome(active: ChildAssignment): {
-    state: TerminalAssignmentState;
-    outcome: ManagedOutcome;
-    modelError: boolean;
-  } {
-    const run = this.run;
-    if (run.timedOut) {
-      return {
-        state: "timedOut",
-        outcome: { source: "lifecycle", result: run.timedOut },
-        modelError: false,
-      };
-    }
-    if (run.yielded) {
-      const result = capped(run.yielded.result, MANAGED_RESULT_PREVIEW_BYTES);
-      return {
-        state: run.yielded.status,
-        outcome: {
-          source: "yield",
-          result: result.value,
-          ...(result.truncated ? { truncated: true } : {}),
-          ...(run.yielded.artifacts
-            ? { artifacts: run.yielded.artifacts }
-            : {}),
-        },
-        modelError: false,
-      };
-    }
-    if (run.stopReason === "error" || run.stopReason === "aborted") {
-      const result = capped(
-        run.errorMessage ||
-          run.lastText ||
-          `Assistant stopped: ${run.stopReason}`,
-        MANAGED_RESULT_PREVIEW_BYTES,
-      );
-      return {
-        state: run.stopReason === "error" ? "failed" : "aborted",
-        outcome: {
-          source: "error",
-          result: result.value,
-          ...(result.truncated ? { truncated: true } : {}),
-        },
-        modelError: run.stopReason === "error" && !active.toolActivity,
-      };
-    }
-    const result = capped(
-      run.lastText ?? "(no output)",
-      MANAGED_RESULT_PREVIEW_BYTES,
-    );
-    return {
-      state: "completed",
-      outcome: {
-        source: "assistant",
-        result: result.value,
-        ...(result.truncated ? { truncated: true } : {}),
-      },
-      modelError: false,
-    };
-  }
-
-  private finishActive(
+  /** Ends `id`, then starts the next queued follow-up unless the worker is held. */
+  private finishAndAdvance(
+    id: string,
     state: TerminalAssignmentState,
     outcome: ManagedOutcome,
-    id: string,
-    continueQueue = true,
   ): void {
-    const assignment = this.find(id);
-    if (assignment && !isTerminalAssignmentState(assignment.state))
-      this.terminal(assignment, state, outcome);
-    for (const merged of this.status.assignments) {
-      if (merged.mergedInto === id && !isTerminalAssignmentState(merged.state))
-        this.terminal(merged, state, outcome);
-    }
-    if (this.pendingDelivery?.id === id) this.pendingDelivery = undefined;
-    if (this.status.activeAssignmentId === id) {
-      delete this.status.activeAssignmentId;
-      this.watchdog?.stop();
-      this.watchdog = undefined;
-      this.run = {};
-    }
-    const initial = this.status.assignments[0]?.id === id;
+    if (this.conclude(id, state, outcome) === "continue") this.deliverNext();
+    this.flush();
+  }
+
+  /**
+   * Ends `id` and its merged steers, drops its run, and holds the worker when
+   * the initial assignment failed on the model before any tool ran. Does not
+   * flush or advance the queue.
+   */
+  private conclude(
+    id: string,
+    state: TerminalAssignmentState,
+    outcome: ManagedOutcome,
+  ): "held" | "continue" {
+    const { assignment, wasActive, effects } = this.ledger.finish(
+      id,
+      state,
+      outcome,
+      this.now(),
+    );
+    this.archive(effects);
+    this.delivery.clearPrompt(id);
+    if (wasActive) this.endRun();
     if (
       this.options.holdOnInitialModelError &&
-      initial &&
+      this.ledger.isInitial(id) &&
       assignment?.modelError &&
       !this.status.toolActivity
     ) {
       this.status.state = "held";
-    } else if (continueQueue) {
-      this.deliverNext();
+      return "held";
     }
-    this.flush();
+    return "continue";
   }
 
-  private terminal(
+  private terminate(
     assignment: ChildAssignment,
     state: TerminalAssignmentState,
     outcome: ManagedOutcome,
-  ): ChildAssignment {
-    assignment.state = state;
-    assignment.outcome = outcome;
-    assignment.endedAt = this.now();
-    try {
-      if (this.status.sessionId)
-        writeArchivedAssignment(
-          this.paths.dir,
-          this.status.sessionId,
-          assignment,
-        );
-    } catch {
-      this.status.lastError =
-        "Could not persist the assignment result archive.";
-    }
-    return assignment;
+  ): void {
+    this.archive([
+      this.ledger.terminate(assignment, state, outcome, this.now()),
+    ]);
   }
 
   /** Ends every unfinished assignment honestly: started work is interrupted, the rest cancelled. */
   private terminalizeAll(reason: string): void {
-    for (const assignment of this.status.assignments) {
-      if (isTerminalAssignmentState(assignment.state)) continue;
-      if (assignment.state === "running")
-        this.terminal(assignment, "interrupted", {
-          source: "lifecycle",
-          result: `${reason} before this assignment finished; it was not replayed.`,
-        });
-      else
-        this.terminal(assignment, "cancelled", {
-          source: "lifecycle",
-          result: `${reason} before this assignment started; it was not delivered.`,
-        });
-    }
-    this.status.queue = [];
-    delete this.status.activeAssignmentId;
-    this.pendingDelivery = undefined;
-    this.pendingSteers.clear();
-    this.watchdog?.stop();
-    this.watchdog = undefined;
-    this.run = {};
+    this.archive(this.ledger.terminalizeAll(reason, this.now()));
+    this.delivery.clearPrompt();
+    this.delivery.clearSteers();
+    this.endRun();
   }
 
-  private armWatchdog(): void {
-    this.watchdog?.stop();
-    const { limits } = this.options;
-    this.watchdog = createSubagentExecutionWatchdog(limits, (reason) => {
-      this.run.timedOut = formatSubagentTimeoutMessage(reason, limits);
-      this.abortRequestedAt = this.now();
-      this.ctx?.abort();
-    });
+  private archive(effects: readonly ArchiveEffect[]): void {
+    const sessionId = this.status.sessionId;
+    if (!sessionId) return;
+    for (const effect of effects) {
+      try {
+        writeArchivedAssignment(this.paths.dir, sessionId, effect.assignment);
+      } catch {
+        this.status.lastError =
+          "Could not persist the assignment result archive.";
+      }
+    }
   }
 
   private beginShutdown(): void {
-    if (this.status.state === "stopping" || this.stopped) return;
+    if (this.status.state === "stopping" || this.stopped()) return;
     this.status.state = "stopping";
     this.flush();
     // Interactive Pi defers shutdown until a run ends, so stop the run first.
-    if (this.ctx && !this.ctx.isIdle()) this.ctx.abort();
-    this.ctx?.shutdown();
-  }
-
-  private pushAssignment(assignment: ChildAssignment): void {
-    this.status.assignments.push(assignment);
-    const overflow =
-      this.status.assignments.length - MANAGED_STATUS_ASSIGNMENT_LIMIT;
-    if (overflow <= 0) return;
-    // Keep the initial assignment (fallback policy) and drop the oldest terminal ones.
-    let remaining = overflow;
-    this.status.assignments = this.status.assignments.filter((entry, index) => {
-      if (
-        remaining === 0 ||
-        index === 0 ||
-        !isTerminalAssignmentState(entry.state)
-      )
-        return true;
-      remaining--;
-      return false;
-    });
-  }
-
-  private find(id: string): ChildAssignment | undefined {
-    return this.status.assignments.find((entry) => entry.id === id);
-  }
-
-  private active(): ChildAssignment | undefined {
-    const id = this.status.activeAssignmentId;
-    return id ? this.find(id) : undefined;
+    const ctx = this.attachedContext();
+    if (ctx && !ctx.isIdle()) ctx.abort();
+    ctx?.shutdown();
   }
 
   /** A disposed bridge no longer owns the status file (a reloaded or replacing bridge does). */
-  private flush(final = false): void {
-    if (this.stopped && !final) return;
+  private flush(): void {
+    if (this.stopped()) return;
+    this.writeStatus();
+  }
+
+  /** The one write after the bridge stops: final states at session shutdown. */
+  private flushFinal(): void {
+    this.writeStatus();
+  }
+
+  private writeStatus(): void {
     this.status.updatedAt = this.now();
     try {
       writeJsonAtomic(this.paths.status, this.status);
@@ -1042,23 +870,8 @@ export class ManagedChildBridge {
   }
 }
 
-function parseNonNegativeInt(name: string, value: string): number {
-  const trimmed = value.trim();
-  const parsed = /^\d+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
-  if (!Number.isSafeInteger(parsed))
-    throw new Error(
-      `Managed worker environment is invalid: ${name} must be a non-negative integer.`,
-    );
-  return parsed;
-}
-
-function parseFlag(name: string, value: string): boolean {
-  const trimmed = value.trim();
-  if (trimmed !== "0" && trimmed !== "1")
-    throw new Error(
-      `Managed worker environment is invalid: ${name} must be 0 or 1.`,
-    );
-  return trimmed === "1";
+function hasShutdown(messages: readonly ManagedInboxMessage[]): boolean {
+  return messages.some((message) => message.kind === "shutdown");
 }
 
 /**
@@ -1070,98 +883,15 @@ export function managedBridgeOptionsFromEnv(
   env: NodeJS.ProcessEnv,
   sendUserMessage: ManagedSendUserMessage,
 ): ManagedChildBridgeOptions | undefined {
-  const value = (key: string) => env[key]?.trim() ?? "";
-  if (MANAGED_ENV_KEYS.every((key) => !value(key))) return undefined;
-  const missing = MANAGED_ENV_KEYS.filter((key) => !value(key));
-  if (missing.length > 0)
-    throw new Error(
-      `Managed worker environment is incomplete: missing ${missing.join(", ")}. Managed workers must be launched by the parent's subagent runtime; unset the PI_MANAGED_SUBAGENT_* variables to run Pi normally.`,
-    );
-  const parentPid = parseNonNegativeInt(
-    MANAGED_PARENT_PID_ENV,
-    value(MANAGED_PARENT_PID_ENV),
-  );
+  const decoded = decodeManagedBootEnv(env);
+  if (decoded.kind === "absent") return undefined;
+  if (decoded.kind === "invalid") throw new Error(decoded.message);
   return {
-    dir: value(MANAGED_DIR_ENV),
-    bootId: value(MANAGED_BOOT_ID_ENV),
+    ...decoded.boot,
     pid: process.pid,
-    ...(parentPid > 0 ? { parentPid } : {}),
-    expectedSessionId: value(MANAGED_SESSION_ID_ENV),
     waitForActivation: true,
-    resumeFloorSeq: parseNonNegativeInt(
-      MANAGED_RESUME_FLOOR_ENV,
-      value(MANAGED_RESUME_FLOOR_ENV),
-    ),
-    controlFloorSeq: parseNonNegativeInt(
-      MANAGED_CONTROL_FLOOR_ENV,
-      value(MANAGED_CONTROL_FLOOR_ENV),
-    ),
-    freshAttempt: parseFlag(
-      MANAGED_FRESH_ATTEMPT_ENV,
-      value(MANAGED_FRESH_ATTEMPT_ENV),
-    ),
-    holdOnInitialModelError: parseFlag(
-      MANAGED_HOLD_ON_MODEL_ERROR_ENV,
-      value(MANAGED_HOLD_ON_MODEL_ERROR_ENV),
-    ),
-    limits: {
-      maxRuntimeMs: parseNonNegativeInt(
-        MANAGED_MAX_RUNTIME_ENV,
-        value(MANAGED_MAX_RUNTIME_ENV),
-      ),
-      maxInactivityMs: parseNonNegativeInt(
-        MANAGED_MAX_INACTIVITY_ENV,
-        value(MANAGED_MAX_INACTIVITY_ENV),
-      ),
-    },
     sendUserMessage,
   };
-}
-
-function registerManagedYield(pi: ExtensionAPI): void {
-  pi.registerTool({
-    name: SUBAGENT_YIELD_TOOL_NAME,
-    label: "Yield",
-    description:
-      "Return the current managed assignment's structured result. Ends this assignment only; the worker stays available for later assignments.",
-    promptSnippet: "Yield the current managed assignment's structured result",
-    promptGuidelines: [
-      "Use yield exactly once per managed assignment, as the final action for that assignment.",
-      "Set status to completed only when the assignment is complete; use blocked when external input or access is required, and failed when it could not be completed.",
-      "Put the complete concise handoff in result and include only useful artifact paths.",
-    ],
-    parameters: Type.Object({
-      status: StringEnum(["completed", "blocked", "failed"] as const, {
-        description: "Outcome of the current assignment",
-      }),
-      result: Type.String({
-        description: "Complete concise result for the parent agent",
-      }),
-      artifacts: Type.Optional(
-        Type.Array(Type.String({ maxLength: 4096 }), {
-          description: "Optional paths to useful files or artifacts",
-          maxItems: 20,
-        }),
-      ),
-    }),
-    async execute(_toolCallId, params) {
-      const details: SubagentYieldDetails = {
-        status: params.status,
-        result: params.result,
-        ...(params.artifacts ? { artifacts: params.artifacts } : {}),
-      };
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Yielded managed assignment: ${params.status}`,
-          },
-        ],
-        details,
-        terminate: true,
-      };
-    },
-  });
 }
 
 function bridgeContext(ctx: ExtensionContext): BridgeContext {
@@ -1186,7 +916,7 @@ export default function managedChildExtension(pi: ExtensionAPI): void {
     pi.sendUserMessage(text, delivery),
   );
   if (!options) return;
-  registerManagedYield(pi);
+  registerSubagentYield(pi, "managedAssignment");
   const bridge = new ManagedChildBridge({
     ...options,
     forceExit: () => process.exit(1),

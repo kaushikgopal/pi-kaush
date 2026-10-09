@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import type { ChildMessage } from "./_child-events.ts";
+import { isPlainRecord } from "./_parse.ts";
 
 export const SUBAGENT_YIELD_TOOL_NAME = "yield";
 
@@ -32,30 +34,21 @@ export function includeSubagentYieldTool(tools: readonly string[]): string[] {
   return [...new Set([...tools, SUBAGENT_YIELD_TOOL_NAME])];
 }
 
+/** Structured yield carried by a `yield` tool result; undefined for any other or malformed message. */
 export function subagentYieldFromMessage(
-  message: unknown,
+  message: ChildMessage | undefined,
 ): SubagentYieldDetails | undefined {
-  if (!message || typeof message !== "object") return undefined;
-  const candidate = message as {
-    role?: unknown;
-    toolName?: unknown;
-    details?: unknown;
-  };
   if (
-    candidate.role !== "toolResult" ||
-    candidate.toolName !== SUBAGENT_YIELD_TOOL_NAME
+    message?.role !== "toolResult" ||
+    message.toolName !== SUBAGENT_YIELD_TOOL_NAME ||
+    !isPlainRecord(message.details)
   )
     return undefined;
-  if (!candidate.details || typeof candidate.details !== "object")
-    return undefined;
 
-  const details = candidate.details as {
-    status?: unknown;
-    result?: unknown;
-    artifacts?: unknown;
-  };
+  const details = message.details;
+  const status = details.status;
   if (
-    !YIELD_STATUSES.has(details.status as SubagentYieldStatus) ||
+    !YIELD_STATUSES.has(status as SubagentYieldStatus) ||
     typeof details.result !== "string"
   ) {
     return undefined;
@@ -74,7 +67,7 @@ export function subagentYieldFromMessage(
   }
   const artifacts = details.artifacts as string[] | undefined;
   return {
-    status: details.status as SubagentYieldStatus,
+    status: status as SubagentYieldStatus,
     result: details.result,
     ...(artifacts ? { artifacts } : {}),
   };
@@ -82,7 +75,7 @@ export function subagentYieldFromMessage(
 
 export function applySubagentYield(
   target: SubagentYieldTarget,
-  message: unknown,
+  message: ChildMessage,
 ): boolean {
   const yielded = subagentYieldFromMessage(message);
   if (!yielded) return false;
@@ -95,10 +88,21 @@ export function applySubagentYield(
   return true;
 }
 
-export function registerSubagentYield(pi: ExtensionAPI): void {
-  pi.registerTool({
-    name: SUBAGENT_YIELD_TOOL_NAME,
-    label: "Yield",
+/** Who the yield ends: a one-shot delegated task or one assignment of a reusable managed worker. */
+export type SubagentYieldScope = "delegatedTask" | "managedAssignment";
+
+const YIELD_TOOL_COPY: Record<
+  SubagentYieldScope,
+  {
+    readonly description: string;
+    readonly promptSnippet: string;
+    readonly promptGuidelines: readonly string[];
+    readonly statusDescription: string;
+    readonly resultDescription: string;
+    readonly resultText: string;
+  }
+> = {
+  delegatedTask: {
     description:
       "Return the delegated task's final structured result and stop immediately. Use exactly once as the final action.",
     promptSnippet:
@@ -108,12 +112,42 @@ export function registerSubagentYield(pi: ExtensionAPI): void {
       "Set status to completed only when the requested work is complete; use blocked when external input or access is required, and failed when the work could not be completed.",
       "Put the complete concise handoff in result and include only useful artifact paths.",
     ],
+    statusDescription: "Outcome of the delegated task",
+    resultDescription: "Complete concise result returned to the parent agent",
+    resultText: "Yielded delegated task",
+  },
+  managedAssignment: {
+    description:
+      "Return the current managed assignment's structured result. Ends this assignment only; the worker stays available for later assignments.",
+    promptSnippet: "Yield the current managed assignment's structured result",
+    promptGuidelines: [
+      "Use yield exactly once per managed assignment, as the final action for that assignment.",
+      "Set status to completed only when the assignment is complete; use blocked when external input or access is required, and failed when it could not be completed.",
+      "Put the complete concise handoff in result and include only useful artifact paths.",
+    ],
+    statusDescription: "Outcome of the current assignment",
+    resultDescription: "Complete concise result for the parent agent",
+    resultText: "Yielded managed assignment",
+  },
+};
+
+export function registerSubagentYield(
+  pi: ExtensionAPI,
+  scope: SubagentYieldScope = "delegatedTask",
+): void {
+  const copy = YIELD_TOOL_COPY[scope];
+  pi.registerTool({
+    name: SUBAGENT_YIELD_TOOL_NAME,
+    label: "Yield",
+    description: copy.description,
+    promptSnippet: copy.promptSnippet,
+    promptGuidelines: [...copy.promptGuidelines],
     parameters: Type.Object({
       status: StringEnum(["completed", "blocked", "failed"] as const, {
-        description: "Outcome of the delegated task",
+        description: copy.statusDescription,
       }),
       result: Type.String({
-        description: "Complete concise result returned to the parent agent",
+        description: copy.resultDescription,
       }),
       artifacts: Type.Optional(
         Type.Array(Type.String({ maxLength: MAX_YIELD_ARTIFACT_LENGTH }), {
@@ -130,7 +164,7 @@ export function registerSubagentYield(pi: ExtensionAPI): void {
       };
       return {
         content: [
-          { type: "text", text: `Yielded delegated task: ${params.status}` },
+          { type: "text", text: `${copy.resultText}: ${params.status}` },
         ],
         details,
         terminate: true,

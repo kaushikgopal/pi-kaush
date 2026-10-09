@@ -26,6 +26,16 @@
   without crashing parallel calls.
 - Use the current `pi` executable when a long-lived parent outlives its Node
   installation; surface subprocess spawn errors instead of silent failures.
+- Record a durable intent for every managed report send, including resends,
+  so the three-send cap survives restarts.
+- Follow `/tree` navigation when reading report receipts; results reported only
+  on an abandoned branch may be reported again.
+- Log each distinct unexpected error from background report and footer timers
+  once instead of swallowing it; stale-context errors after reload stay silent.
+- Wait for sibling tasks to settle when a parallel call is aborted, and count
+  streaming children as running in parallel progress.
+- Reject malformed `tasks[]` and `chain[]` items with explicit errors.
+- Say "1 turn" instead of "1 turns" in worker inspection.
 
 ## 0.1.1
 

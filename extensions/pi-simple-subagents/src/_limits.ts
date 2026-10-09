@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { errorText, isPlainRecord } from "./_parse.ts";
 
 export const HARD_MAX_DELEGATION_DEPTH = 2;
 export const HARD_MAX_CHILDREN_PER_CALL = 5;
@@ -13,10 +14,6 @@ export interface SubagentLimitsConfig {
   maxRuntimeMs: number;
   maxInactivityMs: number;
   persistChildSessions: boolean;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function fail(message: string): never {
@@ -40,7 +37,7 @@ function boundedInteger(
 }
 
 export function parseSubagentLimits(value: unknown): SubagentLimitsConfig {
-  if (!isRecord(value)) fail("root must be an object");
+  if (!isPlainRecord(value)) fail("root must be an object");
   if (value.version !== 1) fail('"version" must be 1');
 
   const maxDepth = boundedInteger(
@@ -98,7 +95,7 @@ export function loadSubagentLimits(filePath: string): SubagentLimitsConfig {
     content = fs.readFileSync(filePath, "utf8");
   } catch (error) {
     throw new Error(
-      `Failed to read subagent limits at ${filePath}: ${error instanceof Error ? error.message : error}`,
+      `Failed to read subagent limits at ${filePath}: ${errorText(error)}`,
     );
   }
 

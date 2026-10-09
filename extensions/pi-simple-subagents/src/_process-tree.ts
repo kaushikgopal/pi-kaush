@@ -1,4 +1,4 @@
-import { spawnSync, type ChildProcess } from "node:child_process";
+import { execFile, spawnSync, type ChildProcess } from "node:child_process";
 
 export const SUBAGENT_TERMINATION_GRACE_MS = 5_000;
 const PROCESS_EXIT_POLL_MS = 50;
@@ -31,6 +31,19 @@ function isMissingProcessError(error: unknown): boolean {
       "code" in error &&
       error.code === "ESRCH",
   );
+}
+
+/**
+ * True unless signalling `pid` (a negative value names a process group) reports
+ * it missing. EPERM means it exists under another user, so it counts as alive.
+ */
+export function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !isMissingProcessError(error);
+  }
 }
 
 /** Depth-1 children lead groups; nested Pi children remain inside that direct-child subtree. */
@@ -241,23 +254,14 @@ export class SubagentProcessRegistry {
   private targetExists(entry: ProcessEntry): boolean {
     if (entry.pid === undefined) return false;
     const rootTarget = entry.isolatedProcessGroup ? -entry.pid : entry.pid;
-    if (this.targetExistsAt(rootTarget)) return true;
+    if (isPidAlive(rootTarget)) return true;
     return [...entry.descendantIdentities].some(
-      ([pid]) => this.targetExistsAt(-pid) || this.targetExistsAt(pid),
+      ([pid]) => isPidAlive(-pid) || isPidAlive(pid),
     );
   }
 
   private identityMatches(pid: number, identity: string | undefined): boolean {
     return identity !== undefined && processIdentity(pid) === identity;
-  }
-
-  private targetExistsAt(target: number): boolean {
-    try {
-      process.kill(target, 0);
-      return true;
-    } catch (error) {
-      return !isMissingProcessError(error);
-    }
   }
 
   private dispose(entry: ProcessEntry): void {
@@ -268,4 +272,61 @@ export class SubagentProcessRegistry {
     this.entries.delete(entry);
     entry.resolveDone();
   }
+}
+
+/**
+ * Whether `pid` is still the process that reported it at `aliveAt`: `match`
+ * when it is alive and started no later than that report, `other` when it
+ * started afterwards (PID reuse), `gone` when nothing runs under it,
+ * `unknown` when that cannot be checked.
+ */
+export type ProcessStartIdentity = "match" | "other" | "gone" | "unknown";
+
+/** Parses `ps -o etime` (`[[dd-]hh:]mm:ss`) into seconds. */
+export function parseElapsedSeconds(text: string): number | undefined {
+  const match = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(text.trim());
+  if (!match) return undefined;
+  const [, days, hours, minutes, seconds] = match;
+  return (
+    Number(days ?? 0) * 86_400 +
+    Number(hours ?? 0) * 3_600 +
+    Number(minutes) * 60 +
+    Number(seconds)
+  );
+}
+
+/**
+ * Pi rewrites its process title, so the command line cannot identify a
+ * worker. Its start time can: the process that reported `pid` at `aliveAt`
+ * must have started before then; a reused PID starts afterwards.
+ *
+ * This deliberately differs from the registry's `lstart` identity above,
+ * which only compares two `ps` readings for equality. Ordering against an
+ * epoch instant needs a parsed start time, and `etime` is a relative duration
+ * that parses without locale or time-zone rules.
+ */
+export async function processStartIdentity(
+  pid: number,
+  aliveAt: number,
+  now: () => number = Date.now,
+): Promise<ProcessStartIdentity> {
+  if (!isPidAlive(pid)) return "gone";
+  if (process.platform === "win32") return "unknown";
+  const elapsed = await new Promise<number | undefined>((resolve) => {
+    execFile(
+      "ps",
+      ["-o", "etime=", "-p", String(pid)],
+      {
+        encoding: "utf8",
+        timeout: 5_000,
+        env: { ...process.env, LC_ALL: "C" },
+      },
+      (error, stdout) =>
+        resolve(error ? undefined : parseElapsedSeconds(stdout)),
+    );
+  });
+  if (elapsed === undefined) return isPidAlive(pid) ? "unknown" : "gone";
+  // etime has one-second resolution.
+  const startedAt = now() - (elapsed + 1) * 1000;
+  return startedAt <= aliveAt ? "match" : "other";
 }

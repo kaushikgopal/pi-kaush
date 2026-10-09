@@ -593,4 +593,42 @@ describe("managed subagent UI", () => {
       expect.stringContaining("mw-default-history"),
     );
   });
+
+  test("a stale context clears the footer quietly; other refresh failures are logged once", async () => {
+    vi.useFakeTimers();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { runtime, list } = createRuntime([makeWorker("mw-refresh")]);
+      const extension = createExtension(() => runtime);
+      const { context, ui } = createContext();
+      const onStart = extension.lifecycle.get("session_start");
+      if (!onStart) throw new Error("session_start handler missing");
+      await onStart({ type: "session_start", reason: "startup" }, context);
+
+      list.mockImplementation(() => {
+        throw new Error(
+          "This extension ctx is stale after session replacement or reload.",
+        );
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(ui.setStatus).toHaveBeenLastCalledWith(
+        MANAGED_FOOTER_STATUS_KEY,
+        undefined,
+      );
+      expect(errors).not.toHaveBeenCalled();
+
+      list.mockImplementation(() => {
+        throw new Error("broken runtime");
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(ui.setStatus).toHaveBeenLastCalledWith(
+        MANAGED_FOOTER_STATUS_KEY,
+        undefined,
+      );
+      expect(errors).toHaveBeenCalledTimes(1);
+      expect(String(errors.mock.calls[0]?.[1])).toContain("broken runtime");
+    } finally {
+      errors.mockRestore();
+    }
+  });
 });

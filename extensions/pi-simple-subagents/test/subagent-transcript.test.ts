@@ -12,10 +12,13 @@ import { basename, dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   appendBoundedJsonValue,
-  createTranscriptArtifact,
-  resolveSessionFilePath,
   truncateUtf8Head,
   truncateUtf8Tail,
+  truncateUtf8WithMarker,
+} from "../src/_text.ts";
+import {
+  createTranscriptArtifact,
+  resolveSessionFilePath,
 } from "../src/_transcript.ts";
 
 const metadata = {
@@ -181,5 +184,15 @@ describe("child session file resolution", () => {
       rmSync(agentDir, { recursive: true, force: true });
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe("truncateUtf8WithMarker", () => {
+  test("counts the marker inside the byte budget without splitting characters", () => {
+    expect(truncateUtf8WithMarker("short", 10, "…")).toBe("short");
+    const clipped = truncateUtf8WithMarker("éééééé", 8, "[x]");
+    expect(clipped).toBe("éé[x]");
+    expect(Buffer.byteLength(clipped)).toBeLessThanOrEqual(8);
+    expect(truncateUtf8WithMarker("abcdef", 3, "[x]")).toBe("");
   });
 });

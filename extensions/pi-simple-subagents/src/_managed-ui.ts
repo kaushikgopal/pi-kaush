@@ -5,6 +5,18 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Key, Text, matchesKey, type Component } from "@earendil-works/pi-tui";
 import type { ManagedRuntime, ManagedWorkerView } from "./_managed.ts";
+import {
+  footerWorkerLabel,
+  formatWorkerInspection,
+  stateLabel,
+  workerLabel,
+} from "./_managed-format.ts";
+import { errorText, isStaleContextError } from "./_parse.ts";
+
+/**
+ * `below-footer:` statuses are a contract with pi-footer-minimal, which
+ * renders each line as its own row; Pi's native footer flattens them.
+ */
 export const MANAGED_FOOTER_STATUS_KEY = "below-footer:managed-subagents";
 const STATUS_REFRESH_MS = 1_000;
 const FOOTER_WORKER_LIMIT = 5;
@@ -29,104 +41,26 @@ export function formatManualManagedOpenHint(worker: ManagedWorkerView): string {
   ].join("\n");
 }
 
-type IsReported = (
+/** Whether a worker result was already reported or collected in the parent. */
+export type IsReported = (
   ctx: ExtensionContext,
   handle: string,
   assignmentId: string,
 ) => boolean;
 
-function latestAssignment(worker: ManagedWorkerView) {
-  return (
-    worker.recentAssignments.find(
-      (assignment) => assignment.id === worker.activeAssignmentId,
-    ) ??
-    worker.recentAssignments.find(
-      (assignment) => assignment.id === worker.lastAssignmentId,
-    ) ??
-    worker.recentAssignments[worker.recentAssignments.length - 1]
-  );
-}
-
-function stateLabel(worker: ManagedWorkerView): string {
-  const assignment = latestAssignment(worker);
-  const workerState = worker.live
-    ? (worker.childState ?? worker.lifecycle)
-    : worker.lifecycle;
-  if (!assignment) return workerState;
-  if (assignment.state === "running") return "running";
-  if (assignment.terminal) return `${assignment.state} · ${workerState}`;
-  return assignment.state;
-}
+/** Without a reporting source, every retained terminal result stays visible. */
+const NOTHING_REPORTED: IsReported = () => false;
 
 function hasUnreportedTerminalAssignment(
   ctx: ExtensionContext,
   worker: ManagedWorkerView,
-  isReported?: IsReported,
+  isReported: IsReported,
 ): boolean {
   return worker.recentAssignments.some(
     (assignment) =>
       assignment.terminal &&
-      !(
-        isReported?.(
-          ctx,
-          worker.handle,
-          assignment.mergedInto ?? assignment.id,
-        ) ?? false
-      ),
+      !isReported(ctx, worker.handle, assignment.mergedInto ?? assignment.id),
   );
-}
-
-function workerLabel(worker: ManagedWorkerView): string {
-  const emoji = worker.agent.emoji ?? "🤖";
-  const profile = worker.profile ? ` · ${worker.profile}` : "";
-  return `${emoji} ${worker.agent.name}${profile} · ${stateLabel(worker)} · ${worker.handle}`;
-}
-
-function footerWorkerLabel(worker: ManagedWorkerView): string {
-  const profile = worker.profile ? ` ${worker.profile}` : "";
-  return `${worker.agent.emoji ?? "🤖"}${profile} · ${stateLabel(worker)} · ${worker.agent.name} · ${worker.handle}`.replace(
-    /[\r\n]+/g,
-    " ",
-  );
-}
-
-function usageLabel(usage: ManagedWorkerView["usage"]): string {
-  return `in ${usage.input} · out ${usage.output} · cache ${usage.cacheRead}+${usage.cacheWrite} · context ${usage.contextTokens} · ${usage.turns} turns · $${usage.cost.toFixed(4)}`;
-}
-
-function formatInspection(worker: ManagedWorkerView): string {
-  const lines = [
-    `${worker.agent.emoji ?? "🤖"} ${worker.agent.name}${worker.profile ? ` · ${worker.profile}` : ""}`,
-    `Handle: ${worker.handle}`,
-    `State: ${stateLabel(worker)}`,
-    `Model: ${worker.model ?? "(not reported)"}`,
-    `Worker usage: ${usageLabel(worker.usage)}`,
-    `Session: ${worker.sessionId}`,
-    `Session file: ${worker.sessionFile ?? "(not available)"}`,
-    `Working directory: ${worker.cwd}`,
-    "",
-    "Latest assignments",
-  ];
-  const assignments = [...worker.recentAssignments].reverse();
-  if (assignments.length === 0) {
-    lines.push("No assignments recorded.");
-    return lines.join("\n");
-  }
-
-  for (const assignment of assignments) {
-    lines.push(
-      "",
-      `--- ${assignment.id} · ${assignment.state} ---`,
-      `Task: ${assignment.preview}`,
-      `Result: ${assignment.outcome?.result ?? "(no result recorded)"}`,
-      `Model: ${assignment.model ?? worker.model ?? "(not reported)"}`,
-      `Usage: ${usageLabel(assignment.usage)}`,
-    );
-    const artifacts = assignment.outcome?.artifacts ?? [];
-    if (artifacts.length > 0)
-      lines.push("Artifacts:", ...artifacts.map((artifact) => `- ${artifact}`));
-  }
-  return lines.join("\n");
 }
 
 function notify(
@@ -137,15 +71,11 @@ function notify(
   if (ctx.hasUI) ctx.ui.notify(message, type);
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 async function inspectWorker(
   ctx: ExtensionContext,
   worker: ManagedWorkerView,
 ): Promise<void> {
-  const content = formatInspection(worker);
+  const content = formatWorkerInspection(worker);
   if (ctx.mode !== "tui") {
     notify(ctx, content);
     return;
@@ -164,15 +94,39 @@ async function inspectWorker(
   });
 }
 
+type ActionId = "open" | "inspect" | "steer" | "followUp" | "resume" | "stop";
+
+const ACTION_LABELS: Readonly<Record<ActionId, string>> = {
+  open: "Open child",
+  inspect: "Inspect latest assignments",
+  steer: "Send / steer",
+  followUp: "Queue follow-up",
+  resume: "Resume",
+  stop: "Stop",
+};
+
+function availableActions(worker: ManagedWorkerView): readonly ActionId[] {
+  const resumable =
+    worker.lifecycle !== "running" && worker.lifecycle !== "starting";
+  return [
+    "open",
+    "inspect",
+    "steer",
+    "followUp",
+    ...(resumable ? (["resume"] as const) : []),
+    "stop",
+  ];
+}
+
 async function runAction(
   ctx: ExtensionContext,
   runtime: ManagedRuntime,
   worker: ManagedWorkerView,
-  action: string,
+  action: ActionId,
 ): Promise<void> {
   try {
     switch (action) {
-      case "Open child": {
+      case "open": {
         const current = runtime.status(worker.handle);
         if (current.hostKind === "rpc") {
           notify(ctx, formatManualManagedOpenHint(current), "warning");
@@ -184,11 +138,11 @@ async function runAction(
         notify(ctx, `Focused ${worker.handle}.`);
         return;
       }
-      case "Inspect latest assignments": {
+      case "inspect": {
         await inspectWorker(ctx, runtime.status(worker.handle));
         return;
       }
-      case "Send / steer": {
+      case "steer": {
         const message = await ctx.ui.input(
           `Send / steer · ${worker.handle}`,
           "Message to managed worker",
@@ -198,7 +152,7 @@ async function runAction(
         notify(ctx, `Sent to ${worker.handle} as ${assignment.assignmentId}.`);
         return;
       }
-      case "Queue follow-up": {
+      case "followUp": {
         const message = await ctx.ui.input(
           `Queue follow-up · ${worker.handle}`,
           "Follow-up for managed worker",
@@ -212,12 +166,12 @@ async function runAction(
         notify(ctx, `Queued ${assignment.assignmentId} for ${worker.handle}.`);
         return;
       }
-      case "Resume": {
+      case "resume": {
         const resumed = await runtime.resume(worker.handle);
         notify(ctx, `Resumed ${worker.handle} (${stateLabel(resumed)}).`);
         return;
       }
-      case "Stop": {
+      case "stop": {
         const confirmed = await ctx.ui.confirm(
           "Stop managed worker?",
           `Stop ${worker.handle}? Its session and transcripts will be retained.`,
@@ -230,23 +184,61 @@ async function runAction(
         );
         return;
       }
+      default: {
+        const unhandled: never = action;
+        return unhandled;
+      }
     }
   } catch (error) {
-    notify(ctx, errorMessage(error), "error");
+    notify(ctx, errorText(error), "error");
   }
 }
 
-function actionOptions(worker: ManagedWorkerView): string[] {
-  const actions = [
-    "Open child",
-    "Inspect latest assignments",
-    "Send / steer",
-    "Queue follow-up",
-  ];
-  if (worker.lifecycle !== "running" && worker.lifecycle !== "starting")
-    actions.push("Resume");
-  actions.push("Stop");
-  return actions;
+/** Picks one item by its unique display label; undefined when dismissed. */
+async function selectByLabel<T>(
+  ctx: ExtensionContext,
+  title: string,
+  items: readonly T[],
+  label: (item: T) => string,
+): Promise<T | undefined> {
+  const labels = items.map(label);
+  const selected = await ctx.ui.select(title, labels);
+  if (selected === undefined) return undefined;
+  return items[labels.indexOf(selected)];
+}
+
+/** Footer rows: live workers first, then unreported results, newest first. */
+function footerRows(
+  ctx: ExtensionContext,
+  workers: readonly ManagedWorkerView[],
+  isReported: IsReported,
+): string[] {
+  const liveWorkers = workers.filter((worker) => worker.live);
+  const pendingWorkers = workers
+    .filter(
+      (worker) =>
+        !worker.live &&
+        hasUnreportedTerminalAssignment(ctx, worker, isReported),
+    )
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const visibleWorkers = [...liveWorkers, ...pendingWorkers];
+  const rows = visibleWorkers
+    .slice(0, FOOTER_WORKER_LIMIT)
+    .map(footerWorkerLabel);
+  if (visibleWorkers.length > FOOTER_WORKER_LIMIT)
+    rows.push(`+${visibleWorkers.length - FOOTER_WORKER_LIMIT} more`);
+  return rows;
+}
+
+/** Logs each distinct unexpected background failure once instead of every tick. */
+function createBackgroundErrorLog(scope: string): (error: unknown) => void {
+  const logged = new Set<string>();
+  return (error) => {
+    const text = errorText(error);
+    if (logged.has(text)) return;
+    logged.add(text);
+    console.error(`[pi-simple-subagents] ${scope}:`, error);
+  };
 }
 
 export function registerManagedUi(
@@ -254,6 +246,8 @@ export function registerManagedUi(
   getRuntime: (ctx: ExtensionContext) => ManagedRuntime,
   isReported?: IsReported,
 ): void {
+  const reported = isReported ?? NOTHING_REPORTED;
+  const logRefreshError = createBackgroundErrorLog("managed footer refresh");
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
   let statusContext: ExtensionContext | undefined;
 
@@ -261,8 +255,9 @@ export function registerManagedUi(
     if (ctx?.mode !== "tui" || !ctx.hasUI) return;
     try {
       ctx.ui.setStatus(MANAGED_FOOTER_STATUS_KEY, undefined);
-    } catch {
+    } catch (error) {
       // The UI may already be torn down during reload or session replacement.
+      if (!isStaleContextError(error)) logRefreshError(error);
     }
   };
 
@@ -277,7 +272,8 @@ export function registerManagedUi(
     stopRefresh();
     let runtime: ManagedRuntime;
     try {
-      // The parent integration owns session identity and gate rebinding.
+      // The parent integration owns session identity and gate rebinding; it
+      // throws in child sessions and before its session is ready.
       runtime = getRuntime(ctx);
     } catch {
       return;
@@ -287,27 +283,11 @@ export function registerManagedUi(
     statusContext = ctx;
     const refresh = () => {
       try {
-        const workers = runtime.list();
-        const liveWorkers = workers.filter((worker) => worker.live);
-        const pendingWorkers = workers
-          .filter(
-            (worker) =>
-              !worker.live &&
-              hasUnreportedTerminalAssignment(ctx, worker, isReported),
-          )
-          .sort((a, b) => b.createdAt - a.createdAt);
-        const visibleWorkers = [...liveWorkers, ...pendingWorkers];
-        if (visibleWorkers.length === 0) {
-          clearStatus(ctx);
-          return;
-        }
-        const rows = visibleWorkers
-          .slice(0, FOOTER_WORKER_LIMIT)
-          .map(footerWorkerLabel);
-        if (visibleWorkers.length > FOOTER_WORKER_LIMIT)
-          rows.push(`+${visibleWorkers.length - FOOTER_WORKER_LIMIT} more`);
-        ctx.ui.setStatus(MANAGED_FOOTER_STATUS_KEY, rows.join("\n"));
-      } catch {
+        const rows = footerRows(ctx, runtime.list(), reported);
+        if (rows.length === 0) clearStatus(ctx);
+        else ctx.ui.setStatus(MANAGED_FOOTER_STATUS_KEY, rows.join("\n"));
+      } catch (error) {
+        if (!isStaleContextError(error)) logRefreshError(error);
         clearStatus(ctx);
       }
     };
@@ -333,25 +313,23 @@ export function registerManagedUi(
           return;
         }
 
-        const labels = workers.map(workerLabel);
-        const selectedWorker = await ctx.ui.select(
+        const worker = await selectByLabel(
+          ctx,
           "Managed subagents · choose a worker",
-          labels,
-        );
-        if (!selectedWorker) return;
-        const worker = workers.find(
-          (candidate) => workerLabel(candidate) === selectedWorker,
+          workers,
+          workerLabel,
         );
         if (!worker) return;
 
-        const selectedAction = await ctx.ui.select(
+        const action = await selectByLabel(
+          ctx,
           workerLabel(worker),
-          actionOptions(worker),
+          availableActions(worker),
+          (id) => ACTION_LABELS[id],
         );
-        if (selectedAction)
-          await runAction(ctx, runtime, worker, selectedAction);
+        if (action) await runAction(ctx, runtime, worker, action);
       } catch (error) {
-        notify(ctx, errorMessage(error), "error");
+        notify(ctx, errorText(error), "error");
       }
     },
   });

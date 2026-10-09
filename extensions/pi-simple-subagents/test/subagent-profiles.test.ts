@@ -5,8 +5,10 @@ import { describe, expect, test } from "vitest";
 import {
   formatProfileCandidate,
   formatProfileGuidance,
-  loadSubagentProfiles,
-  parseSubagentProfiles,
+  loadModelProfiles,
+  parseModelProfiles,
+} from "@pi-kaush/pi-model-profiles";
+import {
   formatProfileAttemptSummaries,
   formatProfileEligibilityError,
   loadSubagentProfilesCurrent,
@@ -47,7 +49,7 @@ describe("subagent profiles", () => {
     const dir = mkdtempSync(join(tmpdir(), "subagent-profiles-order-"));
     try {
       writeFileSync(join(dir, "profiles.yaml"), FIXTURE_YAML, "utf8");
-      const config = loadSubagentProfiles(join(dir, "profiles.yaml"));
+      const config = loadModelProfiles(join(dir, "profiles.yaml"));
 
       expect(Object.keys(config.profiles)).toEqual([
         "quick",
@@ -88,7 +90,7 @@ describe("subagent profiles", () => {
     try {
       writeFileSync(join(dir, "profiles.yaml"), FIXTURE_YAML, "utf8");
       guidance = formatProfileGuidance(
-        loadSubagentProfiles(join(dir, "profiles.yaml")),
+        loadModelProfiles(join(dir, "profiles.yaml")),
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -104,7 +106,7 @@ describe("subagent profiles", () => {
 
   test("rejects malformed or duplicate profile candidates", () => {
     expect(() =>
-      parseSubagentProfiles({
+      parseModelProfiles({
         version: 1,
         profiles: {
           "Bad Name": {
@@ -116,7 +118,7 @@ describe("subagent profiles", () => {
     ).toThrow("lowercase kebab-case");
 
     expect(() =>
-      parseSubagentProfiles({
+      parseModelProfiles({
         version: 1,
         profiles: {
           standard: {

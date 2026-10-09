@@ -10,1150 +10,100 @@
  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ...", profile?: "name", model?: "provider/model" }, ...] }
  *
  * Uses JSON mode to capture structured output from subagents.
+ *
+ * This module wires the pieces together: `_subagent-command.ts` parses the
+ * call, `_bounded-runner.ts` runs bounded children, `_managed.ts` owns
+ * persistent workers, `_session-resources.ts` scopes both to a session, and
+ * `_render.ts` draws the call and result.
  */
 
-import { spawn } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
   CONFIG_DIR_NAME,
   type AgentToolResult,
-  type ExtensionContext,
+  type AgentToolUpdateCallback,
   type ExtensionAPI,
+  type ExtensionContext,
   getAgentDir,
-  getMarkdownTheme,
-  withFileMutationQueue,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
-  buildChildSessionName,
-  buildDelegatedSystemPrompt,
-  buildSubagentEnvironment,
-  buildSharedTaskPrompt,
-  createDelegationTrace,
-  currentDelegationDepth,
-  createModelResolver,
-  type DelegationTrace,
-  hasDelegatedToolActivity,
-  resolveRequestedModel,
-  sessionIdFromJsonEvent,
-} from "./_delegation.ts";
+  formatProfileGuidance,
+  loadModelProfiles,
+  type ModelProfilesConfig,
+  resolveProfilesPath,
+} from "@pi-kaush/pi-model-profiles";
+import {
+  runBoundedPlan,
+  type SingleResult,
+  toPersistedResult,
+} from "./_bounded-runner.ts";
 import {
   type AgentConfig,
+  type AgentDiscoveryResult,
   type AgentScope,
   discoverAgents,
   formatAgentList,
   shouldConfirmProjectAgent,
 } from "./_definition.ts";
 import {
-  type AgentIdentity,
-  formatAgentDisplayName,
-  formatProfileDisplayName,
-  resolveAgentDisplayName,
-} from "./_display.ts";
-import {
-  buildSubagentIsolationArgs,
-  createSubagentExecutionWatchdog,
-  formatDuration,
-  formatSubagentTimeoutMessage,
-  getPiInvocation,
-  type SubagentIsolationOptions,
-  type SubagentTimeoutReason,
-} from "./_execution.ts";
-import {
-  SessionConcurrencyGate,
-  type SubagentConcurrencyStatus,
-} from "./_concurrency.ts";
+  createDelegationTrace,
+  createModelResolver,
+  currentDelegationDepth,
+  type DelegationTrace,
+} from "./_delegation.ts";
+import { formatAgentDisplayName } from "./_display.ts";
+import { formatDuration } from "./_execution.ts";
 import { loadSubagentLimits, type SubagentLimitsConfig } from "./_limits.ts";
-import {
-  SubagentProcessRegistry,
-  shouldIsolateSubagentProcess,
-} from "./_process-tree.ts";
-import {
-  formatProfileAttemptSummaries,
-  formatProfileCandidate,
-  formatProfileEligibilityError,
-  formatProfileGuidance,
-  loadSubagentProfiles,
-  loadSubagentProfilesCurrent,
-  resolveProfilesPath,
-  type SubagentProfilesCache,
-  type SubagentProfilesConfig,
-} from "./_profiles.ts";
-import {
-  appendBoundedJsonValue,
-  createTranscriptArtifact,
-  resolveSessionFilePath,
-  SUBAGENT_OUTPUT_PREVIEW_BYTES,
-  SUBAGENT_STDERR_PREVIEW_BYTES,
-  SUBAGENT_TRACE_PREVIEW_BYTES,
-  truncateUtf8Head,
-  truncateUtf8Tail,
-} from "./_transcript.ts";
-import {
-  applySubagentYield,
-  includeSubagentYieldTool,
-  registerSubagentYield,
-  SUBAGENT_YIELD_TOOL_NAME,
-  type SubagentYieldStatus,
-} from "./_yield.ts";
 import {
   getManagedRuntime,
   isManagedChildProcess,
   ManagedError,
-  type ManagedAssignmentView,
   type ManagedRuntime,
   type ManagedRuntimeOptions,
-  type ManagedWorkerView,
 } from "./_managed.ts";
-import { registerManagedNotifications } from "./_managed-notifications.ts";
+import {
+  type ManagedNotifications,
+  registerManagedNotifications,
+} from "./_managed-notifications.ts";
+import {
+  boundManagedToolOutput,
+  formatManagedWorkerSummary,
+  type ManagedLaunchPreparation,
+  prepareManagedLaunch,
+  truncateManagedText,
+} from "./_managed-tool.ts";
 import {
   formatManualManagedOpenHint,
   registerManagedUi,
 } from "./_managed-ui.ts";
+import { errorText } from "./_parse.ts";
+import { SubagentProcessRegistry } from "./_process-tree.ts";
 import {
-  boundManagedToolOutput,
-  formatManagedWorkerSummary,
-  prepareManagedLaunch,
-  truncateManagedText,
-  validateManagedAction,
-  type ManagedIsolationOptions,
-  type ManagedLaunchRequest,
-} from "./_managed-tool.ts";
-
-const SUBAGENT_EXTENSION_ENTRYPOINT = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "index.ts",
-);
-
-const COLLAPSED_ITEM_COUNT = 10;
-const COLLAPSED_OUTPUT_PREVIEW_BYTES = 4 * 1024;
-const PER_TASK_OUTPUT_CAP = 50 * 1024;
-
-function formatTokens(count: number): string {
-  if (count < 1000) return count.toString();
-  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1000000) return `${Math.round(count / 1000)}k`;
-  return `${(count / 1000000).toFixed(1)}M`;
-}
-
-function formatUsageStats(
-  usage: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    cost: number;
-    contextTokens?: number;
-    turns?: number;
-  },
-  model?: string,
-): string {
-  const parts: string[] = [];
-  if (usage.turns)
-    parts.push(`${usage.turns} turn${usage.turns > 1 ? "s" : ""}`);
-  if (usage.input) parts.push(`↑${formatTokens(usage.input)}`);
-  if (usage.output) parts.push(`↓${formatTokens(usage.output)}`);
-  if (usage.cacheRead) parts.push(`R${formatTokens(usage.cacheRead)}`);
-  if (usage.cacheWrite) parts.push(`W${formatTokens(usage.cacheWrite)}`);
-  if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
-  if (usage.contextTokens && usage.contextTokens > 0) {
-    parts.push(`ctx:${formatTokens(usage.contextTokens)}`);
-  }
-  if (model) parts.push(model);
-  return parts.join(" ");
-}
-
-function formatToolCall(
-  toolName: string,
-  args: Record<string, unknown>,
-  themeFg: (color: any, text: string) => string,
-): string {
-  const shortenPath = (p: string) => {
-    const home = os.homedir();
-    return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
-  };
-
-  switch (toolName) {
-    case "bash": {
-      const command = (args.command as string) || "...";
-      const preview =
-        command.length > 60 ? `${command.slice(0, 60)}...` : command;
-      return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
-    }
-    case "read": {
-      const rawPath = (args.file_path || args.path || "...") as string;
-      const filePath = shortenPath(rawPath);
-      const offset = args.offset as number | undefined;
-      const limit = args.limit as number | undefined;
-      let text = themeFg("accent", filePath);
-      if (offset !== undefined || limit !== undefined) {
-        const startLine = offset ?? 1;
-        const endLine = limit !== undefined ? startLine + limit - 1 : "";
-        text += themeFg(
-          "warning",
-          `:${startLine}${endLine ? `-${endLine}` : ""}`,
-        );
-      }
-      return themeFg("muted", "read ") + text;
-    }
-    case "write": {
-      const rawPath = (args.file_path || args.path || "...") as string;
-      const filePath = shortenPath(rawPath);
-      const content = (args.content || "") as string;
-      const lines = content.split("\n").length;
-      let text = themeFg("muted", "write ") + themeFg("accent", filePath);
-      if (lines > 1) text += themeFg("dim", ` (${lines} lines)`);
-      return text;
-    }
-    case "edit": {
-      const rawPath = (args.file_path || args.path || "...") as string;
-      return (
-        themeFg("muted", "edit ") + themeFg("accent", shortenPath(rawPath))
-      );
-    }
-    case "ls": {
-      const rawPath = (args.path || ".") as string;
-      return themeFg("muted", "ls ") + themeFg("accent", shortenPath(rawPath));
-    }
-    case "find": {
-      const pattern = (args.pattern || "*") as string;
-      const rawPath = (args.path || ".") as string;
-      return (
-        themeFg("muted", "find ") +
-        themeFg("accent", pattern) +
-        themeFg("dim", ` in ${shortenPath(rawPath)}`)
-      );
-    }
-    case "grep": {
-      const pattern = (args.pattern || "") as string;
-      const rawPath = (args.path || ".") as string;
-      return (
-        themeFg("muted", "grep ") +
-        themeFg("accent", `/${pattern}/`) +
-        themeFg("dim", ` in ${shortenPath(rawPath)}`)
-      );
-    }
-    default: {
-      const argsStr = JSON.stringify(args);
-      const preview =
-        argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
-      return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
-    }
-  }
-}
-
-interface UsageStats {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: number;
-  contextTokens: number;
-  turns: number;
-}
-
-function createEmptyUsage(): UsageStats {
-  return {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    cost: 0,
-    contextTokens: 0,
-    turns: 0,
-  };
-}
-
-interface ModelAttempt {
-  requestedModel?: string;
-  model?: string;
-  exitCode: number;
-  stopReason?: string;
-  errorMessage?: string;
-  errorTruncated?: boolean;
-  transcriptPath?: string;
-  transcriptError?: string;
-}
-
-interface SingleResult {
-  agent: string;
-  agentEmoji?: string;
-  agentSource: "user" | "project" | "unknown";
-  task: string;
-  exitCode: number;
-  messages: Message[];
-  output: string;
-  stderr: string;
-  stderrTruncated?: boolean;
-  outputTruncated?: boolean;
-  traceTruncated?: boolean;
-  transcriptPath?: string;
-  transcriptError?: string;
-  hadDelegatedToolActivity?: boolean;
-  usage: UsageStats;
-  requestedModel?: string;
-  model?: string;
-  sessionId?: string;
-  sessionFilePath?: string;
-  stopReason?: string;
-  errorMessage?: string;
-  errorTruncated?: boolean;
-  yieldStatus?: SubagentYieldStatus;
-  yieldArtifacts?: string[];
-  step?: number;
-  profile?: string;
-  attempts?: ModelAttempt[];
-  spawnBlocked?: boolean;
-  executionTimedOut?: boolean;
-}
-interface SubagentDetails {
-  mode: "single" | "parallel" | "chain";
-  agentScope: AgentScope;
-  projectAgentsDir: string | null;
-  trace: DelegationTrace;
-  concurrency: SubagentConcurrencyStatus;
-  results: SingleResult[];
-  managedSpawn?: {
-    readonly started: number;
-    readonly failed: number;
-    readonly manualOpen?: boolean;
-  };
-}
-
-interface SubagentRunOptions {
-  readonly isolation?: SubagentIsolationOptions;
-  readonly tools?: readonly string[];
-}
-
-export interface SubagentRegistrationOptions {
-  readonly managedRuntimeFactory?: (
-    options: ManagedRuntimeOptions,
-  ) => ManagedRuntime;
-  readonly processRegistryFactory?: () => SubagentProcessRegistry;
-}
-
-interface AgentDisplayCache {
-  cwd: string;
-  scope: AgentScope;
-  agents: AgentIdentity[];
-}
-
-interface SubagentRenderState {
-  agentDisplayCache?: AgentDisplayCache;
-}
-
-function getRenderAgents(
-  cwd: string,
-  scope: AgentScope,
-  state: SubagentRenderState,
-): readonly AgentIdentity[] {
-  const cached = state.agentDisplayCache;
-  if (cached?.cwd === cwd && cached.scope === scope) return cached.agents;
-
-  let agents: AgentIdentity[];
-  try {
-    agents = discoverAgents(cwd, scope).agents.map(({ name, emoji }) => ({
-      name,
-      ...(emoji ? { emoji } : {}),
-    }));
-  } catch {
-    // A metadata lookup must never break rendering; execution will surface discovery errors.
-    agents = [];
-  }
-  state.agentDisplayCache = { cwd, scope, agents };
-  return agents;
-}
-
-function formatResultAgentName(result: SingleResult): string {
-  return formatAgentDisplayName({
-    name: result.agent,
-    ...(result.agentEmoji ? { emoji: result.agentEmoji } : {}),
-  });
-}
-
-function formatProfileBadge(
-  profile: string | undefined,
-  theme: { fg(color: any, text: string): string },
-): string {
-  const label = formatProfileDisplayName(profile);
-  return label ? ` ${theme.fg("muted", label)}` : "";
-}
-
-function formatTraceSuffix(
-  result: SingleResult,
-  trace: DelegationTrace,
-): string {
-  const parts = [`depth ${trace.depth}`];
-  if (result.sessionId) parts.unshift(`session ${result.sessionId}`);
-  return ` · ${parts.join(" · ")}`;
-}
-
-function isFailedResult(result: SingleResult): boolean {
-  return (
-    result.exitCode !== 0 ||
-    result.stopReason === "error" ||
-    result.stopReason === "aborted" ||
-    result.yieldStatus === "blocked" ||
-    result.yieldStatus === "failed"
-  );
-}
-
-function getResultOutput(result: SingleResult): string {
-  if (isFailedResult(result)) {
-    return (
-      result.errorMessage || result.stderr || result.output || "(no output)"
-    );
-  }
-  return result.output || "(no output)";
-}
-
-function formatTranscriptPath(filePath: string): string {
-  const home = os.homedir();
-  return filePath.startsWith(`${home}${path.sep}`)
-    ? `~${filePath.slice(home.length)}`
-    : filePath;
-}
-
-function formatYieldArtifacts(result: SingleResult): string {
-  if (!result.yieldArtifacts || result.yieldArtifacts.length === 0) return "";
-  return `\n\nArtifacts:\n${result.yieldArtifacts.map((artifact) => `- ${formatTranscriptPath(artifact)}`).join("\n")}`;
-}
-
-function formatTranscriptReference(result: SingleResult): string {
-  const paths = new Set<string>();
-  const errors = new Set<string>();
-  if (result.transcriptPath) paths.add(result.transcriptPath);
-  if (result.transcriptError) errors.add(result.transcriptError);
-  for (const attempt of result.attempts ?? []) {
-    if (attempt.transcriptPath) paths.add(attempt.transcriptPath);
-    if (attempt.transcriptError) errors.add(attempt.transcriptError);
-  }
-  const lines: string[] = [];
-  if (paths.size > 0) {
-    const label = paths.size === 1 ? "Full transcript" : "Full transcripts";
-    lines.push(`${label}: ${[...paths].map(formatTranscriptPath).join(", ")}`);
-  }
-  if (errors.size > 0) {
-    const label =
-      paths.size > 0 ? "Transcript write error" : "Transcript unavailable";
-    lines.push(`${label}: ${[...errors].join("; ")}`);
-  }
-  return lines.length > 0 ? `\n\n${lines.join("\n")}` : "";
-}
-
-function toPersistedResult(result: SingleResult): SingleResult {
-  const output = truncateUtf8Head(result.output, SUBAGENT_OUTPUT_PREVIEW_BYTES);
-  const stderr = truncateUtf8Tail(result.stderr, SUBAGENT_STDERR_PREVIEW_BYTES);
-  const error = result.errorMessage
-    ? truncateUtf8Head(result.errorMessage, SUBAGENT_OUTPUT_PREVIEW_BYTES)
-    : undefined;
-  const attempts = result.attempts?.map((attempt) => {
-    const attemptError = attempt.errorMessage
-      ? truncateUtf8Head(attempt.errorMessage, SUBAGENT_OUTPUT_PREVIEW_BYTES)
-      : undefined;
-    const errorTruncated =
-      attempt.errorTruncated || attemptError?.truncated || undefined;
-    return {
-      ...attempt,
-      ...(attemptError ? { errorMessage: attemptError.value } : {}),
-      ...(errorTruncated !== undefined ? { errorTruncated } : {}),
-    };
-  });
-  const outputTruncated =
-    result.outputTruncated || output.truncated || undefined;
-  const stderrTruncated =
-    result.stderrTruncated || stderr.truncated || undefined;
-  const errorTruncated = result.errorTruncated || error?.truncated || undefined;
-  return {
-    ...result,
-    output: output.value,
-    ...(outputTruncated !== undefined ? { outputTruncated } : {}),
-    stderr: stderr.value,
-    ...(stderrTruncated !== undefined ? { stderrTruncated } : {}),
-    ...(error ? { errorMessage: error.value } : {}),
-    ...(errorTruncated !== undefined ? { errorTruncated } : {}),
-    ...(attempts ? { attempts } : {}),
-  };
-}
-
-function truncateParallelOutput(
-  output: string,
-  transcriptPath?: string,
-): string {
-  const byteLength = Buffer.byteLength(output, "utf8");
-  if (byteLength <= PER_TASK_OUTPUT_CAP) return output;
-
-  const truncated = truncateUtf8Head(output, PER_TASK_OUTPUT_CAP).value;
-  const artifact = transcriptPath
-    ? ` Full output is available in: ${formatTranscriptPath(transcriptPath)}`
-    : "";
-  return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted.${artifact}]`;
-}
-
-type DisplayItem =
-  | { type: "text"; text: string }
-  | { type: "toolCall"; name: string; args: Record<string, any> };
-
-function getDisplayItems(messages: Message[]): DisplayItem[] {
-  const items: DisplayItem[] = [];
-  for (const msg of messages) {
-    if (msg.role === "assistant") {
-      for (const part of msg.content) {
-        if (part.type === "text") items.push({ type: "text", text: part.text });
-        else if (
-          part.type === "toolCall" &&
-          part.name !== SUBAGENT_YIELD_TOOL_NAME
-        ) {
-          items.push({
-            type: "toolCall",
-            name: part.name,
-            args: part.arguments,
-          });
-        }
-      }
-    }
-  }
-  return items;
-}
-
-function getCollapsedOutput(output: string): string {
-  const head = truncateUtf8Head(output, COLLAPSED_OUTPUT_PREVIEW_BYTES);
-  const lines = head.value.split("\n");
-  const preview = lines.slice(0, 3).join("\n");
-  return head.truncated || lines.length > 3 ? `${preview}\n…` : preview;
-}
-
-async function mapWithConcurrencyLimit<TIn, TOut>(
-  items: TIn[],
-  concurrency: number,
-  fn: (item: TIn, index: number) => Promise<TOut>,
-): Promise<TOut[]> {
-  if (items.length === 0) return [];
-  const limit = Math.max(1, Math.min(concurrency, items.length));
-  const results: TOut[] = new Array(items.length);
-  let nextIndex = 0;
-  const workers = new Array(limit).fill(null).map(async () => {
-    while (true) {
-      const current = nextIndex++;
-      if (current >= items.length) return;
-      results[current] = await fn(items[current]!, current);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
-async function writePromptToTempFile(
-  agentName: string,
-  prompt: string,
-): Promise<{ dir: string; filePath: string }> {
-  const tmpDir = await fs.promises.mkdtemp(
-    path.join(os.tmpdir(), "pi-subagent-"),
-  );
-  const safeName = agentName.replace(/[^\w.-]+/g, "_");
-  const filePath = path.join(tmpDir, `prompt-${safeName}.md`);
-  await withFileMutationQueue(filePath, async () => {
-    await fs.promises.writeFile(filePath, prompt, {
-      encoding: "utf-8",
-      mode: 0o600,
-    });
-  });
-  return { dir: tmpDir, filePath };
-}
-
-type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
-
-async function runSingleAgent(
-  defaultCwd: string,
-  agents: AgentConfig[],
-  agentName: string,
-  task: string,
-  invocationModel: string | undefined,
-  profile: string | undefined,
-  cwd: string | undefined,
-  step: number | undefined,
-  trace: DelegationTrace,
-  limits: SubagentLimitsConfig,
-  concurrency: SessionConcurrencyGate,
-  activeProcesses: SubagentProcessRegistry,
-  signal: AbortSignal | undefined,
-  onUpdate: OnUpdateCallback | undefined,
-  makeDetails: (results: SingleResult[]) => SubagentDetails,
-  resolveModel?: (spec: string) => string | undefined,
-  options: SubagentRunOptions = {},
-): Promise<SingleResult> {
-  const agent = agents.find((a) => a.name === agentName);
-
-  if (!agent) {
-    const available = agents.map((a) => `"${a.name}"`).join(", ") || "none";
-    return {
-      agent: agentName,
-      agentSource: "unknown",
-      task,
-      exitCode: 1,
-      messages: [],
-      output: "",
-      stderr: `Unknown agent: "${agentName}". Available agents: ${available}.`,
-      usage: createEmptyUsage(),
-      ...(step !== undefined ? { step } : {}),
-      ...(profile !== undefined ? { profile } : {}),
-    };
-  }
-
-  const requestedModelSpec = invocationModel?.trim() || agent.model?.trim();
-  const requestedModel = resolveRequestedModel(
-    invocationModel,
-    agent.model,
-    resolveModel,
-  );
-  if (requestedModelSpec && !requestedModel) {
-    return {
-      agent: agentName,
-      agentSource: agent.source,
-      task,
-      exitCode: 1,
-      messages: [],
-      output: "",
-      stderr: `Model "${requestedModelSpec}" is not available in Pi's model catalog or its provider has no authentication.`,
-      usage: createEmptyUsage(),
-      ...(agent.emoji ? { agentEmoji: agent.emoji } : {}),
-      ...(step !== undefined ? { step } : {}),
-      ...(profile !== undefined ? { profile } : {}),
-    };
-  }
-  const args: string[] = ["--mode", "json", "-p"];
-  if (limits.persistChildSessions) {
-    args.push(
-      "--name",
-      buildChildSessionName(formatAgentDisplayName(agent), task),
-    );
-  } else {
-    args.push("--no-session");
-  }
-  args.push(
-    ...buildSubagentIsolationArgs(
-      options.isolation,
-      SUBAGENT_EXTENSION_ENTRYPOINT,
-    ),
-  );
-  if (requestedModel) args.push("--model", requestedModel);
-  const tools = options.tools ?? agent.tools;
-  if (tools && tools.length > 0) {
-    args.push("--tools", includeSubagentYieldTool([...tools]).join(","));
-  }
-  if (trace.depth >= limits.maxDepth) args.push("--exclude-tools", "subagent");
-
-  let tmpPromptDir: string | null = null;
-  let tmpPromptPath: string | null = null;
-  let transcript: ReturnType<typeof createTranscriptArtifact> | undefined;
-  let releaseConcurrency: (() => void) | undefined;
-
-  const currentResult: SingleResult = {
-    agent: agentName,
-    agentSource: agent.source,
-    task,
-    exitCode: 0,
-    messages: [],
-    output: "",
-    stderr: "",
-    usage: createEmptyUsage(),
-    ...(agent.emoji ? { agentEmoji: agent.emoji } : {}),
-    ...(requestedModel !== undefined ? { requestedModel } : {}),
-    ...(step !== undefined ? { step } : {}),
-    ...(profile !== undefined ? { profile } : {}),
-  };
-
-  const emitUpdate = () => {
-    if (onUpdate) {
-      onUpdate({
-        content: [
-          { type: "text", text: currentResult.output || "(running...)" },
-        ],
-        details: makeDetails([currentResult]),
-      });
-    }
-  };
-
-  try {
-    if (activeProcesses.isShuttingDown) {
-      const message =
-        "Subagent did not start because the session is shutting down.";
-      currentResult.exitCode = 1;
-      currentResult.stopReason = "error";
-      currentResult.errorMessage = message;
-      currentResult.stderr = message;
-      currentResult.spawnBlocked = true;
-      return currentResult;
-    }
-    try {
-      releaseConcurrency = await concurrency.acquire(signal);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      currentResult.exitCode = 1;
-      currentResult.stopReason = "error";
-      currentResult.errorMessage = message;
-      currentResult.stderr = message;
-      currentResult.spawnBlocked = true;
-      return currentResult;
-    }
-    if (activeProcesses.isShuttingDown) {
-      const message =
-        "Subagent did not start because the session is shutting down.";
-      currentResult.exitCode = 1;
-      currentResult.stopReason = "error";
-      currentResult.errorMessage = message;
-      currentResult.stderr = message;
-      currentResult.spawnBlocked = true;
-      return currentResult;
-    }
-
-    const delegatedPrompt = buildDelegatedSystemPrompt(
-      agent.systemPrompt,
-      trace,
-      limits,
-    );
-    const tmp = await writePromptToTempFile(agent.name, delegatedPrompt);
-    tmpPromptDir = tmp.dir;
-    tmpPromptPath = tmp.filePath;
-    args.push("--append-system-prompt", tmpPromptPath);
-
-    args.push(`Task: ${task}`);
-    transcript = createTranscriptArtifact(getAgentDir(), {
-      rootSessionId: trace.rootSessionId,
-      parentSessionId: trace.parentSessionId,
-      parentToolCallId: trace.parentToolCallId,
-      depth: trace.depth,
-      agent: agentName,
-      task,
-    });
-    if (transcript.path) currentResult.transcriptPath = transcript.path;
-    if (transcript.error) currentResult.transcriptError = transcript.error;
-    let terminationReason:
-      | "abort"
-      | "shutdown"
-      | SubagentTimeoutReason
-      | undefined;
-
-    const exitCode = await new Promise<number>((resolve) => {
-      const invocation = getPiInvocation(args);
-      const isolatedProcessGroup = shouldIsolateSubagentProcess(trace.depth);
-      const proc = spawn(invocation.command, invocation.args, {
-        cwd: cwd ?? defaultCwd,
-        env: buildSubagentEnvironment(trace),
-        detached: isolatedProcessGroup,
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      const activeProcess = activeProcesses.register(
-        proc,
-        isolatedProcessGroup,
-      );
-      let buffer = "";
-      let settled = false;
-      let abortListener: (() => void) | undefined;
-
-      let watchdog:
-        | ReturnType<typeof createSubagentExecutionWatchdog>
-        | undefined;
-      const finish = (code: number): void => {
-        if (settled) return;
-        settled = true;
-        watchdog?.stop();
-        if (signal && abortListener)
-          signal.removeEventListener("abort", abortListener);
-        const artifactExitCode = terminationReason ? 1 : code;
-        const closeTranscript = transcript
-          ? transcript.close(artifactExitCode)
-          : Promise.resolve();
-        void closeTranscript.then(() => {
-          if (transcript?.error)
-            currentResult.transcriptError = transcript.error;
-          resolve(code);
-        });
-      };
-      const requestTermination = (
-        reason: "abort" | SubagentTimeoutReason,
-      ): void => {
-        if (terminationReason || settled) return;
-        terminationReason = reason;
-        watchdog?.stop();
-        activeProcess.terminate();
-      };
-      watchdog = createSubagentExecutionWatchdog(limits, (reason) =>
-        requestTermination(reason),
-      );
-
-      const processLine = (line: string) => {
-        if (!line.trim()) return;
-        let event: any;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          return;
-        }
-
-        const sessionId = sessionIdFromJsonEvent(event);
-        if (sessionId) {
-          currentResult.sessionId = sessionId;
-          emitUpdate();
-          return;
-        }
-
-        if (event.type === "message_end" && event.message) {
-          const msg = event.message as Message;
-          currentResult.hadDelegatedToolActivity ||= hasDelegatedToolActivity([
-            msg,
-          ]);
-          if (
-            appendBoundedJsonValue(
-              currentResult.messages,
-              msg,
-              SUBAGENT_TRACE_PREVIEW_BYTES,
-            )
-          )
-            currentResult.traceTruncated = true;
-          applySubagentYield(currentResult, msg);
-          if (msg.role === "assistant") {
-            const output = msg.content.find((part) => part.type === "text");
-            if (output?.type === "text") currentResult.output = output.text;
-            currentResult.usage.turns++;
-            const usage = msg.usage;
-            if (usage) {
-              currentResult.usage.input += usage.input || 0;
-              currentResult.usage.output += usage.output || 0;
-              currentResult.usage.cacheRead += usage.cacheRead || 0;
-              currentResult.usage.cacheWrite += usage.cacheWrite || 0;
-              currentResult.usage.cost += usage.cost?.total || 0;
-              currentResult.usage.contextTokens = usage.totalTokens || 0;
-            }
-            if (msg.model)
-              currentResult.model = msg.provider
-                ? `${msg.provider}/${msg.model}`
-                : msg.model;
-            if (msg.stopReason) currentResult.stopReason = msg.stopReason;
-            if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
-          }
-          emitUpdate();
-        }
-
-        if (event.type === "tool_result_end" && event.message) {
-          const msg = event.message as Message;
-          currentResult.hadDelegatedToolActivity = true;
-          if (
-            appendBoundedJsonValue(
-              currentResult.messages,
-              msg,
-              SUBAGENT_TRACE_PREVIEW_BYTES,
-            )
-          )
-            currentResult.traceTruncated = true;
-          applySubagentYield(currentResult, msg);
-          emitUpdate();
-        }
-      };
-
-      proc.stdout.on("data", (data) => {
-        watchdog?.recordActivity();
-        const chunk = data.toString();
-        if (transcript && !transcript.append("stdout", chunk)) {
-          proc.stdout.pause();
-          transcript.resumeWhenWritable(() => proc.stdout.resume());
-        }
-        buffer += chunk;
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) processLine(line);
-      });
-
-      proc.stderr.on("data", (data) => {
-        watchdog?.recordActivity();
-        const chunk = data.toString();
-        if (transcript && !transcript.append("stderr", chunk)) {
-          proc.stderr.pause();
-          transcript.resumeWhenWritable(() => proc.stderr.resume());
-        }
-        const stderr = truncateUtf8Tail(
-          currentResult.stderr + chunk,
-          SUBAGENT_STDERR_PREVIEW_BYTES,
-        );
-        currentResult.stderr = stderr.value;
-        currentResult.stderrTruncated ||= stderr.truncated;
-      });
-
-      proc.on("exit", () => activeProcess.complete());
-
-      proc.on("close", (code) => {
-        if (buffer.trim()) processLine(buffer);
-        if (!terminationReason && activeProcess.shutdownRequested)
-          terminationReason = "shutdown";
-        activeProcess.complete();
-        finish(code ?? 0);
-      });
-
-      proc.on("error", (error) => {
-        currentResult.errorMessage = `Could not start subagent (${invocation.command}): ${error.message}`;
-        currentResult.stderr = currentResult.errorMessage;
-        activeProcess.complete();
-        finish(1);
-      });
-
-      if (signal) {
-        abortListener = () => requestTermination("abort");
-        if (signal.aborted) abortListener();
-        else signal.addEventListener("abort", abortListener, { once: true });
-      }
-    });
-
-    currentResult.exitCode = exitCode;
-    if (limits.persistChildSessions && currentResult.sessionId) {
-      const sessionFilePath = resolveSessionFilePath(
-        getAgentDir(),
-        cwd ?? defaultCwd,
-        currentResult.sessionId,
-      );
-      if (sessionFilePath) currentResult.sessionFilePath = sessionFilePath;
-    }
-    if (terminationReason === "abort") throw new Error("Subagent was aborted");
-    if (terminationReason === "shutdown")
-      throw new Error("Subagent stopped because the session is shutting down");
-    if (terminationReason) {
-      const message = formatSubagentTimeoutMessage(terminationReason, limits);
-      currentResult.exitCode = 1;
-      currentResult.stopReason = "error";
-      currentResult.errorMessage = message;
-      currentResult.executionTimedOut = true;
-    }
-    return currentResult;
-  } finally {
-    releaseConcurrency?.();
-    if (transcript) await transcript.close(currentResult.exitCode);
-    if (tmpPromptPath)
-      try {
-        fs.unlinkSync(tmpPromptPath);
-      } catch {
-        /* ignore */
-      }
-    if (tmpPromptDir)
-      try {
-        fs.rmdirSync(tmpPromptDir);
-      } catch {
-        /* ignore */
-      }
-  }
-}
-
-function summarizeModelAttempt(result: SingleResult): ModelAttempt {
-  return {
-    exitCode: result.exitCode,
-    ...(result.requestedModel !== undefined
-      ? { requestedModel: result.requestedModel }
-      : {}),
-    ...(result.model !== undefined ? { model: result.model } : {}),
-    ...(result.stopReason !== undefined
-      ? { stopReason: result.stopReason }
-      : {}),
-    ...(result.errorMessage !== undefined
-      ? { errorMessage: result.errorMessage }
-      : {}),
-    ...(result.transcriptPath !== undefined
-      ? { transcriptPath: result.transcriptPath }
-      : {}),
-    ...(result.transcriptError !== undefined
-      ? { transcriptError: result.transcriptError }
-      : {}),
-  };
-}
-
-function profileFailureResult(
-  agents: AgentConfig[],
-  agentName: string,
-  task: string,
-  profile: string,
-  message: string,
-  step: number | undefined,
-): SingleResult {
-  const agent = agents.find((candidate) => candidate.name === agentName);
-  return {
-    agent: agentName,
-    ...(agent?.emoji ? { agentEmoji: agent.emoji } : {}),
-    agentSource: agent?.source ?? "unknown",
-    task,
-    exitCode: 1,
-    messages: [],
-    output: "",
-    stderr: message,
-    usage: createEmptyUsage(),
-    ...(step !== undefined ? { step } : {}),
-    ...(profile !== undefined ? { profile } : {}),
-  };
-}
-
-function resolveProfileName(
-  invocationProfile: string | undefined,
-  agentProfile: string | undefined,
-): string | undefined {
-  return invocationProfile?.trim() || agentProfile;
-}
-
-async function runAgentWithProfile(
-  defaultCwd: string,
-  agents: AgentConfig[],
-  profiles: SubagentProfilesConfig,
-  getAvailableModelReferences: () => Promise<ReadonlySet<string>>,
-  agentName: string,
-  task: string,
-  invocationModel: string | undefined,
-  invocationProfile: string | undefined,
-  cwd: string | undefined,
-  step: number | undefined,
-  trace: DelegationTrace,
-  limits: SubagentLimitsConfig,
-  concurrency: SessionConcurrencyGate,
-  activeProcesses: SubagentProcessRegistry,
-  signal: AbortSignal | undefined,
-  onUpdate: OnUpdateCallback | undefined,
-  makeDetails: (results: SingleResult[]) => SubagentDetails,
-  resolveModel?: (spec: string) => string | undefined,
-  options: SubagentRunOptions = {},
-): Promise<SingleResult> {
-  const agent = agents.find((candidate) => candidate.name === agentName);
-  if (agent?.profile && agent.model) {
-    return profileFailureResult(
-      agents,
-      agentName,
-      task,
-      agent.profile,
-      `Agent "${agentName}": declare either "profile" or "model" in frontmatter, not both.`,
-      step,
-    );
-  }
-  const profileName = resolveProfileName(invocationProfile, agent?.profile);
-  if (invocationModel?.trim() || !profileName) {
-    return runSingleAgent(
-      defaultCwd,
-      agents,
-      agentName,
-      task,
-      invocationModel,
-      undefined,
-      cwd,
-      step,
-      trace,
-      limits,
-      concurrency,
-      activeProcesses,
-      signal,
-      onUpdate,
-      makeDetails,
-      resolveModel,
-      options,
-    );
-  }
-
-  const profile = profiles.profiles[profileName];
-  if (!profile) {
-    return profileFailureResult(
-      agents,
-      agentName,
-      task,
-      profileName,
-      `Unknown subagent profile "${profileName}". Available profiles: ${Object.keys(profiles.profiles).join(", ")}.`,
-      step,
-    );
-  }
-
-  let availableModels: ReadonlySet<string>;
-  try {
-    availableModels = await getAvailableModelReferences();
-  } catch (error) {
-    return profileFailureResult(
-      agents,
-      agentName,
-      task,
-      profileName,
-      `Could not resolve available models for profile "${profileName}": ${error instanceof Error ? error.message : error}`,
-      step,
-    );
-  }
-
-  const candidates = profile.candidates.filter((candidate) =>
-    availableModels.has(candidate.model.toLowerCase()),
-  );
-  if (candidates.length === 0) {
-    return profileFailureResult(
-      agents,
-      agentName,
-      task,
-      profileName,
-      formatProfileEligibilityError(
-        profileName,
-        profile.candidates,
-        availableModels,
-        availableModels.size,
-      ),
-      step,
-    );
-  }
-
-  const attempts: ModelAttempt[] = [];
-  let finalResult: SingleResult | undefined;
-  for (const candidate of candidates) {
-    const result = await runSingleAgent(
-      defaultCwd,
-      agents,
-      agentName,
-      task,
-      formatProfileCandidate(candidate),
-      profileName,
-      cwd,
-      step,
-      trace,
-      limits,
-      concurrency,
-      activeProcesses,
-      signal,
-      onUpdate,
-      makeDetails,
-      resolveModel,
-      options,
-    );
-    attempts.push(summarizeModelAttempt(result));
-    result.attempts = [...attempts];
-    finalResult = result;
-
-    if (
-      result.spawnBlocked ||
-      result.executionTimedOut ||
-      !isFailedResult(result) ||
-      result.hadDelegatedToolActivity
-    )
-      return result;
-  }
-
-  if (!finalResult) {
-    return profileFailureResult(
-      agents,
-      agentName,
-      task,
-      profileName,
-      `Profile "${profileName}" did not run.`,
-      step,
-    );
-  }
-  if (attempts.length > 1) {
-    finalResult.errorMessage = formatProfileAttemptSummaries(
-      profileName,
-      attempts,
-    );
-  }
-  return finalResult;
-}
+  loadSubagentProfilesCurrent,
+  type SubagentProfilesCache,
+} from "./_profiles.ts";
+import {
+  renderSubagentCall,
+  renderSubagentResult,
+  type SubagentDetails,
+  type SubagentRenderState,
+} from "./_render.ts";
+import { SessionResources } from "./_session-resources.ts";
+import {
+  type AgentSelection,
+  type BoundedItem,
+  type BoundedMode,
+  type BoundedPlan,
+  type InvalidBoundedPlan,
+  parseSubagentCall,
+  type SubagentCommand,
+} from "./_subagent-command.ts";
+import { formatUsageCompact } from "./_usage.ts";
+import { registerSubagentYield } from "./_yield.ts";
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
   description:
@@ -1162,7 +112,7 @@ const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
 });
 
 function createSubagentParams(
-  profiles: SubagentProfilesConfig,
+  profiles: ModelProfilesConfig,
   limits: SubagentLimitsConfig,
 ) {
   const profileNames = Object.keys(profiles.profiles) as [string, ...string[]];
@@ -1321,193 +271,498 @@ function createSubagentParams(
   });
 }
 
-export function registerSubagent(
-  pi: ExtensionAPI,
-  extensionDir = path.dirname(fileURLToPath(import.meta.url)),
-  options: SubagentRegistrationOptions = {},
-) {
-  if (currentDelegationDepth() > 0 && !isManagedChildProcess())
-    registerSubagentYield(pi);
-  const profilesPath = resolveProfilesPath(getAgentDir());
-  // Registration-time snapshot drives the tool schema (profile-name enum) and
-  // description; call-time resolution reloads on file change so ladder edits
-  // apply to long-running sessions without a restart.
-  const profiles = loadSubagentProfiles(profilesPath);
-  let profilesCache: SubagentProfilesCache | undefined;
-  const loadCurrentProfiles = (): SubagentProfilesConfig => {
-    profilesCache = loadSubagentProfilesCurrent(profilesPath, profilesCache);
-    return profilesCache.config;
+type SubagentParams = ReturnType<typeof createSubagentParams>;
+type SubagentToolResult = AgentToolResult<SubagentDetails>;
+
+export interface SubagentRegistrationOptions {
+  readonly managedRuntimeFactory?: (
+    options: ManagedRuntimeOptions,
+  ) => ManagedRuntime;
+  readonly processRegistryFactory?: () => SubagentProcessRegistry;
+}
+
+/** State shared by every call of one registered tool. */
+interface ToolEnv {
+  readonly limits: SubagentLimitsConfig;
+  readonly resources: SessionResources;
+  readonly loadProfiles: () => ModelProfilesConfig;
+  readonly notifications: ManagedNotifications;
+}
+
+/** One tool invocation. */
+interface ToolCall {
+  readonly env: ToolEnv;
+  readonly ctx: ExtensionContext;
+  readonly trace: DelegationTrace;
+  readonly signal: AbortSignal | undefined;
+}
+
+type ControlCommand = Exclude<SubagentCommand, { kind: "run" | "spawn" }>;
+type RunCommand = Extract<SubagentCommand, { kind: "run" }>;
+type SpawnCommand = Extract<SubagentCommand, { kind: "spawn" }>;
+
+const NESTED_MANAGED_MESSAGE =
+  "Managed spawn and control actions are available only in a top-level Pi session; nested workers may use bounded action run.";
+const PROJECT_AGENTS_DECLINED = "Canceled: project-local agents not approved.";
+const FAILED_ASSIGNMENT_STATES: readonly string[] = [
+  "failed",
+  "timedOut",
+  "aborted",
+  "interrupted",
+  "cancelled",
+];
+
+function notifyLifecycle(ctx: ExtensionContext, message: string): void {
+  if (!ctx.hasUI) return;
+  try {
+    ctx.ui.notify(message, "warning");
+  } catch {
+    // The UI may be tearing down during shutdown or session replacement.
+  }
+}
+
+function buildDetails(
+  call: ToolCall,
+  mode: BoundedMode,
+  discovery: AgentDiscoveryResult | undefined,
+  scope: AgentScope,
+  results: readonly SingleResult[] = [],
+): SubagentDetails {
+  return {
+    mode,
+    agentScope: scope,
+    projectAgentsDir: discovery?.projectAgentsDir ?? null,
+    trace: call.trace,
+    concurrency: call.env.resources.concurrency.status,
+    results: results.map(toPersistedResult),
   };
-  const limits = loadSubagentLimits(path.join(extensionDir, "limits.json"));
-  const runtimeFactory = options.managedRuntimeFactory ?? getManagedRuntime;
-  const processRegistryFactory =
-    options.processRegistryFactory ?? (() => new SubagentProcessRegistry());
-  let activeProcesses = processRegistryFactory();
-  let concurrency = new SessionConcurrencyGate(limits.maxConcurrency);
-  let currentSessionId: string | undefined;
-  let sessionClosed = false;
-  let shutdownTransition: Promise<void> | undefined;
-  let resourceTransition:
-    | { sessionId: string; promise: Promise<void> }
-    | undefined;
-  const managedRuntimes = new Map<string, ManagedRuntime>();
-  const restoreAttempted = new Set<string>();
+}
 
-  const notifyLifecycle = (ctx: ExtensionContext, message: string): void => {
-    if (!ctx.hasUI) return;
-    try {
-      ctx.ui.notify(message, "warning");
-    } catch {
-      // The UI may be tearing down during shutdown or session replacement.
-    }
+function textResult(
+  text: string,
+  details: SubagentDetails,
+): SubagentToolResult {
+  return { content: [{ type: "text", text }], details };
+}
+
+function errorResult(
+  text: string,
+  details: SubagentDetails,
+): SubagentToolResult {
+  return { ...textResult(text, details), isError: true };
+}
+
+function managedText(call: ToolCall, text: string): SubagentToolResult {
+  return textResult(
+    boundManagedToolOutput(text),
+    buildDetails(call, "single", undefined, "user"),
+  );
+}
+
+function managedError(call: ToolCall, text: string): SubagentToolResult {
+  return { ...managedText(call, text), isError: true };
+}
+
+/**
+ * Delegated children launch a fresh Pi process. The parent's scopedModels only
+ * controls its startup/cycling choices and can remain stale when models.json
+ * changes during a long-lived session, so refresh before every launch.
+ */
+async function loadDelegationModels(ctx: ExtensionContext) {
+  // SAFETY: Pi 0.80's refresh() was synchronous and took no options; newer Pi
+  // accepts allowNetwork to avoid remote catalog requests per delegation.
+  await (
+    ctx.modelRegistry.refresh as (options: {
+      allowNetwork: boolean;
+    }) => void | Promise<unknown>
+  )({ allowNetwork: false });
+  const models = ctx.modelRegistry.getAvailable();
+  return {
+    availableModels: new Set(
+      models.map((model) => `${model.provider}/${model.id}`.toLowerCase()),
+    ) as ReadonlySet<string>,
+    resolveModel: createModelResolver(models),
   };
+}
 
-  const createRuntimeOptions = (
-    parentSessionId: string,
-  ): ManagedRuntimeOptions => ({
-    parentSessionId,
-    agentDir: getAgentDir(),
-    limits,
-    gate: concurrency,
-    env: process.env,
-  });
+/** Asks before running repo-controlled agents; resolves true when allowed. */
+async function approveProjectAgents(
+  ctx: ExtensionContext,
+  selection: AgentSelection,
+  discovery: AgentDiscoveryResult,
+  agentNames: readonly string[],
+): Promise<boolean> {
+  if (selection.scope === "user" || !ctx.hasUI) return true;
+  const requiringConfirmation = [...new Set(agentNames)]
+    .map((name) => discovery.agents.find((agent) => agent.name === name))
+    .filter(
+      (agent): agent is AgentConfig =>
+        agent?.source === "project" &&
+        shouldConfirmProjectAgent(agent, selection.confirmProjectAgents),
+    );
+  if (requiringConfirmation.length === 0) return true;
+  const names = requiringConfirmation
+    .map((agent) => formatAgentDisplayName(agent))
+    .join(", ");
+  return ctx.ui.confirm(
+    "Run project-local agents?",
+    `Agents: ${names}\nSource: ${discovery.projectAgentsDir ?? "(unknown)"}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
+  );
+}
 
-  const rotateSessionResources = async (sessionId: string): Promise<void> => {
-    const previousSessionId = currentSessionId;
-    if (previousSessionId !== undefined || sessionClosed) {
-      concurrency.close();
-      await activeProcesses.terminateAll();
-      const suspended = await Promise.allSettled(
-        [...managedRuntimes.values()].map((runtime) => runtime.suspendAll()),
+function planItems(plan: BoundedPlan): readonly BoundedItem[] {
+  switch (plan.kind) {
+    case "single":
+      return [plan.item];
+    case "parallel":
+      return plan.items;
+    case "chain":
+      return plan.steps;
+  }
+}
+
+function invalidPlanResult(
+  plan: InvalidBoundedPlan,
+  agents: readonly AgentConfig[],
+  details: SubagentDetails,
+): SubagentToolResult {
+  switch (plan.problem) {
+    case "modeCount": {
+      const available =
+        agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+      return textResult(
+        `Invalid parameters. Provide exactly one mode.\nAvailable agents: ${available}`,
+        details,
       );
-      for (const result of suspended)
-        if (result.status === "rejected")
-          console.warn("Could not suspend managed subagents:", result.reason);
     }
-    concurrency = new SessionConcurrencyGate(limits.maxConcurrency);
-    activeProcesses = processRegistryFactory();
-    currentSessionId = sessionId;
-    sessionClosed = false;
-    restoreAttempted.delete(sessionId);
-  };
+    case "contextOutsideParallel":
+      return errorResult(
+        "Invalid parameters. context is supported only with parallel tasks[].",
+        details,
+      );
+  }
+}
 
-  const ensureSessionResources = async (
-    ctx: ExtensionContext,
-    initializeManagedRuntime = true,
-  ): Promise<ManagedRuntime | undefined> => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    if (shutdownTransition) await shutdownTransition;
-    if (resourceTransition && resourceTransition.sessionId !== sessionId)
-      await resourceTransition.promise;
-    if (currentSessionId !== sessionId || sessionClosed) {
-      if (!resourceTransition || resourceTransition.sessionId !== sessionId) {
-        const promise = rotateSessionResources(sessionId);
-        resourceTransition = { sessionId, promise };
-      }
-      try {
-        await resourceTransition.promise;
-      } finally {
-        if (resourceTransition?.sessionId === sessionId)
-          resourceTransition = undefined;
-      }
-    }
-    if (currentDelegationDepth() > 0 || !initializeManagedRuntime)
-      return undefined;
+async function runCommand(
+  call: ToolCall,
+  command: RunCommand,
+  onUpdate: AgentToolUpdateCallback<SubagentDetails> | undefined,
+): Promise<SubagentToolResult> {
+  const { ctx, env, trace } = call;
+  const { limits, resources } = env;
+  const sessionId = ctx.sessionManager.getSessionId();
+  try {
+    await resources.enter(sessionId);
+  } catch (error) {
+    return managedError(
+      call,
+      `Could not initialize subagent runtime: ${errorText(error)}`,
+    );
+  }
+  if (currentDelegationDepth() === 0) {
+    const liveWorkers =
+      resources
+        .existingRuntime(sessionId)
+        ?.list()
+        .filter((worker) => worker.live) ?? [];
+    if (liveWorkers.length >= limits.maxConcurrency)
+      return managedError(
+        call,
+        `All ${limits.maxConcurrency} subagent slots are held by managed workers: ${liveWorkers.map((worker) => worker.handle).join(", ")}. Stop a worker before running bounded work; yielding does not release a managed worker's slot.`,
+      );
+  }
 
-    let runtime = managedRuntimes.get(sessionId);
-    if (!runtime) {
-      runtime = runtimeFactory(createRuntimeOptions(sessionId));
-      runtime.bind(concurrency, limits);
-      managedRuntimes.set(sessionId, runtime);
+  const profiles = env.loadProfiles();
+  const { selection, plan } = command;
+  const discovery = discoverAgents(ctx.cwd, selection.scope);
+  const details = (
+    mode: BoundedMode,
+    results: readonly SingleResult[] = [],
+  ): SubagentDetails =>
+    buildDetails(call, mode, discovery, selection.scope, results);
+  if (trace.depth > limits.maxDepth)
+    return errorResult(
+      `Subagent delegation blocked at depth ${trace.depth}; hard maximum is ${limits.maxDepth}.`,
+      details("single"),
+    );
+  if (plan.kind === "invalid")
+    return invalidPlanResult(plan, discovery.agents, details(plan.mode));
+  const agentNames = planItems(plan).map((item) => item.agent);
+  if (!(await approveProjectAgents(ctx, selection, discovery, agentNames)))
+    return textResult(PROJECT_AGENTS_DECLINED, details(plan.kind));
+
+  const models = await loadDelegationModels(ctx);
+  const outcome = await runBoundedPlan(
+    {
+      defaultCwd: ctx.cwd,
+      agents: discovery.agents,
+      profiles,
+      availableModels: models.availableModels,
+      resolveModel: models.resolveModel,
+      trace,
+      limits,
+      concurrency: resources.concurrency,
+      processes: resources.processes,
+      ...(call.signal ? { signal: call.signal } : {}),
+    },
+    plan,
+    onUpdate
+      ? (progress) =>
+          onUpdate({
+            content: [{ type: "text", text: progress.text }],
+            details: details(progress.mode, progress.results),
+          })
+      : undefined,
+  );
+  if (outcome.kind === "aborted") throw new Error(outcome.message);
+  const result = textResult(
+    outcome.text,
+    details(outcome.mode, outcome.results),
+  );
+  return outcome.isError ? { ...result, isError: true } : result;
+}
+
+type SpawnLine =
+  | {
+      readonly kind: "started";
+      readonly text: string;
+      readonly warning?: string;
     }
-    if (!restoreAttempted.has(sessionId)) {
-      restoreAttempted.add(sessionId);
-      try {
-        const restored = await runtime.restore();
-        for (const result of restored)
-          if (!result.restored && result.error)
-            notifyLifecycle(
-              ctx,
-              `Could not restore ${result.handle}: ${result.error}`,
-            );
-      } catch (error) {
-        notifyLifecycle(
-          ctx,
-          `Could not restore managed subagents: ${error instanceof Error ? error.message : String(error)}`,
+  | { readonly kind: "failed"; readonly text: string };
+
+async function startWorker(
+  runtime: ManagedRuntime,
+  label: string,
+  preparation: ManagedLaunchPreparation,
+  signal: AbortSignal | undefined,
+): Promise<SpawnLine> {
+  if (!preparation.ok)
+    return { kind: "failed", text: `- ${label}: ${preparation.error}` };
+  try {
+    const worker = await runtime.spawn(preparation.launch, signal);
+    const view = runtime.status(worker.handle);
+    const text = `- ${label}: worker-handle [${worker.handle}] assignment-id [${worker.assignmentId}]`;
+    return view.hostKind === "rpc"
+      ? { kind: "started", text, warning: formatManualManagedOpenHint(view) }
+      : { kind: "started", text };
+  } catch (error) {
+    return {
+      kind: "failed",
+      text: `- ${label}: ${truncateManagedText(errorText(error), 2 * 1024)}`,
+    };
+  }
+}
+
+async function spawnCommand(
+  call: ToolCall,
+  command: SpawnCommand,
+  runtime: ManagedRuntime,
+): Promise<SubagentToolResult> {
+  const { ctx, env, trace } = call;
+  const { limits } = env;
+  const profiles = env.loadProfiles();
+  const { selection, launch } = command;
+  const discovery = discoverAgents(ctx.cwd, selection.scope);
+  if (trace.depth > limits.maxDepth)
+    return managedError(
+      call,
+      `Managed spawn blocked at depth ${trace.depth}; hard maximum is ${limits.maxDepth}.`,
+    );
+  const requests = launch.kind === "batch" ? launch.requests : [launch.request];
+  if (launch.kind === "batch" && requests.length > limits.maxChildrenPerCall)
+    return managedError(
+      call,
+      `Too many managed tasks (${requests.length}). Max is ${limits.maxChildrenPerCall}.`,
+    );
+  const agentNames = requests.map((request) => request.agent);
+  if (!(await approveProjectAgents(ctx, selection, discovery, agentNames)))
+    return managedError(call, PROJECT_AGENTS_DECLINED);
+
+  try {
+    const models = await loadDelegationModels(ctx);
+    const context =
+      launch.kind === "batch" && launch.context !== undefined
+        ? { context: launch.context }
+        : {};
+    const lines = await Promise.all(
+      requests.map((request, index) =>
+        startWorker(
+          runtime,
+          launch.kind === "batch" ? `Task ${index + 1}` : request.agent,
+          prepareManagedLaunch({
+            discovery,
+            profiles,
+            availableModelReferences: models.availableModels,
+            resolveModel: models.resolveModel,
+            defaultCwd: ctx.cwd,
+            trace,
+            ...context,
+            request,
+          }),
+          call.signal,
+        ),
+      ),
+    );
+    const failures = lines.filter((line) => line.kind === "failed").length;
+    const warnings = lines.flatMap((line) =>
+      line.kind === "started" && line.warning ? [line.warning] : [],
+    );
+    if (ctx.hasUI && warnings.length)
+      ctx.ui.notify(warnings.join("\n\n"), "warning");
+    const text = [
+      `Managed spawn ${failures === 0 ? "accepted" : `finished with ${failures} failure(s)`}:`,
+      ...lines.map((line) => line.text),
+      ...(failures < lines.length
+        ? [
+            "",
+            "Results report automatically. To inspect sooner, ask me for status or to wait for a specific assignment; use /subagent to open or control the worker.",
+          ]
+        : []),
+      ...(warnings.length ? ["", ...warnings] : []),
+    ].join("\n");
+    const response =
+      failures === lines.length
+        ? managedError(call, text)
+        : managedText(call, text);
+    return {
+      ...response,
+      details: {
+        ...response.details,
+        managedSpawn: {
+          started: lines.length - failures,
+          failed: failures,
+          ...(warnings.length ? { manualOpen: true } : {}),
+        },
+      },
+    };
+  } catch (error) {
+    return managedError(call, truncateManagedText(errorText(error), 2 * 1024));
+  }
+}
+
+function formatWorkerStatus(runtime: ManagedRuntime, handle: string): string {
+  const worker = runtime.status(handle);
+  const assignments = worker.recentAssignments.slice(-5).map((entry) => {
+    const outcome = entry.outcome?.result
+      ? `\n  Result: ${truncateManagedText(entry.outcome.result, 4 * 1024)}`
+      : "";
+    return `\n- ${entry.id} · ${entry.state}${entry.disposition ? ` · ${entry.disposition}` : ""}\n  Task: ${truncateManagedText(entry.preview, 2 * 1024)}${outcome}`;
+  });
+  return [
+    formatManagedWorkerSummary(worker),
+    `Session: ${worker.sessionId}`,
+    ...(worker.sessionFile ? [`Transcript: ${worker.sessionFile}`] : []),
+    `Usage: ${formatUsageCompact(worker.usage, worker.model) || "not yet recorded"}`,
+    `Latest assignments (${worker.recentAssignments.length} recorded):`,
+    ...assignments,
+  ].join("\n");
+}
+
+function formatWorkerList(runtime: ManagedRuntime): string {
+  const workers = runtime.list();
+  if (workers.length === 0) return "No managed subagents in this session.";
+  const shown = workers.slice(0, 25).map(formatManagedWorkerSummary);
+  return [
+    `Managed subagents (${workers.length}):`,
+    ...shown,
+    ...(workers.length > shown.length
+      ? [`… ${workers.length - shown.length} more`]
+      : []),
+  ].join("\n");
+}
+
+async function controlCommand(
+  call: ToolCall,
+  command: ControlCommand,
+  runtime: ManagedRuntime,
+): Promise<SubagentToolResult> {
+  try {
+    switch (command.kind) {
+      case "list":
+        return managedText(call, formatWorkerList(runtime));
+      case "status":
+        return managedText(call, formatWorkerStatus(runtime, command.handle));
+      case "send": {
+        const sent = runtime.send(
+          command.handle,
+          command.message,
+          command.delivery,
+        );
+        return managedText(
+          call,
+          `Sent to ${command.handle} as ${sent.assignmentId} (${sent.state}).`,
+        );
+      }
+      case "wait": {
+        const assignment = await runtime.wait(command.handle, {
+          ...(command.assignmentId !== undefined
+            ? { assignmentId: command.assignmentId }
+            : {}),
+          ...(command.timeoutMs !== undefined
+            ? { timeoutMs: command.timeoutMs }
+            : {}),
+          ...(call.signal ? { signal: call.signal } : {}),
+        });
+        call.env.notifications.markCollected(call.ctx, assignment);
+        const state = assignment.waitTimedOut
+          ? `${assignment.state} (wait timed out)`
+          : assignment.state;
+        const outcome = assignment.outcome?.result
+          ? `\n${truncateManagedText(assignment.outcome.result)}`
+          : "\n(no result recorded)";
+        const artifacts = assignment.outcome?.artifacts ?? [];
+        const usage = formatUsageCompact(assignment.usage, assignment.model);
+        const text = `${assignment.handle} · ${assignment.id} · ${state}${outcome}${usage ? `\nUsage: ${usage}` : ""}${artifacts.length ? `\nArtifacts: ${artifacts.join(", ")}` : ""}`;
+        return FAILED_ASSIGNMENT_STATES.includes(assignment.state)
+          ? managedError(call, text)
+          : managedText(call, text);
+      }
+      case "stop": {
+        const worker = await runtime.stop(command.handle);
+        return managedText(
+          call,
+          `Stopped; session and transcripts retained.\n${formatManagedWorkerSummary(worker)}`,
+        );
+      }
+      case "resume": {
+        const worker = await runtime.resume(command.handle);
+        return managedText(
+          call,
+          `Resumed.\n${formatManagedWorkerSummary(worker)}`,
         );
       }
     }
-    return runtime;
-  };
+  } catch (error) {
+    return managedError(call, truncateManagedText(errorText(error), 2 * 1024));
+  }
+}
 
-  const runtimeForUi = (ctx: ExtensionContext): ManagedRuntime => {
-    if (currentDelegationDepth() > 0)
-      throw new ManagedError(
-        "depth",
-        "Managed subagents are only available in a top-level Pi session.",
-      );
-    const sessionId = ctx.sessionManager.getSessionId();
-    if (sessionClosed || currentSessionId !== sessionId)
-      throw new Error(
-        "Managed subagents are not ready until the session starts.",
-      );
-    const runtime =
-      managedRuntimes.get(sessionId) ??
-      runtimeFactory(createRuntimeOptions(sessionId));
-    runtime.bind(concurrency, limits);
-    managedRuntimes.set(sessionId, runtime);
-    return runtime;
-  };
+async function managedCommand(
+  call: ToolCall,
+  command: SpawnCommand | ControlCommand,
+): Promise<SubagentToolResult> {
+  const { ctx } = call;
+  let runtime: ManagedRuntime;
+  try {
+    runtime = await call.env.resources.enterManaged(
+      ctx.sessionManager.getSessionId(),
+      (message) => notifyLifecycle(ctx, message),
+    );
+  } catch (error) {
+    return managedError(
+      call,
+      `Could not initialize subagent runtime: ${errorText(error)}`,
+    );
+  }
+  return command.kind === "spawn"
+    ? spawnCommand(call, command, runtime)
+    : controlCommand(call, command, runtime);
+}
 
-  pi.on("session_start", async (_event, ctx) => {
-    try {
-      await ensureSessionResources(ctx);
-    } catch (error) {
-      notifyLifecycle(
-        ctx,
-        `Could not initialize managed subagents: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  });
-  pi.on("session_shutdown", async (event, ctx) => {
-    sessionClosed = true;
-    concurrency.close();
-    shutdownTransition = (async () => {
-      await activeProcesses.terminateAll();
-      const suspended =
-        event.reason === "reload"
-          ? []
-          : await Promise.allSettled(
-              [...managedRuntimes.values()].map((runtime) =>
-                runtime.suspendAll(),
-              ),
-            );
-      for (const result of suspended)
-        if (result.status === "rejected")
-          notifyLifecycle(
-            ctx,
-            `Could not suspend managed subagents: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
-          );
-    })();
-    try {
-      await shutdownTransition;
-    } finally {
-      shutdownTransition = undefined;
-    }
-  });
-  // Registered after the session handlers above so the runtime exists before reports start.
-  const managedNotifications = registerManagedNotifications(pi, async (ctx) => {
-    if (currentDelegationDepth() > 0) return undefined;
-    const sessionId = ctx.sessionManager.getSessionId();
-    if (
-      sessionClosed ||
-      currentSessionId !== sessionId ||
-      shutdownTransition ||
-      resourceTransition
-    )
-      return undefined;
-    return managedRuntimes.get(sessionId);
-  });
+function describeTool(
+  profiles: ModelProfilesConfig,
+  limits: SubagentLimitsConfig,
+): { description: string; promptGuidelines: string[] } {
   const initialUserAgents = discoverAgents(process.cwd(), "user").agents;
   const listedAgents = formatAgentList(initialUserAgents, 20);
   const agentGuidance = `${listedAgents.text}${listedAgents.remaining > 0 ? `; and ${listedAgents.remaining} more` : ""}`;
@@ -1521,16 +776,12 @@ export function registerSubagent(
     exampleAgent && exampleProfile
       ? ` Phrases "${exampleProfile} ${exampleAgent.name}" and "${exampleAgent.name} ${exampleProfile}" both mean agent "${exampleAgent.name}" with profile "${exampleProfile}".`
       : "";
-  const SubagentParams = createSubagentParams(profiles, limits);
   const profileGuidance = formatProfileGuidance(profiles);
   const maxTreeChildren =
     limits.maxDepth === 1
       ? limits.maxConcurrency
       : limits.maxConcurrency + limits.maxConcurrency ** 2;
-
-  pi.registerTool({
-    name: "subagent",
-    label: "Subagent",
+  return {
     description: [
       'Delegate bounded tasks to specialized subagents with isolated context; use agent "bee" (🐝) for general execution.',
       `Agents select behavior and tools; profiles select compute. They compose independently, and their order in the user's wording does not matter.${compositionExample}`,
@@ -1549,8 +800,6 @@ export function registerSubagent(
       `To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
       "Agent frontmatter may set confirmProjectAgents; the invocation parameter overrides it.",
     ].join(" "),
-    promptSnippet:
-      "Delegate bounded work or manage persistent subagents with optional execution profiles",
     promptGuidelines: [
       `For subagent, agent and profile are independent: agent selects behavior and tools; profile selects compute. When the user names both in either order, preserve both.${compositionExample}`,
       `When invoking subagent, select the least expensive profile that safely fits the task: ${profileGuidance}`,
@@ -1560,1306 +809,132 @@ export function registerSubagent(
       "Use subagent model only for an exact model override; model takes precedence over profile.",
       "Use top-level context only for background or constraints shared by every parallel task or managed spawn batch.",
     ],
-    parameters: SubagentParams,
+  };
+}
+
+function createSubagentTool(
+  env: ToolEnv,
+  profiles: ModelProfilesConfig,
+): ToolDefinition<SubagentParams, SubagentDetails, SubagentRenderState> {
+  const { description, promptGuidelines } = describeTool(profiles, env.limits);
+  return {
+    name: "subagent",
+    label: "Subagent",
+    description,
+    promptSnippet:
+      "Delegate bounded work or manage persistent subagents with optional execution profiles",
+    promptGuidelines,
+    parameters: createSubagentParams(profiles, env.limits),
 
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const action = typeof params.action === "string" ? params.action : "run";
-      const trace = createDelegationTrace(
-        ctx.sessionManager.getSessionId(),
-        toolCallId,
-      );
-      const managedResult = (text: string, isError = false) => ({
-        content: [
-          { type: "text" as const, text: boundManagedToolOutput(text) },
-        ],
-        details: {
-          mode: "single" as const,
-          agentScope: "user" as const,
-          projectAgentsDir: null,
-          trace,
-          concurrency: concurrency.status,
-          results: [],
-        },
-        ...(isError ? { isError: true } : {}),
-      });
-      if (action !== "run" && currentDelegationDepth() > 0)
-        return managedResult(
-          "Managed spawn and control actions are available only in a top-level Pi session; nested workers may use bounded action run.",
-          true,
-        );
-      const actionError = validateManagedAction(
-        action,
-        params as Record<string, unknown>,
-      );
-      if (actionError) return managedResult(actionError, true);
-      let managedRuntime: ManagedRuntime | undefined;
-      try {
-        managedRuntime = await ensureSessionResources(ctx, action !== "run");
-      } catch (error) {
-        return managedResult(
-          `Could not initialize subagent runtime: ${error instanceof Error ? error.message : String(error)}`,
-          true,
-        );
-      }
-      if (action === "run" && currentDelegationDepth() === 0) {
-        const liveWorkers =
-          managedRuntimes
-            .get(ctx.sessionManager.getSessionId())
-            ?.list()
-            .filter((worker) => worker.live) ?? [];
-        if (liveWorkers.length >= limits.maxConcurrency)
-          return managedResult(
-            `All ${limits.maxConcurrency} subagent slots are held by managed workers: ${liveWorkers.map((worker) => worker.handle).join(", ")}. Stop a worker before running bounded work; yielding does not release a managed worker's slot.`,
-            true,
-          );
-      }
-      if (action !== "run") {
-        if (!managedRuntime)
-          return managedResult(
-            "Managed subagents are unavailable in nested sessions.",
-            true,
-          );
-        const handle = params.handle as string | undefined;
-        try {
-          if (action === "list") {
-            const workers = managedRuntime.list();
-            const shown = workers.slice(0, 25).map(formatManagedWorkerSummary);
-            return managedResult(
-              workers.length === 0
-                ? "No managed subagents in this session."
-                : [
-                    `Managed subagents (${workers.length}):`,
-                    ...shown,
-                    ...(workers.length > shown.length
-                      ? [`… ${workers.length - shown.length} more`]
-                      : []),
-                  ].join("\n"),
-            );
-          }
-          if (action === "status") {
-            const worker = managedRuntime.status(handle!);
-            const assignments = worker.recentAssignments
-              .slice(-5)
-              .map((entry) => {
-                const outcome = entry.outcome?.result
-                  ? `\n  Result: ${truncateManagedText(entry.outcome.result, 4 * 1024)}`
-                  : "";
-                return `\n- ${entry.id} · ${entry.state}${entry.disposition ? ` · ${entry.disposition}` : ""}\n  Task: ${truncateManagedText(entry.preview, 2 * 1024)}${outcome}`;
-              });
-            return managedResult(
-              [
-                formatManagedWorkerSummary(worker),
-                `Session: ${worker.sessionId}`,
-                ...(worker.sessionFile
-                  ? [`Transcript: ${worker.sessionFile}`]
-                  : []),
-                `Usage: ${formatUsageStats(worker.usage, worker.model) || "not yet recorded"}`,
-                `Latest assignments (${worker.recentAssignments.length} recorded):`,
-                ...assignments,
-              ].join("\n"),
-            );
-          }
-          if (action === "send") {
-            const sent = managedRuntime.send(
-              handle!,
-              params.message as string,
-              (params.delivery as "auto" | "followUp" | undefined) ?? "auto",
-            );
-            return managedResult(
-              `Sent to ${handle} as ${sent.assignmentId} (${sent.state}).`,
-            );
-          }
-          if (action === "wait") {
-            const assignment = await managedRuntime.wait(handle!, {
-              ...(params.assignmentId
-                ? { assignmentId: params.assignmentId as string }
-                : {}),
-              ...(params.waitTimeoutMs !== undefined
-                ? { timeoutMs: params.waitTimeoutMs as number }
-                : {}),
-              ...(signal ? { signal } : {}),
-            });
-            managedNotifications.markCollected(ctx, assignment);
-            const state = assignment.waitTimedOut
-              ? `${assignment.state} (wait timed out)`
-              : assignment.state;
-            const outcome = assignment.outcome?.result
-              ? `\n${truncateManagedText(assignment.outcome.result)}`
-              : "\n(no result recorded)";
-            const artifacts = assignment.outcome?.artifacts ?? [];
-            const usage = formatUsageStats(assignment.usage, assignment.model);
-            return managedResult(
-              `${assignment.handle} · ${assignment.id} · ${state}${outcome}${usage ? `\nUsage: ${usage}` : ""}${artifacts.length ? `\nArtifacts: ${artifacts.join(", ")}` : ""}`,
-              [
-                "failed",
-                "timedOut",
-                "aborted",
-                "interrupted",
-                "cancelled",
-              ].includes(assignment.state),
-            );
-          }
-          if (action === "stop") {
-            const worker = await managedRuntime.stop(handle!);
-            return managedResult(
-              `Stopped; session and transcripts retained.\n${formatManagedWorkerSummary(worker)}`,
-            );
-          }
-          if (action === "resume") {
-            const worker = await managedRuntime.resume(handle!);
-            return managedResult(
-              `Resumed.\n${formatManagedWorkerSummary(worker)}`,
-            );
-          }
-          if (action !== "spawn")
-            return managedResult(
-              `Unsupported subagent action "${action}".`,
-              true,
-            );
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          return managedResult(truncateManagedText(message, 2 * 1024), true);
-        }
-      }
-      const profiles = loadCurrentProfiles();
-      const agentScope: AgentScope = params.agentScope ?? "user";
-      const discovery = discoverAgents(ctx.cwd, agentScope);
-      const agents = discovery.agents;
-      if (action === "spawn") {
-        if (!managedRuntime)
-          return managedResult("Managed runtime is unavailable.", true);
-        if (trace.depth > limits.maxDepth)
-          return managedResult(
-            `Managed spawn blocked at depth ${trace.depth}; hard maximum is ${limits.maxDepth}.`,
-            true,
-          );
-        const taskBatch = Array.isArray(params.tasks)
-          ? (params.tasks as Array<Record<string, unknown>>)
-          : undefined;
-        if (taskBatch && taskBatch.length > limits.maxChildrenPerCall)
-          return managedResult(
-            `Too many managed tasks (${taskBatch.length}). Max is ${limits.maxChildrenPerCall}.`,
-            true,
-          );
-        const requests: ManagedLaunchRequest[] = taskBatch
-          ? taskBatch.map((item) => ({
-              agent: item.agent as string,
-              task: item.task as string,
-              ...(item.profile ? { profile: item.profile as string } : {}),
-              ...(item.model ? { model: item.model as string } : {}),
-              ...((item.cwd ?? params.cwd)
-                ? { cwd: (item.cwd ?? params.cwd) as string }
-                : {}),
-              ...((item.tools ?? params.tools)
-                ? { tools: (item.tools ?? params.tools) as string[] }
-                : {}),
-              ...((item.isolation ?? params.isolation)
-                ? {
-                    isolation: (item.isolation ??
-                      params.isolation) as ManagedIsolationOptions,
-                  }
-                : {}),
-            }))
-          : [
-              {
-                agent: params.agent as string,
-                task: params.task as string,
-                ...(params.profile
-                  ? { profile: params.profile as string }
-                  : {}),
-                ...(params.model ? { model: params.model as string } : {}),
-                ...(params.cwd ? { cwd: params.cwd as string } : {}),
-                ...(params.tools ? { tools: params.tools as string[] } : {}),
-                ...(params.isolation
-                  ? { isolation: params.isolation as ManagedIsolationOptions }
-                  : {}),
-              },
-            ];
-        if ((agentScope === "project" || agentScope === "both") && ctx.hasUI) {
-          const requestedNames = new Set(
-            requests.map((request) => request.agent),
-          );
-          const requiringConfirmation = [...requestedNames]
-            .map((name) => agents.find((agent) => agent.name === name))
-            .filter(
-              (agent): agent is AgentConfig =>
-                agent?.source === "project" &&
-                shouldConfirmProjectAgent(agent, params.confirmProjectAgents),
-            );
-          if (requiringConfirmation.length > 0) {
-            const names = requiringConfirmation
-              .map((agent) => formatAgentDisplayName(agent))
-              .join(", ");
-            const ok = await ctx.ui.confirm(
-              "Run project-local agents?",
-              `Agents: ${names}\nSource: ${discovery.projectAgentsDir ?? "(unknown)"}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
-            );
-            if (!ok)
-              return managedResult(
-                "Canceled: project-local agents not approved.",
-                true,
-              );
-          }
-        }
-        try {
-          await (
-            ctx.modelRegistry.refresh as (options: {
-              allowNetwork: boolean;
-            }) => void | Promise<unknown>
-          )({ allowNetwork: false });
-          const delegationModels = ctx.modelRegistry.getAvailable();
-          const availableModelReferences = new Set(
-            delegationModels.map((model) =>
-              `${model.provider}/${model.id}`.toLowerCase(),
-            ),
-          );
-          const resolveModel = createModelResolver(delegationModels);
-          const prepared = requests.map((request) =>
-            prepareManagedLaunch({
-              discovery,
-              profiles,
-              availableModelReferences,
-              resolveModel,
-              defaultCwd: ctx.cwd,
-              trace,
-              ...(taskBatch && typeof params.context === "string"
-                ? { context: params.context }
-                : {}),
-              request,
-            }),
-          );
-          const started = await Promise.all(
-            prepared.map(async (preparation, index) => {
-              const label = taskBatch
-                ? `Task ${index + 1}`
-                : requests[index]!.agent;
-              if (!preparation.ok)
-                return {
-                  text: `- ${label}: ${preparation.error}`,
-                  failed: true,
-                };
-              try {
-                const worker = await managedRuntime.spawn(
-                  preparation.launch,
-                  signal,
-                );
-                const view = managedRuntime.status(worker.handle);
-                const warning =
-                  view.hostKind === "rpc"
-                    ? formatManualManagedOpenHint(view)
-                    : undefined;
-                return {
-                  text: `- ${label}: worker-handle [${worker.handle}] assignment-id [${worker.assignmentId}]`,
-                  failed: false,
-                  ...(warning ? { warning } : {}),
-                };
-              } catch (error) {
-                const message =
-                  error instanceof Error ? error.message : String(error);
-                return {
-                  text: `- ${label}: ${truncateManagedText(message, 2 * 1024)}`,
-                  failed: true,
-                };
-              }
-            }),
-          );
-          const failures = started.filter((result) => result.failed).length;
-          const warnings = started.flatMap((result) =>
-            "warning" in result && result.warning ? [result.warning] : [],
-          );
-          if (ctx.hasUI && warnings.length)
-            ctx.ui.notify(warnings.join("\n\n"), "warning");
-          const response = managedResult(
-            [
-              `Managed spawn ${failures === 0 ? "accepted" : `finished with ${failures} failure(s)`}:`,
-              ...started.map((result) => result.text),
-              ...(failures < started.length
-                ? [
-                    "",
-                    "Results report automatically. To inspect sooner, ask me for status or to wait for a specific assignment; use /subagent to open or control the worker.",
-                  ]
-                : []),
-              ...(warnings.length ? ["", ...warnings] : []),
-            ].join("\n"),
-            failures === started.length,
-          );
-          return {
-            ...response,
-            details: {
-              ...response.details,
-              managedSpawn: {
-                started: started.length - failures,
-                failed: failures,
-                ...(warnings.length ? { manualOpen: true } : {}),
-              },
-            },
-          };
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          return managedResult(truncateManagedText(message, 2 * 1024), true);
-        }
-      }
-      if (trace.depth > limits.maxDepth) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Subagent delegation blocked at depth ${trace.depth}; hard maximum is ${limits.maxDepth}.`,
-            },
-          ],
-          details: {
-            mode: "single" as const,
-            agentScope,
-            projectAgentsDir: discovery.projectAgentsDir,
-            trace,
-            concurrency: concurrency.status,
-            results: [],
-          },
-          isError: true,
-        };
-      }
-      const hasChain = (params.chain?.length ?? 0) > 0;
-      const hasTasks = (params.tasks?.length ?? 0) > 0;
-      const hasSingle = Boolean(params.agent && params.task);
-      const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
-
-      const makeDetails =
-        (mode: "single" | "parallel" | "chain") =>
-        (results: SingleResult[]): SubagentDetails => ({
-          mode,
-          agentScope,
-          projectAgentsDir: discovery.projectAgentsDir,
-          trace,
-          results: results.map(toPersistedResult),
-          concurrency: concurrency.status,
-        });
-
-      if (modeCount !== 1) {
-        const available =
-          agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Invalid parameters. Provide exactly one mode.\nAvailable agents: ${available}`,
-            },
-          ],
-          details: makeDetails("single")([]),
-        };
-      }
-
-      const sharedContext = params.context?.trim() || undefined;
-      if (sharedContext !== undefined && !hasTasks) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Invalid parameters. context is supported only with parallel tasks[].",
-            },
-          ],
-          details: makeDetails(hasChain ? "chain" : "single")([]),
-          isError: true,
-        };
-      }
-
-      if ((agentScope === "project" || agentScope === "both") && ctx.hasUI) {
-        const requestedAgentNames = new Set<string>();
-        if (params.chain)
-          for (const step of params.chain) requestedAgentNames.add(step.agent);
-        if (params.tasks)
-          for (const t of params.tasks) requestedAgentNames.add(t.agent);
-        if (params.agent) requestedAgentNames.add(params.agent);
-
-        const projectAgentsRequiringConfirmation = Array.from(
-          requestedAgentNames,
-        )
-          .map((name) => agents.find((a) => a.name === name))
-          .filter(
-            (a): a is AgentConfig =>
-              a?.source === "project" &&
-              shouldConfirmProjectAgent(a, params.confirmProjectAgents),
-          );
-
-        if (projectAgentsRequiringConfirmation.length > 0) {
-          const names = projectAgentsRequiringConfirmation
-            .map((a) => formatAgentDisplayName(a))
-            .join(", ");
-          const dir = discovery.projectAgentsDir ?? "(unknown)";
-          const ok = await ctx.ui.confirm(
-            "Run project-local agents?",
-            `Agents: ${names}\nSource: ${dir}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
-          );
-          if (!ok)
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: "Canceled: project-local agents not approved.",
-                },
-              ],
-              details: makeDetails(
-                hasChain ? "chain" : hasTasks ? "parallel" : "single",
-              )([]),
-            };
-        }
-      }
-
-      // Delegated children launch a fresh Pi process. The parent's scopedModels
-      // only controls its startup/cycling choices and can remain stale when
-      // models.json changes during a long-lived session.
-      // Pi 0.80's refresh() was synchronous and took no options; newer Pi
-      // accepts allowNetwork to avoid remote catalog requests per delegation.
-      await (
-        ctx.modelRegistry.refresh as (options: {
-          allowNetwork: boolean;
-        }) => void | Promise<unknown>
-      )({ allowNetwork: false });
-      const delegationModels = ctx.modelRegistry.getAvailable();
-      const availableModelReferences = new Set(
-        delegationModels.map((model) =>
-          `${model.provider}/${model.id}`.toLowerCase(),
+      const call: ToolCall = {
+        env,
+        ctx,
+        signal,
+        trace: createDelegationTrace(
+          ctx.sessionManager.getSessionId(),
+          toolCallId,
         ),
-      );
-      const getAvailableModelReferences = async (): Promise<
-        ReadonlySet<string>
-      > => availableModelReferences;
-      const resolveModel = createModelResolver(delegationModels);
-
-      if (params.chain && params.chain.length > 0) {
-        const results: SingleResult[] = [];
-        let previousOutput = "";
-
-        for (let i = 0; i < params.chain.length; i++) {
-          const step = params.chain[i]!;
-          const taskWithContext = step.task.replace(
-            /\{previous\}/g,
-            previousOutput,
-          );
-
-          // Create update callback that includes all previous results
-          const chainUpdate: OnUpdateCallback | undefined = onUpdate
-            ? (partial) => {
-                // Combine completed results with current streaming result
-                const currentResult = partial.details?.results[0];
-                if (currentResult) {
-                  const allResults = [...results, currentResult];
-                  onUpdate({
-                    content: partial.content,
-                    details: makeDetails("chain")(allResults),
-                  });
-                }
-              }
-            : undefined;
-
-          const result = await runAgentWithProfile(
-            ctx.cwd,
-            agents,
-            profiles,
-            getAvailableModelReferences,
-            step.agent,
-            taskWithContext,
-            step.model,
-            step.profile,
-            step.cwd,
-            i + 1,
-            trace,
-            limits,
-            concurrency,
-            activeProcesses,
-            signal,
-            chainUpdate,
-            makeDetails("chain"),
-            resolveModel,
-            {
-              ...((step.isolation ?? params.isolation) !== undefined
-                ? {
-                    isolation: (step.isolation ??
-                      params.isolation) as SubagentIsolationOptions,
-                  }
-                : {}),
-              ...((step.tools ?? params.tools) !== undefined
-                ? { tools: (step.tools ?? params.tools) as readonly string[] }
-                : {}),
-            },
-          );
-          results.push(result);
-
-          const isError = isFailedResult(result);
-          if (isError) {
-            const errorMsg = getResultOutput(result);
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}${formatYieldArtifacts(result)}${formatTranscriptReference(result)}`,
-                },
-              ],
-              details: makeDetails("chain")(results),
-              isError: true,
-            };
-          }
-          previousOutput = result.output;
-        }
-        const finalResult = results[results.length - 1]!;
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${finalResult.output || "(no output)"}${formatYieldArtifacts(finalResult)}`,
-            },
-          ],
-          details: makeDetails("chain")(results),
-        };
-      }
-
-      if (params.tasks && params.tasks.length > 0) {
-        if (params.tasks.length > limits.maxChildrenPerCall)
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Too many parallel tasks (${params.tasks.length}). Max is ${limits.maxChildrenPerCall}.`,
-              },
-            ],
-            details: makeDetails("parallel")([]),
-          };
-
-        // Track all results for streaming updates
-        const allResults: SingleResult[] = new Array(params.tasks.length);
-
-        // Initialize placeholder results
-        for (let i = 0; i < params.tasks.length; i++) {
-          const task = params.tasks[i]!;
-          const configuredAgent = agents.find(
-            (agent) => agent.name === task.agent,
-          );
-          const profileName = resolveProfileName(
-            task.profile,
-            configuredAgent?.profile,
-          );
-          const firstCandidate = profileName
-            ? profiles.profiles[profileName]?.candidates[0]
-            : undefined;
-          const requestedModel = task.model
-            ? resolveRequestedModel(
-                task.model,
-                configuredAgent?.model,
-                resolveModel,
-              )
-            : firstCandidate
-              ? formatProfileCandidate(firstCandidate)
-              : profileName
-                ? undefined
-                : resolveRequestedModel(
-                    undefined,
-                    configuredAgent?.model,
-                    resolveModel,
-                  );
-          allResults[i] = {
-            agent: task.agent,
-            ...(configuredAgent?.emoji
-              ? { agentEmoji: configuredAgent.emoji }
-              : {}),
-            agentSource: configuredAgent?.source ?? "unknown",
-            task: task.task,
-            exitCode: -1, // -1 = still running
-            messages: [],
-            output: "",
-            stderr: "",
-            ...(requestedModel !== undefined ? { requestedModel } : {}),
-            ...(task.model || !profileName ? {} : { profile: profileName }),
-            usage: createEmptyUsage(),
-          };
-        }
-
-        const emitParallelUpdate = () => {
-          if (onUpdate) {
-            const running = allResults.filter((r) => r.exitCode === -1).length;
-            const done = allResults.filter((r) => r.exitCode !== -1).length;
-            onUpdate({
-              content: [
-                {
-                  type: "text",
-                  text: `Parallel: ${done}/${allResults.length} done, ${running} running...`,
-                },
-              ],
-              details: makeDetails("parallel")([...allResults]),
-            });
-          }
-        };
-
-        const results = await mapWithConcurrencyLimit(
-          params.tasks,
-          limits.maxConcurrency,
-          async (t, index) => {
-            const executionTask = buildSharedTaskPrompt(t.task, sharedContext);
-            const result = await runAgentWithProfile(
-              ctx.cwd,
-              agents,
-              profiles,
-              getAvailableModelReferences,
-              t.agent,
-              executionTask,
-              t.model,
-              t.profile,
-              t.cwd,
-              undefined,
-              trace,
-              limits,
-              concurrency,
-              activeProcesses,
-              signal,
-              // Per-task update callback
-              (partial) => {
-                if (partial.details?.results[0]) {
-                  allResults[index] = {
-                    ...partial.details.results[0],
-                    task: t.task,
-                  };
-                  emitParallelUpdate();
-                }
-              },
-              makeDetails("parallel"),
-              resolveModel,
-              {
-                ...((t.isolation ?? params.isolation) !== undefined
-                  ? {
-                      isolation: (t.isolation ??
-                        params.isolation) as SubagentIsolationOptions,
-                    }
-                  : {}),
-                ...((t.tools ?? params.tools) !== undefined
-                  ? { tools: (t.tools ?? params.tools) as readonly string[] }
-                  : {}),
-              },
-            );
-            result.task = t.task;
-            allResults[index] = result;
-            emitParallelUpdate();
-            return result;
-          },
-        );
-
-        const successCount = results.filter((r) => !isFailedResult(r)).length;
-        const summaries = results.map((r) => {
-          const output = truncateParallelOutput(
-            getResultOutput(r),
-            r.transcriptPath,
-          );
-          const status = r.yieldStatus
-            ? r.yieldStatus
-            : isFailedResult(r)
-              ? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
-              : "completed";
-          const transcript = isFailedResult(r)
-            ? formatTranscriptReference(r)
-            : "";
-          return `### [${formatResultAgentName(r)}] ${status}\n\n${output}${formatYieldArtifacts(r)}${transcript}`;
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Parallel: ${successCount}/${results.length} succeeded\n\n${summaries.join("\n\n---\n\n")}`,
-            },
-          ],
-          details: makeDetails("parallel")(results),
-        };
-      }
-
-      if (params.agent && params.task) {
-        const result = await runAgentWithProfile(
-          ctx.cwd,
-          agents,
-          profiles,
-          getAvailableModelReferences,
-          params.agent,
-          params.task,
-          params.model,
-          params.profile,
-          params.cwd,
-          undefined,
-          trace,
-          limits,
-          concurrency,
-          activeProcesses,
-          signal,
-          onUpdate,
-          makeDetails("single"),
-          resolveModel,
-          {
-            ...(params.isolation !== undefined
-              ? { isolation: params.isolation as SubagentIsolationOptions }
-              : {}),
-            ...(params.tools !== undefined
-              ? { tools: params.tools as readonly string[] }
-              : {}),
-          },
-        );
-        const isError = isFailedResult(result);
-        if (isError) {
-          const errorMsg = getResultOutput(result);
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Agent ${result.stopReason || "failed"}: ${errorMsg}${formatYieldArtifacts(result)}${formatTranscriptReference(result)}`,
-              },
-            ],
-            details: makeDetails("single")([result]),
-            isError: true,
-          };
-        }
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${result.output || "(no output)"}${formatYieldArtifacts(result)}`,
-            },
-          ],
-          details: makeDetails("single")([result]),
-        };
-      }
-
-      const available =
-        agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Invalid parameters. Available agents: ${available}`,
-          },
-        ],
-        details: makeDetails("single")([]),
       };
+      const parsed = parseSubagentCall(params);
+      const action = parsed.ok ? parsed.command.kind : parsed.action;
+      if (action !== "run" && currentDelegationDepth() > 0)
+        return managedError(call, NESTED_MANAGED_MESSAGE);
+      if (!parsed.ok) return managedError(call, parsed.error);
+      const { command } = parsed;
+      return command.kind === "run"
+        ? runCommand(call, command, onUpdate)
+        : managedCommand(call, command);
     },
 
     renderCall(args, theme, context) {
-      const scope: AgentScope =
-        args.agentScope === "project" || args.agentScope === "both"
-          ? args.agentScope
-          : "user";
-      const agents = getRenderAgents(
-        context.cwd,
-        scope,
-        context.state as SubagentRenderState,
-      );
-      const displayAgentName = (name: string) =>
-        resolveAgentDisplayName(name, agents);
-      const requestedProfile = (value: { profile?: string; model?: string }) =>
-        value.model ? undefined : value.profile;
-      if (args.chain && args.chain.length > 0) {
-        let text =
-          theme.fg("toolTitle", theme.bold("subagent ")) +
-          theme.fg("accent", `chain (${args.chain.length} steps)`) +
-          theme.fg("muted", ` [${scope}]`);
-        for (let i = 0; i < Math.min(args.chain.length, 3); i++) {
-          const step = args.chain[i]!;
-          // Clean up {previous} placeholder for display
-          const cleanTask = step.task.replace(/\{previous\}/g, "").trim();
-          const preview =
-            cleanTask.length > 40 ? `${cleanTask.slice(0, 40)}...` : cleanTask;
-          text +=
-            "\n  " +
-            theme.fg("muted", `${i + 1}.`) +
-            " " +
-            theme.fg("accent", displayAgentName(step.agent)) +
-            formatProfileBadge(requestedProfile(step), theme) +
-            theme.fg("dim", ` ${preview}`);
-        }
-        if (args.chain.length > 3)
-          text += `\n  ${theme.fg("muted", `... +${args.chain.length - 3} more`)}`;
-        return new Text(text, 0, 0);
-      }
-      if (args.tasks && args.tasks.length > 0) {
-        let text =
-          theme.fg("toolTitle", theme.bold("subagent ")) +
-          theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
-          theme.fg("muted", ` [${scope}]`);
-        for (const t of args.tasks.slice(0, 3)) {
-          const preview =
-            t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
-          text += `\n  ${theme.fg("accent", displayAgentName(t.agent))}${formatProfileBadge(requestedProfile(t), theme)}${theme.fg("dim", ` ${preview}`)}`;
-        }
-        if (args.tasks.length > 3)
-          text += `\n  ${theme.fg("muted", `... +${args.tasks.length - 3} more`)}`;
-        return new Text(text, 0, 0);
-      }
-      const agentName = args.agent || "...";
-      const preview = args.task
-        ? args.task.length > 60
-          ? `${args.task.slice(0, 60)}...`
-          : args.task
-        : "...";
-      let text =
-        theme.fg("toolTitle", theme.bold("subagent ")) +
-        theme.fg("accent", displayAgentName(agentName)) +
-        formatProfileBadge(requestedProfile(args), theme) +
-        theme.fg("muted", ` [${scope}]`);
-      text += `\n  ${theme.fg("dim", preview)}`;
-      return new Text(text, 0, 0);
+      return renderSubagentCall(args, theme, context);
     },
 
-    renderResult(result, { expanded }, theme, _context) {
-      const details = result.details as SubagentDetails | undefined;
-      if (details?.managedSpawn && !expanded) {
-        const { started, failed, manualOpen } = details.managedSpawn;
-        const summary = `${started} background worker${started === 1 ? "" : "s"} started${failed ? ` · ${failed} launch${failed === 1 ? "" : "es"} failed` : ""}${manualOpen ? " · manual open only" : ""}`;
-        return new Text(
-          theme.fg(failed || manualOpen ? "warning" : "muted", summary),
-          0,
-          0,
-        );
-      }
-      if (!details || details.results.length === 0) {
-        const text = result.content[0];
-        return new Text(
-          text?.type === "text" ? text.text : "(no output)",
-          0,
-          0,
-        );
-      }
-
-      const mdTheme = getMarkdownTheme();
-
-      const renderDisplayItems = (items: DisplayItem[], limit?: number) => {
-        const toShow = limit ? items.slice(-limit) : items;
-        const skipped =
-          limit && items.length > limit ? items.length - limit : 0;
-        let text = "";
-        if (skipped > 0)
-          text += theme.fg("muted", `... ${skipped} earlier items\n`);
-        for (const item of toShow) {
-          if (item.type === "text") {
-            const preview = expanded
-              ? item.text
-              : item.text.split("\n").slice(0, 3).join("\n");
-            text += `${theme.fg("toolOutput", preview)}\n`;
-          } else {
-            text += `${theme.fg("muted", "→ ") + formatToolCall(item.name, item.args, theme.fg.bind(theme))}\n`;
-          }
-        }
-        return text.trimEnd();
-      };
-
-      const appendTranscriptInfo = (
-        container: Container,
-        subagentResult: SingleResult,
-      ): void => {
-        if (subagentResult.yieldStatus) {
-          container.addChild(
-            new Text(
-              theme.fg(
-                "muted",
-                `Structured yield: ${subagentResult.yieldStatus}`,
-              ),
-              0,
-              0,
-            ),
-          );
-        }
-        for (const artifact of subagentResult.yieldArtifacts ?? []) {
-          container.addChild(
-            new Text(
-              theme.fg(
-                "dim",
-                `Yield artifact: ${formatTranscriptPath(artifact)}`,
-              ),
-              0,
-              0,
-            ),
-          );
-        }
-        const bounded: string[] = [];
-        if (subagentResult.outputTruncated) bounded.push("output");
-        if (subagentResult.traceTruncated) bounded.push("recent trace");
-        if (subagentResult.stderrTruncated) bounded.push("stderr");
-        if (subagentResult.errorTruncated) bounded.push("error");
-        if (bounded.length > 0) {
-          container.addChild(
-            new Text(
-              theme.fg("muted", `Bounded preview: ${bounded.join(", ")}`),
-              0,
-              0,
-            ),
-          );
-        }
-        if (subagentResult.transcriptPath) {
-          container.addChild(
-            new Text(
-              theme.fg(
-                "dim",
-                `Full transcript: ${formatTranscriptPath(subagentResult.transcriptPath)}`,
-              ),
-              0,
-              0,
-            ),
-          );
-        }
-        if (subagentResult.transcriptError) {
-          container.addChild(
-            new Text(
-              theme.fg(
-                "warning",
-                `Transcript write error: ${subagentResult.transcriptError}`,
-              ),
-              0,
-              0,
-            ),
-          );
-        }
-        if (subagentResult.sessionId) {
-          container.addChild(
-            new Text(
-              theme.fg(
-                "dim",
-                `Resume: pi --session ${subagentResult.sessionId}`,
-              ),
-              0,
-              0,
-            ),
-          );
-        }
-        if (subagentResult.sessionFilePath) {
-          container.addChild(
-            new Text(
-              theme.fg(
-                "dim",
-                `Live view: tail -f ${formatTranscriptPath(subagentResult.sessionFilePath)}`,
-              ),
-              0,
-              0,
-            ),
-          );
-        }
-        for (const attempt of subagentResult.attempts ?? []) {
-          if (
-            !attempt.transcriptPath ||
-            attempt.transcriptPath === subagentResult.transcriptPath
-          )
-            continue;
-          const model =
-            attempt.model ?? attempt.requestedModel ?? "unknown model";
-          container.addChild(
-            new Text(
-              theme.fg(
-                "dim",
-                `Attempt transcript (${model}): ${formatTranscriptPath(attempt.transcriptPath)}`,
-              ),
-              0,
-              0,
-            ),
-          );
-        }
-      };
-
-      if (details.mode === "single" && details.results.length === 1) {
-        const r = details.results[0]!;
-        const isError = isFailedResult(r);
-        const icon = isError
-          ? theme.fg("error", "✗")
-          : theme.fg("success", "✓");
-        const displayItems = getDisplayItems(r.messages);
-        const finalOutput = r.output;
-
-        if (expanded) {
-          const container = new Container();
-          let header = `${icon} ${theme.fg("toolTitle", theme.bold(formatResultAgentName(r)))}${formatProfileBadge(r.profile, theme)}${theme.fg("muted", ` (${r.agentSource})${formatTraceSuffix(r, details.trace)}`)}`;
-          if (isError && r.stopReason)
-            header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-          container.addChild(new Text(header, 0, 0));
-          if (isError && r.errorMessage)
-            container.addChild(
-              new Text(theme.fg("error", `Error: ${r.errorMessage}`), 0, 0),
-            );
-          container.addChild(new Spacer(1));
-          container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
-          container.addChild(new Text(theme.fg("dim", r.task), 0, 0));
-          container.addChild(new Spacer(1));
-          container.addChild(
-            new Text(theme.fg("muted", "─── Output ───"), 0, 0),
-          );
-          if (displayItems.length === 0 && !finalOutput) {
-            container.addChild(
-              new Text(theme.fg("muted", "(no output)"), 0, 0),
-            );
-          } else {
-            for (const item of displayItems) {
-              if (item.type === "toolCall")
-                container.addChild(
-                  new Text(
-                    theme.fg("muted", "→ ") +
-                      formatToolCall(
-                        item.name,
-                        item.args,
-                        theme.fg.bind(theme),
-                      ),
-                    0,
-                    0,
-                  ),
-                );
-            }
-            if (finalOutput) {
-              container.addChild(new Spacer(1));
-              container.addChild(
-                new Markdown(finalOutput.trim(), 0, 0, mdTheme),
-              );
-            }
-          }
-          const usageStr = formatUsageStats(
-            r.usage,
-            r.model ?? r.requestedModel,
-          );
-          if (usageStr) {
-            container.addChild(new Spacer(1));
-            container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
-          }
-          appendTranscriptInfo(container, r);
-          return container;
-        }
-
-        let text = `${icon} ${theme.fg("toolTitle", theme.bold(formatResultAgentName(r)))}${formatProfileBadge(r.profile, theme)}${theme.fg("muted", ` (${r.agentSource})`)}`;
-        if (isError && r.stopReason)
-          text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
-        if (isError && r.errorMessage)
-          text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
-        else if (displayItems.length > 0) {
-          text += `\n${renderDisplayItems(displayItems, COLLAPSED_ITEM_COUNT)}`;
-          if (displayItems.length > COLLAPSED_ITEM_COUNT)
-            text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        } else if (finalOutput)
-          text += `\n${theme.fg("toolOutput", getCollapsedOutput(finalOutput))}`;
-        else text += `\n${theme.fg("muted", "(no output)")}`;
-        const usageStr = formatUsageStats(r.usage, r.model ?? r.requestedModel);
-        if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
-        return new Text(text, 0, 0);
-      }
-
-      const aggregateUsage = (results: SingleResult[]) => {
-        const total = {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          cost: 0,
-          turns: 0,
-        };
-        for (const r of results) {
-          total.input += r.usage.input;
-          total.output += r.usage.output;
-          total.cacheRead += r.usage.cacheRead;
-          total.cacheWrite += r.usage.cacheWrite;
-          total.cost += r.usage.cost;
-          total.turns += r.usage.turns;
-        }
-        return total;
-      };
-
-      const appendExpandedResultOutput = (
-        container: Container,
-        result: SingleResult,
-      ): void => {
-        for (const item of getDisplayItems(result.messages)) {
-          if (item.type !== "toolCall") continue;
-          container.addChild(
-            new Text(
-              theme.fg("muted", "→ ") +
-                formatToolCall(item.name, item.args, theme.fg.bind(theme)),
-              0,
-              0,
-            ),
-          );
-        }
-
-        const finalOutput = result.output;
-        if (finalOutput) {
-          container.addChild(new Spacer(1));
-          container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
-        }
-
-        const usage = formatUsageStats(
-          result.usage,
-          result.model ?? result.requestedModel,
-        );
-        if (usage) container.addChild(new Text(theme.fg("dim", usage), 0, 0));
-        appendTranscriptInfo(container, result);
-      };
-
-      if (details.mode === "chain") {
-        const successCount = details.results.filter(
-          (r) => !isFailedResult(r),
-        ).length;
-        const icon =
-          successCount === details.results.length
-            ? theme.fg("success", "✓")
-            : theme.fg("error", "✗");
-
-        if (expanded) {
-          const container = new Container();
-          container.addChild(
-            new Text(
-              icon +
-                " " +
-                theme.fg("toolTitle", theme.bold("chain ")) +
-                theme.fg(
-                  "accent",
-                  `${successCount}/${details.results.length} steps`,
-                ),
-              0,
-              0,
-            ),
-          );
-
-          for (const r of details.results) {
-            const rIcon = !isFailedResult(r)
-              ? theme.fg("success", "✓")
-              : theme.fg("error", "✗");
-
-            container.addChild(new Spacer(1));
-            container.addChild(
-              new Text(
-                `${theme.fg("muted", `─── Step ${r.step}: `) + theme.fg("accent", formatResultAgentName(r))}${formatProfileBadge(r.profile, theme)} ${rIcon}${theme.fg("muted", formatTraceSuffix(r, details.trace))}`,
-                0,
-                0,
-              ),
-            );
-            container.addChild(
-              new Text(
-                theme.fg("muted", "Task: ") + theme.fg("dim", r.task),
-                0,
-                0,
-              ),
-            );
-            appendExpandedResultOutput(container, r);
-          }
-
-          const usageStr = formatUsageStats(aggregateUsage(details.results));
-          if (usageStr) {
-            container.addChild(new Spacer(1));
-            container.addChild(
-              new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0),
-            );
-          }
-          return container;
-        }
-
-        // Collapsed view
-        let text =
-          icon +
-          " " +
-          theme.fg("toolTitle", theme.bold("chain ")) +
-          theme.fg("accent", `${successCount}/${details.results.length} steps`);
-        for (const r of details.results) {
-          const rIcon = !isFailedResult(r)
-            ? theme.fg("success", "✓")
-            : theme.fg("error", "✗");
-          const displayItems = getDisplayItems(r.messages);
-          text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", formatResultAgentName(r))}${formatProfileBadge(r.profile, theme)} ${rIcon}`;
-          if (displayItems.length > 0)
-            text += `\n${renderDisplayItems(displayItems, 5)}`;
-          else if (r.output)
-            text += `\n${theme.fg("toolOutput", getCollapsedOutput(r.output))}`;
-          else text += `\n${theme.fg("muted", "(no output)")}`;
-        }
-        const usageStr = formatUsageStats(aggregateUsage(details.results));
-        if (usageStr) text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
-        text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        return new Text(text, 0, 0);
-      }
-
-      if (details.mode === "parallel") {
-        const running = details.results.filter((r) => r.exitCode === -1).length;
-        const successCount = details.results.filter(
-          (r) => r.exitCode !== -1 && !isFailedResult(r),
-        ).length;
-        const failCount = details.results.filter(
-          (r) => r.exitCode !== -1 && isFailedResult(r),
-        ).length;
-        const isRunning = running > 0;
-        const icon = isRunning
-          ? theme.fg("warning", "⏳")
-          : failCount > 0
-            ? theme.fg("warning", "◐")
-            : theme.fg("success", "✓");
-        const status = isRunning
-          ? `${successCount + failCount}/${details.results.length} done, ${running} running`
-          : `${successCount}/${details.results.length} tasks`;
-
-        if (expanded && !isRunning) {
-          const container = new Container();
-          container.addChild(
-            new Text(
-              `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`,
-              0,
-              0,
-            ),
-          );
-
-          for (const r of details.results) {
-            const rIcon = isFailedResult(r)
-              ? theme.fg("error", "✗")
-              : theme.fg("success", "✓");
-
-            container.addChild(new Spacer(1));
-            container.addChild(
-              new Text(
-                `${theme.fg("muted", "─── ") + theme.fg("accent", formatResultAgentName(r))}${formatProfileBadge(r.profile, theme)} ${rIcon}${theme.fg("muted", formatTraceSuffix(r, details.trace))}`,
-                0,
-                0,
-              ),
-            );
-            container.addChild(
-              new Text(
-                theme.fg("muted", "Task: ") + theme.fg("dim", r.task),
-                0,
-                0,
-              ),
-            );
-            appendExpandedResultOutput(container, r);
-          }
-
-          const usageStr = formatUsageStats(aggregateUsage(details.results));
-          if (usageStr) {
-            container.addChild(new Spacer(1));
-            container.addChild(
-              new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0),
-            );
-          }
-          return container;
-        }
-
-        // Collapsed view (or still running)
-        let text = `${icon} ${theme.fg("toolTitle", theme.bold("parallel "))}${theme.fg("accent", status)}`;
-        for (const r of details.results) {
-          const rIcon =
-            r.exitCode === -1
-              ? theme.fg("warning", "⏳")
-              : isFailedResult(r)
-                ? theme.fg("error", "✗")
-                : theme.fg("success", "✓");
-          const displayItems = getDisplayItems(r.messages);
-          text += `\n\n${theme.fg("muted", "─── ")}${theme.fg("accent", formatResultAgentName(r))}${formatProfileBadge(r.profile, theme)} ${rIcon}`;
-          if (displayItems.length > 0)
-            text += `\n${renderDisplayItems(displayItems, 5)}`;
-          else if (r.exitCode === -1)
-            text += `\n${theme.fg("muted", "(running...)")}`;
-          else if (r.output)
-            text += `\n${theme.fg("toolOutput", getCollapsedOutput(r.output))}`;
-          else text += `\n${theme.fg("muted", "(no output)")}`;
-        }
-        if (!isRunning) {
-          const usageStr = formatUsageStats(aggregateUsage(details.results));
-          if (usageStr) text += `\n\n${theme.fg("dim", `Total: ${usageStr}`)}`;
-        }
-        if (!expanded) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;
-        return new Text(text, 0, 0);
-      }
-
-      const text = result.content[0];
-      return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
+    renderResult(result, options, theme) {
+      return renderSubagentResult(result, options, theme);
     },
+  };
+}
+
+export function registerSubagent(
+  pi: ExtensionAPI,
+  extensionDir = path.dirname(fileURLToPath(import.meta.url)),
+  options: SubagentRegistrationOptions = {},
+) {
+  if (currentDelegationDepth() > 0 && !isManagedChildProcess())
+    registerSubagentYield(pi);
+  const profilesPath = resolveProfilesPath(getAgentDir());
+  // Registration-time snapshot drives the tool schema (profile-name enum) and
+  // description; call-time resolution reloads on file change so ladder edits
+  // apply to long-running sessions without a restart.
+  const profiles = loadModelProfiles(profilesPath);
+  let profilesCache: SubagentProfilesCache | undefined;
+  const loadProfiles = (): ModelProfilesConfig => {
+    profilesCache = loadSubagentProfilesCurrent(profilesPath, profilesCache);
+    return profilesCache.config;
+  };
+  const limits = loadSubagentLimits(path.join(extensionDir, "limits.json"));
+  const resources = new SessionResources({
+    limits,
+    runtimeFactory: options.managedRuntimeFactory ?? getManagedRuntime,
+    processRegistryFactory:
+      options.processRegistryFactory ?? (() => new SubagentProcessRegistry()),
+    runtimeOptions: (parentSessionId, gate) => ({
+      parentSessionId,
+      agentDir: getAgentDir(),
+      limits,
+      gate,
+      env: process.env,
+    }),
   });
-  registerManagedUi(pi, runtimeForUi, managedNotifications.isReported);
+
+  pi.on("session_start", async (_event, ctx) => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    try {
+      if (currentDelegationDepth() > 0) await resources.enter(sessionId);
+      else
+        await resources.enterManaged(sessionId, (message) =>
+          notifyLifecycle(ctx, message),
+        );
+    } catch (error) {
+      notifyLifecycle(
+        ctx,
+        `Could not initialize managed subagents: ${errorText(error)}`,
+      );
+    }
+  });
+  pi.on("session_shutdown", (event, ctx) =>
+    resources.shutdown(event.reason, (reason) =>
+      notifyLifecycle(
+        ctx,
+        `Could not suspend managed subagents: ${errorText(reason)}`,
+      ),
+    ),
+  );
+  // Registered after the session handlers above so the runtime exists before reports start.
+  const notifications = registerManagedNotifications(pi, async (ctx) =>
+    currentDelegationDepth() > 0
+      ? undefined
+      : resources.reportingRuntime(ctx.sessionManager.getSessionId()),
+  );
+
+  pi.registerTool(
+    createSubagentTool(
+      { limits, resources, loadProfiles, notifications },
+      profiles,
+    ),
+  );
+  registerManagedUi(
+    pi,
+    (ctx) => {
+      if (currentDelegationDepth() > 0)
+        throw new ManagedError(
+          "depth",
+          "Managed subagents are only available in a top-level Pi session.",
+        );
+      return resources.runtimeForUi(ctx.sessionManager.getSessionId());
+    },
+    notifications.isReported,
+  );
 }

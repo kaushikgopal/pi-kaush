@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { errorText } from "./_parse.ts";
 
 export const SUBAGENT_TRACE_PREVIEW_BYTES = 64 * 1024;
 export const SUBAGENT_OUTPUT_PREVIEW_BYTES = 64 * 1024;
@@ -128,78 +129,8 @@ export function createTranscriptArtifact(
     const fd = fs.openSync(filePath, "wx", 0o600);
     return new JsonlTranscriptArtifact(filePath, fd, metadata);
   } catch (error) {
-    return new UnavailableTranscriptArtifact(
-      error instanceof Error ? error.message : String(error),
-    );
+    return new UnavailableTranscriptArtifact(errorText(error));
   }
-}
-
-function decodeUtf8(buffer: Buffer): string {
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  try {
-    return decoder.decode(buffer);
-  } catch {
-    return "";
-  }
-}
-
-export function truncateUtf8Head(
-  value: string,
-  maxBytes: number,
-): { value: string; truncated: boolean } {
-  const bytes = Buffer.from(value, "utf8");
-  if (bytes.length <= maxBytes) return { value, truncated: false };
-  for (
-    let end = Math.max(0, maxBytes);
-    end >= Math.max(0, maxBytes - 3);
-    end--
-  ) {
-    const decoded = decodeUtf8(bytes.subarray(0, end));
-    if (decoded || end === 0) return { value: decoded, truncated: true };
-  }
-  return { value: "", truncated: true };
-}
-
-export function truncateUtf8Tail(
-  value: string,
-  maxBytes: number,
-): { value: string; truncated: boolean } {
-  const bytes = Buffer.from(value, "utf8");
-  if (bytes.length <= maxBytes) return { value, truncated: false };
-  const start = Math.max(0, bytes.length - maxBytes);
-  for (
-    let offset = start;
-    offset <= Math.min(bytes.length, start + 3);
-    offset++
-  ) {
-    const decoded = decodeUtf8(bytes.subarray(offset));
-    if (decoded || offset === bytes.length)
-      return { value: decoded, truncated: true };
-  }
-  return { value: "", truncated: true };
-}
-
-export function appendBoundedJsonValue<T>(
-  values: T[],
-  value: T,
-  maxBytes: number,
-): boolean {
-  const valueBytes = Buffer.byteLength(JSON.stringify(value), "utf8");
-  if (valueBytes > maxBytes) return true;
-
-  values.push(value);
-  let totalBytes = values.reduce(
-    (total, item) => total + Buffer.byteLength(JSON.stringify(item), "utf8"),
-    0,
-  );
-  let truncated = false;
-  while (values.length > 0 && totalBytes > maxBytes) {
-    const removed = values.shift();
-    if (removed !== undefined)
-      totalBytes -= Buffer.byteLength(JSON.stringify(removed), "utf8");
-    truncated = true;
-  }
-  return truncated;
 }
 
 function encodeSessionBucket(cwd: string): string {

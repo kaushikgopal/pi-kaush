@@ -15,11 +15,8 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { SessionConcurrencyGate } from "../src/_concurrency.ts";
-import {
-  createRpcHost,
-  getManagedRuntime,
-  type ManagedRuntime,
-} from "../src/_managed.ts";
+import { getManagedRuntime, type ManagedRuntime } from "../src/_managed.ts";
+import { createRpcHost } from "../src/_managed-host-rpc.ts";
 import type { SubagentLimitsConfig } from "../src/_limits.ts";
 import { SubagentProcessRegistry } from "../src/_process-tree.ts";
 

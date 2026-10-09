@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { describe, expect, test } from "vitest";
 import {
+  parseElapsedSeconds,
   shouldIsolateSubagentProcess,
   SubagentProcessRegistry,
   type RegisteredSubagentProcess,
@@ -261,4 +262,13 @@ describe("subagent process trees", () => {
       }
     });
   }
+});
+
+describe("process identity", () => {
+  test("parses ps elapsed times", () => {
+    expect(parseElapsedSeconds("  05:07\n")).toBe(307);
+    expect(parseElapsedSeconds("02:05:07")).toBe(7_507);
+    expect(parseElapsedSeconds("3-02:05:07")).toBe(266_707);
+    expect(parseElapsedSeconds("garbage")).toBeUndefined();
+  });
 });

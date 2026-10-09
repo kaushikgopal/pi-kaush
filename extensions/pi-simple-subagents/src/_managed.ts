@@ -1,85 +1,100 @@
 /**
  * Persistent managed workers: addressable, reusable Pi children that keep a
- * session between assignments. The runtime is held on `globalThis` so it
- * survives extension reloads; it owns only the workers it launched, persists
- * parent-side state in `config.json`/inbox files, and reads child-owned
- * `status.json` (see `_managed-store.ts`).
+ * session between assignments. Live workers, locks, and slot leases are held
+ * on `globalThis` so they survive extension reloads; each module revision
+ * builds a fresh runtime over them. The runtime owns only the workers it
+ * launched, persists parent-side state in `config.json`/inbox files, and reads
+ * child-owned `status.json` (see `_managed-store.ts`).
  *
  * Hosting: in Herdr (HERDR_ENV=1 with a caller workspace) each worker is a
  * native interactive Pi in an unfocused extension-owned tab; elsewhere it is a
  * portable `pi --mode rpc` subprocess whose open stdin keeps it alive. Both
  * load the `_managed-child.ts` bridge, so control never depends on terminal
- * keystrokes or terminal text.
+ * keystrokes or terminal text. Hosts live in `_managed-host*.ts`; lifecycle
+ * decisions in `_managed-policy.ts`.
  */
-import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import * as fs from "node:fs";
 import * as path from "node:path";
-import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
-import type { SessionConcurrencyGate } from "./_concurrency.ts";
+import {
+  createKeyedMutex,
+  type KeyedMutex,
+  type SessionConcurrencyGate,
+} from "./_concurrency.ts";
 import type { AgentConfig } from "./_definition.ts";
 import {
   buildChildSessionName,
-  buildSubagentEnvironment,
   currentDelegationDepth,
   type DelegationTrace,
+  delegationTraceEnvironment,
 } from "./_delegation.ts";
 import { formatAgentDisplayName } from "./_display.ts";
 import { getPiInvocation } from "./_execution.ts";
 import type { SubagentLimitsConfig } from "./_limits.ts";
 import {
+  defaultSleep,
+  ManagedError,
+  type ManagedHostPort,
+  type ManagedHostProcess,
+  type ManagedProcessIdentity,
+  ManagedStartupError,
+} from "./_managed-host.ts";
+import { detectManagedHost } from "./_managed-host-herdr.ts";
+import { encodeManagedBootEnv } from "./_managed-protocol.ts";
+import {
+  attemptSessionId,
+  classifyUnplannedExit,
+  holdsForFallback,
+  type LaunchKind,
+  nextCandidateStep,
+  transition,
+  UNEXPECTED_EXIT_MESSAGE,
+  watchdogVerdict,
+} from "./_managed-policy.ts";
+import {
   type ChildAssignment,
   type ChildAssignmentState,
   type ChildStatus,
   type ChildWorkerState,
-  emptyUsage,
   ensurePrivateDir,
+  enqueueInbox,
   isManagedHandle,
   isTerminalAssignmentState,
-  MANAGED_BOOT_ID_ENV,
-  MANAGED_CONTROL_FLOOR_ENV,
-  MANAGED_DIR_ENV,
-  MANAGED_FRESH_ATTEMPT_ENV,
-  MANAGED_HOLD_ON_MODEL_ERROR_ENV,
-  MANAGED_MAX_INACTIVITY_ENV,
-  MANAGED_MAX_RUNTIME_ENV,
+  listManagedHandles,
   MANAGED_MESSAGE_PREVIEW_BYTES,
-  MANAGED_PARENT_PID_ENV,
-  MANAGED_RESUME_FLOOR_ENV,
-  MANAGED_SESSION_ID_ENV,
   type ManagedAttempt,
   type ManagedConfig,
   type ManagedDelivery,
+  type ManagedEnqueueResult,
+  type ManagedInboxCommand,
   type ManagedIsolation,
   type ManagedLifecycle,
   type ManagedOutcome,
   type ManagedPaths,
   type ManagedPlacement,
-  type ManagedUsage,
   managedParentDir,
   managedPaths,
   readArchivedAssignment,
   readChildStatus,
   readInbox,
   readManagedConfig,
+  readStderrTail,
   writeFileAtomic,
-  writeInboxMessage,
   writeJsonAtomic,
+  writeManagedConfig,
 } from "./_managed-store.ts";
-import { SubagentProcessRegistry } from "./_process-tree.ts";
-import { truncateUtf8Head, truncateUtf8Tail } from "./_transcript.ts";
+import { errorText } from "./_parse.ts";
+import {
+  processStartIdentity,
+  SubagentProcessRegistry,
+} from "./_process-tree.ts";
+import { truncateUtf8Head } from "./_text.ts";
+import { emptyUsage, type UsageStats } from "./_usage.ts";
 import { includeSubagentYieldTool } from "./_yield.ts";
 
-export type {
-  ManagedDelivery,
-  ManagedIsolation,
-  ManagedLifecycle,
-  ManagedOutcome,
-  ManagedPlacement,
-  ManagedUsage,
-} from "./_managed-store.ts";
+export type { ManagedDelivery, ManagedIsolation } from "./_managed-store.ts";
 export { isManagedChildProcess } from "./_managed-store.ts";
+export { ManagedError } from "./_managed-host.ts";
 
 // ------------------------------------------------------------------ contract
 
@@ -100,27 +115,6 @@ export interface ManagedLaunch {
   readonly isolation?: ManagedIsolation;
 }
 
-export type ManagedErrorCode =
-  | "capacity"
-  | "depth"
-  | "ownership"
-  | "not_found"
-  | "not_running"
-  | "invalid"
-  | "launch"
-  | "unsupported"
-  | "aborted";
-
-export class ManagedError extends Error {
-  constructor(
-    readonly code: ManagedErrorCode,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ManagedError";
-  }
-}
-
 export type ManagedAssignmentState = ChildAssignmentState | "queued";
 
 export interface ManagedAssignmentView {
@@ -132,7 +126,7 @@ export interface ManagedAssignmentView {
   readonly disposition?: ChildAssignment["disposition"];
   readonly mergedInto?: string;
   readonly outcome?: ManagedOutcome;
-  readonly usage: ManagedUsage;
+  readonly usage: UsageStats;
   readonly toolActivity: boolean;
   readonly model?: string;
   readonly startedAt?: number;
@@ -168,7 +162,7 @@ export interface ManagedWorkerView {
   readonly dir: string;
   readonly sessionId: string;
   readonly sessionFile?: string;
-  readonly usage: ManagedUsage;
+  readonly usage: UsageStats;
   readonly toolActivity: boolean;
   readonly activeAssignmentId?: string;
   readonly queued: number;
@@ -223,64 +217,6 @@ export interface ManagedRuntime {
 }
 
 // --------------------------------------------------------------------- ports
-
-export interface ManagedHostLaunch {
-  readonly handle: string;
-  readonly bootId: string;
-  readonly label: string;
-  readonly cwd: string;
-  readonly command: string;
-  readonly args: readonly string[];
-  /** Pi CLI arguments alone; hosts that launch the installed `pi` themselves use these. */
-  readonly piArgs: readonly string[];
-  /** Managed and delegation variables only; hosts add their own base environment. */
-  readonly env: Record<string, string>;
-  readonly paths: ManagedPaths;
-  /** Other live worker placements, used only to stack Herdr panes below owned siblings. */
-  readonly ownedPlacements?: readonly ManagedPlacement[];
-  /** Aborts a launch that is still waiting on the host. */
-  readonly signal?: AbortSignal;
-}
-
-export interface ManagedHostProcess {
-  readonly placement: ManagedPlacement;
-  /** Resolves once the worker process is gone. */
-  readonly exited: Promise<void>;
-  /** Forced, idempotent process-tree and placement cleanup. */
-  terminate(): Promise<void>;
-  /**
-   * Graceful stop the host can deliver itself (RPC: close stdin, which Pi
-   * treats as shutdown even when the bridge's own shutdown request is deferred).
-   */
-  requestStop?(): void;
-  /** The host already confirmed Pi reached its interactive prompt. */
-  readonly readyConfirmed?: boolean;
-}
-
-/** Startup failures that a different model cannot fix are not retried on the next candidate. */
-export class ManagedStartupError extends Error {
-  constructor(
-    message: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = "ManagedStartupError";
-  }
-}
-
-/**
- * Whether `pid` is still the process that reported it at `aliveAt`: `match`
- * when it is alive and started no later than that report (a PID names one
- * process at a time), `other` when it started afterwards (PID reuse), `gone`
- * when nothing runs under it, `unknown` when that cannot be checked.
- */
-export type ManagedProcessIdentity = "match" | "other" | "gone" | "unknown";
-
-export interface ManagedHostPort {
-  readonly kind: "herdr" | "rpc";
-  launch(request: ManagedHostLaunch): Promise<ManagedHostProcess>;
-  focus(placement: ManagedPlacement): Promise<void>;
-}
 
 export interface ManagedRuntimePorts {
   readonly host: ManagedHostPort;
@@ -413,18 +349,17 @@ export function deriveAssignmentView(input: {
   readonly inboxText: (
     assignmentId: string,
   ) => { seq: number; text: string } | undefined;
-  readonly live: boolean;
-  /** Boot of the live worker; recognizes a child whose session was replaced. */
+  /** Boot of the live worker, absent when none lives; recognizes a child whose session was replaced. */
   readonly liveBootId?: string;
   readonly assignmentId: string;
 }): ManagedAssignmentView | undefined {
-  const { config, live, assignmentId } = input;
+  const { config, assignmentId } = input;
+  const live = input.liveBootId !== undefined;
   const raw = input.status;
   // The live boot reporting a session the parent did not launch, or stopping
   // itself with an error (for example after /new or /resume in its tab), has
   // detached; its work is never pending.
   const sameBoot =
-    live &&
     raw !== undefined &&
     input.liveBootId !== undefined &&
     raw.bootId === input.liveBootId;
@@ -496,850 +431,177 @@ export function deriveAssignmentView(input: {
   };
 }
 
-// ---------------------------------------------------------------- hosts
-
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as { code?: unknown }).code === "EPERM";
-  }
-}
-
-function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new ManagedError("aborted", "Managed wait was aborted."));
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    timer.unref?.();
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new ManagedError("aborted", "Managed wait was aborted."));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-/** Tracks a worker PID that this process did not spawn (Herdr pane children). */
-function registerForeignPid(registry: SubagentProcessRegistry, pid: number) {
-  // SAFETY: SubagentProcessRegistry.register reads only `proc.pid`; the pane
-  // shell owns the real ChildProcess. Replace with a registerPid API if added.
-  return registry.register({ pid } as ChildProcess, false);
-}
-
-function withoutHerdrEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const result = { ...env };
-  for (const key of Object.keys(result)) {
-    if (key.toUpperCase().startsWith("HERDR_")) delete result[key];
-  }
-  return result;
-}
-
-const RPC_DIALOG_METHODS = new Set(["select", "confirm", "input", "editor"]);
-const RPC_RECORD_PREFIXES = [
-  '{"type":"extension_ui_request"',
-  '{"type":"extension_error"',
-];
-const RPC_PREFIX_PROBE = Math.max(
-  ...RPC_RECORD_PREFIXES.map((prefix) => prefix.length),
-);
-// Dialog requests can carry an editor prefill; anything larger is not a record we act on.
-const RPC_MAX_RECORD_CHARS = 1024 * 1024;
-const RPC_DIAGNOSTIC_ENTRY_BYTES = 512;
-const RPC_DIAGNOSTIC_TOTAL_BYTES = 64 * 1024;
-
-/**
- * Strict LF-delimited JSONL reader for Pi RPC stdout. Readline is unsuitable
- * because JSON strings may contain U+2028/U+2029. Only records the host acts
- * on are buffered and parsed; transcript events stream past unkept.
- */
-export function createRpcRecordReader(
-  onRecord: (record: Record<string, unknown>) => void,
-): { push(chunk: Buffer | string): void; end(): void } {
-  const decoder = new StringDecoder("utf8");
-  let line = "";
-  let skipping = false;
-  const wanted = (text: string) =>
-    RPC_RECORD_PREFIXES.some((prefix) => text.startsWith(prefix));
-  const finish = () => {
-    const text = line.endsWith("\r") ? line.slice(0, -1) : line;
-    const keep = !skipping && wanted(text);
-    line = "";
-    skipping = false;
-    if (!keep) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return;
-    }
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
-      onRecord(parsed as Record<string, unknown>);
-  };
-  const consume = (text: string) => {
-    let start = 0;
-    for (;;) {
-      const newline = text.indexOf("\n", start);
-      if (!skipping) {
-        line += newline === -1 ? text.slice(start) : text.slice(start, newline);
-        if (
-          line.length > RPC_MAX_RECORD_CHARS ||
-          (line.length >= RPC_PREFIX_PROBE && !wanted(line))
-        ) {
-          line = "";
-          skipping = true;
-        }
-      }
-      if (newline === -1) return;
-      finish();
-      start = newline + 1;
-    }
-  };
-  return {
-    push: (chunk) =>
-      consume(typeof chunk === "string" ? chunk : decoder.write(chunk)),
-    end: () => {
-      consume(decoder.end());
-      if (line) finish();
-      line = "";
-      skipping = false;
-    },
-  };
-}
-
-/** Bounded diagnostics appended to the worker's stderr log, which startup and exit errors quote. */
-function createDiagnosticLog(file: string): (entry: string) => void {
-  let written = 0;
-  return (entry) => {
-    if (written >= RPC_DIAGNOSTIC_TOTAL_BYTES) return;
-    const text = truncateUtf8Head(
-      entry.replace(/\s+/g, " "),
-      RPC_DIAGNOSTIC_ENTRY_BYTES,
-    ).value;
-    const line = `[managed rpc] ${text}\n`;
-    written += Buffer.byteLength(line);
-    try {
-      fs.appendFileSync(file, line, { mode: 0o600 });
-    } catch {
-      // Diagnostics are best effort.
-    }
-  };
-}
-
-/**
- * Acts on RPC records a headless worker would otherwise hang on or hide:
- * dialogs are cancelled (never approved) and extension errors are logged.
- * Notification and dialog contents are not copied anywhere.
- */
-export function handleRpcRecord(
-  record: Record<string, unknown>,
-  respond: (response: Record<string, unknown>) => void,
-  log: (entry: string) => void,
-): void {
-  if (record.type === "extension_error") {
-    const where = [
-      typeof record.event === "string" ? `in ${record.event}` : "",
-      typeof record.extensionPath === "string"
-        ? `(${path.basename(record.extensionPath)})`
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    const error =
-      typeof record.error === "string" ? record.error : "unknown error";
-    log(`extension error${where ? ` ${where}` : ""}: ${error}`);
-    return;
-  }
-  if (record.type !== "extension_ui_request" || typeof record.id !== "string")
-    return;
-  const method = typeof record.method === "string" ? record.method : "";
-  if (RPC_DIALOG_METHODS.has(method)) {
-    respond({ type: "extension_ui_response", id: record.id, cancelled: true });
-    log(`cancelled a ${method} dialog; managed workers cannot answer prompts`);
-    return;
-  }
-  if (method === "notify" && record.notifyType === "error")
-    log("an extension reported an error notification");
-}
-
-/** JSONL writer that honors stdin backpressure and drops output once the pipe fails. */
-function createStdinWriter(stdin: NodeJS.WritableStream | null | undefined): {
-  send(value: unknown): void;
-  end(): void;
-} {
-  const queue: string[] = [];
-  let waiting = false;
-  let ending = false;
-  let closed = !stdin;
-  const pump = () => {
-    if (!stdin || closed) {
-      queue.length = 0;
-      return;
-    }
-    while (!waiting && queue.length > 0) {
-      if (!stdin.write(queue.shift()!)) {
-        waiting = true;
-        stdin.once("drain", () => {
-          waiting = false;
-          pump();
-        });
-      }
-    }
-    if (!waiting && ending) {
-      closed = true;
-      stdin.end();
-    }
-  };
-  stdin?.on("error", () => {
-    closed = true;
-    queue.length = 0;
-  });
-  stdin?.on("close", () => {
-    closed = true;
-  });
-  return {
-    send(value) {
-      if (closed || ending) return;
-      queue.push(`${JSON.stringify(value)}\n`);
-      pump();
-    },
-    end() {
-      if (closed || ending) return;
-      ending = true;
-      pump();
-    },
-  };
-}
-
-export function createRpcHost(
-  registry: SubagentProcessRegistry,
-): ManagedHostPort {
-  return {
-    kind: "rpc",
-    async launch(request) {
-      if (request.signal?.aborted)
-        throw new ManagedError("aborted", "Managed worker launch was aborted.");
-      const stderrFd = fs.openSync(request.paths.stderr, "a", 0o600);
-      const isolated = process.platform !== "win32";
-      let proc: ChildProcess;
-      try {
-        proc = spawn(request.command, [...request.args], {
-          cwd: request.cwd,
-          env: { ...withoutHerdrEnvironment(process.env), ...request.env },
-          detached: isolated,
-          shell: false,
-          // Open stdin keeps RPC mode alive; EOF (including parent death) is its shutdown request.
-          stdio: ["pipe", "pipe", stderrFd],
-        });
-      } finally {
-        fs.closeSync(stderrFd);
-      }
-      const writer = createStdinWriter(proc.stdin);
-      const log = createDiagnosticLog(request.paths.stderr);
-      const reader = createRpcRecordReader((record) =>
-        handleRpcRecord(record, (response) => writer.send(response), log),
-      );
-      // Consuming stdout keeps Pi from blocking on a full pipe.
-      proc.stdout?.on("data", (chunk: Buffer) => reader.push(chunk));
-      proc.stdout?.on("end", () => reader.end());
-      proc.stdout?.on("error", () => {});
-      const registered = registry.register(proc, isolated);
-      const exited = new Promise<void>((resolve) => {
-        proc.once("close", () => resolve());
-        proc.once("error", () => resolve());
-      }).then(() => registered.complete());
-      return {
-        placement: {
-          kind: "rpc",
-          ...(proc.pid !== undefined ? { pid: proc.pid } : {}),
-        },
-        exited,
-        requestStop: () => writer.end(),
-        async terminate() {
-          writer.end();
-          registered.terminate();
-          await Promise.race([exited, registered.done]);
-          await registered.done;
-        },
-      };
-    },
-    async focus() {
-      throw new ManagedError(
-        "unsupported",
-        "Native TUI attachment is only available when Pi runs inside Herdr.",
-      );
-    },
-  };
-}
-
-export interface HerdrExecOptions {
-  readonly timeoutMs?: number;
-  readonly signal?: AbortSignal;
-}
-
-export interface HerdrHostOptions {
-  readonly parentPaneId: string;
-  readonly tabId: string;
-  readonly bin: string;
-  readonly exec: (
-    bin: string,
-    args: readonly string[],
-    options?: HerdrExecOptions,
-  ) => Promise<string>;
-  readonly registry: SubagentProcessRegistry;
-  readonly isPidAlive: (pid: number) => boolean;
-  readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
-  readonly pollMs: number;
-  /**
-   * Non-secret parent configuration the pane needs; pane shells inherit the
-   * Herdr server's environment, not this process's.
-   */
-  readonly forwardEnv?: Readonly<Record<string, string>>;
-  /** `herdr agent start --timeout`: how long Pi may take to reach its prompt. */
-  readonly startTimeoutMs?: number;
-}
-
-const HERDR_START_TIMEOUT_MS = 15_000;
-const HERDR_PANE_BUSY_RETRIES = 30;
-const HERDR_PANE_BUSY_DELAY_MS = 100;
-
-/**
- * Pi configuration safe to forward into a pane. Provider credentials and
- * per-session variables stay out: Herdr `--env` values are visible in process
- * listings and persisted in the pane's shell.
- */
-const HERDR_FORWARD_ENV_KEYS = [
-  "PI_CODING_AGENT_DIR",
-  "PI_PACKAGE_DIR",
-  "PI_OFFLINE",
-  "PI_SKIP_VERSION_CHECK",
-  "PI_TELEMETRY",
-  "PI_CACHE_RETENTION",
-] as const;
-
-export function herdrForwardEnvironment(
-  env: NodeJS.ProcessEnv,
-): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const key of HERDR_FORWARD_ENV_KEYS) {
-    const value = env[key];
-    if (value) result[key] = value;
-  }
-  return result;
-}
-
-/** Herdr's structured failure (`{"error":{"code","message"}}`); raw command lines are never quoted. */
-export class HerdrCommandError extends Error {
-  constructor(
-    readonly code: string | undefined,
-    message: string,
-  ) {
-    super(message);
-    this.name = "HerdrCommandError";
-  }
-}
-
-export function parseHerdrError(
-  output: string,
-): { code: string; message: string } | undefined {
-  for (const line of output.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) continue;
-    try {
-      const error = (
-        JSON.parse(trimmed) as {
-          error?: { code?: unknown; message?: unknown };
-        }
-      )?.error;
-      if (typeof error?.code === "string" && typeof error.message === "string")
-        return {
-          code: error.code,
-          message: truncateUtf8Head(error.message, 500).value,
-        };
-    } catch {
-      // Not a Herdr response line.
-    }
-  }
-  return undefined;
-}
-
-/** Herdr agent names: a lowercase letter, then up to 31 of `[a-z0-9_-]`. */
-export function herdrAgentName(handle: string, bootId: string): string {
-  const clean = (value: string) =>
-    value.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return `mw-${clean(handle.replace(/^mw-/, "")).slice(0, 12)}-${clean(bootId).slice(0, 12)}`.slice(
-    0,
-    32,
-  );
-}
-
-function herdrStartupError(error: unknown, timeoutMs: number): Error {
-  if (error instanceof ManagedError) return error;
-  const code = error instanceof HerdrCommandError ? error.code : undefined;
-  if (code === "agent_start_failed")
-    return new ManagedStartupError(
-      `Pi exited before it was ready. ${errorText(error)}`,
-      true,
-    );
-  if (code === "agent_not_ready")
-    return new ManagedStartupError(
-      "Pi is blocked during startup, for example on a trust or permission prompt. Managed workers never approve prompts; run pi once in this directory to resolve it, then retry.",
-      false,
-    );
-  if (code === "timeout")
-    return new ManagedStartupError(
-      `Pi did not reach its prompt within ${Math.round(timeoutMs / 1000)} s.`,
-      false,
-    );
-  return new ManagedStartupError(errorText(error), false);
-}
-
-function parseHerdrPane(
-  stdout: string,
-  fallbackTabId: string,
-): { tabId: string; paneId: string } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch {
-    throw new Error("herdr pane split returned non-JSON output");
-  }
-  const pane = (
-    parsed as { result?: { pane?: { pane_id?: unknown; tab_id?: unknown } } }
-  )?.result?.pane;
-  const paneId = pane?.pane_id;
-  const tabId = pane?.tab_id ?? fallbackTabId;
-  if (typeof paneId !== "string" || !paneId)
-    throw new Error("herdr pane split did not return a pane ID");
-  if (typeof tabId !== "string" || !tabId)
-    throw new Error("herdr pane split did not identify its tab");
-  return { tabId, paneId };
-}
-
-function isMissingHerdrPane(error: unknown): boolean {
-  return error instanceof HerdrCommandError && error.code === "pane_not_found";
-}
-
-function isHerdrPaneBusy(error: unknown): boolean {
-  return error instanceof HerdrCommandError && error.code === "agent_pane_busy";
-}
-
-/** Herdr placement: extension-owned panes stacked below the caller. */
-export function createHerdrHost(options: HerdrHostOptions): ManagedHostPort {
-  let allocationTail: Promise<void> = Promise.resolve();
-  const pendingPanes: string[] = [];
-  const serializeAllocation = <T>(operation: () => Promise<T>): Promise<T> => {
-    const result = allocationTail.then(operation, operation);
-    allocationTail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
-  };
-  const forgetPendingPane = (paneId: string) => {
-    const index = pendingPanes.indexOf(paneId);
-    if (index >= 0) pendingPanes.splice(index, 1);
-  };
-  const allocatePane = (request: ManagedHostLaunch) =>
-    serializeAllocation(async () => {
-      const owned = (request.ownedPlacements ?? []).flatMap((placement) =>
-        placement.kind === "herdr" && placement.tabId === options.tabId
-          ? [placement.paneId]
-          : [],
-      );
-      const ownedSet = new Set(owned);
-      // Keep split order even when agent readiness completes out of order.
-      const issued = new Set(pendingPanes);
-      const inherited = owned.filter((paneId) => !issued.has(paneId));
-      const anchors = [...inherited, ...pendingPanes].reverse();
-      anchors.push(options.parentPaneId);
-      const env = { ...options.forwardEnv, ...request.env };
-      const envArgs = Object.entries(env).flatMap(([key, value]) => [
-        "--env",
-        `${key}=${value}`,
-      ]);
-      let lastMissingAnchor: unknown;
-      for (const anchorPaneId of anchors) {
-        let stdout: string;
-        try {
-          stdout = await options.exec(
-            options.bin,
-            [
-              "pane",
-              "split",
-              "--pane",
-              anchorPaneId,
-              "--direction",
-              "down",
-              "--cwd",
-              request.cwd,
-              "--no-focus",
-              ...envArgs,
-            ],
-            request.signal ? { signal: request.signal } : {},
-          );
-        } catch (error) {
-          if (!isMissingHerdrPane(error)) throw error;
-          lastMissingAnchor = error;
-          forgetPendingPane(anchorPaneId);
-          continue;
-        }
-        // A successful split must return a new pane, never the parent or an existing child.
-        const pane = parseHerdrPane(stdout, options.tabId);
-        if (
-          pane.paneId === options.parentPaneId ||
-          ownedSet.has(pane.paneId) ||
-          pendingPanes.includes(pane.paneId)
-        )
-          throw new Error("herdr pane split did not return a new pane ID");
-        if (pane.tabId !== options.tabId) {
-          await options
-            .exec(options.bin, ["pane", "close", pane.paneId])
-            .catch(() => undefined);
-          throw new Error("herdr pane split returned a pane in another tab");
-        }
-        pendingPanes.push(pane.paneId);
-        return { kind: "herdr", ...pane, layout: "split" as const };
-      }
-      throw (
-        lastMissingAnchor ?? new Error("no valid Herdr split anchor remains")
-      );
-    });
-  return {
-    kind: "herdr",
-    async launch(request) {
-      const startTimeoutMs = options.startTimeoutMs ?? HERDR_START_TIMEOUT_MS;
-      let pane: { tabId: string; paneId: string; layout: "split" };
-      try {
-        pane = await allocatePane(request);
-      } catch (error) {
-        throw herdrStartupError(error, startTimeoutMs);
-      }
-      const closePane = () =>
-        options.exec(options.bin, ["pane", "close", pane.paneId]).then(
-          () => undefined,
-          () => undefined,
-        );
-      const startArgs = [
-        "agent",
-        "start",
-        herdrAgentName(request.handle, request.bootId),
-        "--kind",
-        "pi",
-        "--pane",
-        pane.paneId,
-        "--timeout",
-        String(startTimeoutMs),
-        "--",
-        ...request.piArgs,
-      ];
-      try {
-        // Keep the activation handshake before the parent delivers its first assignment.
-        for (let attempt = 0; attempt < HERDR_PANE_BUSY_RETRIES; attempt++) {
-          if (request.signal?.aborted)
-            throw new ManagedError(
-              "aborted",
-              "Managed worker launch was aborted.",
-            );
-          try {
-            await options.exec(options.bin, startArgs, {
-              timeoutMs: startTimeoutMs + 10_000,
-              ...(request.signal ? { signal: request.signal } : {}),
-            });
-            break;
-          } catch (error) {
-            if (
-              !isHerdrPaneBusy(error) ||
-              attempt === HERDR_PANE_BUSY_RETRIES - 1
-            )
-              throw error;
-            await options.sleep(HERDR_PANE_BUSY_DELAY_MS, request.signal);
-          }
-        }
-      } catch (error) {
-        forgetPendingPane(pane.paneId);
-        await closePane();
-        throw herdrStartupError(error, startTimeoutMs);
-      }
-      let pid: number | undefined;
-      let finished = false;
-      let resolveExited = () => {};
-      let terminatePromise: Promise<void> | undefined;
-      const exited = new Promise<void>((resolve) => {
-        resolveExited = () => {
-          finished = true;
-          resolve();
-        };
-      });
-      // The bridge reports its own PID; liveness is that process, not terminal text.
-      void (async () => {
-        while (!finished) {
-          if (pid === undefined) {
-            const status = readChildStatus(request.paths.status);
-            if (status?.bootId === request.bootId) pid = status.pid;
-          }
-          if (pid !== undefined && !options.isPidAlive(pid)) {
-            forgetPendingPane(pane.paneId);
-            resolveExited();
-            return;
-          }
-          await options.sleep(options.pollMs);
-        }
-      })();
-      return {
-        placement: { kind: "herdr", ...pane },
-        readyConfirmed: true,
-        exited,
-        async terminate() {
-          if (terminatePromise) return terminatePromise;
-          terminatePromise = (async () => {
-            if (pid !== undefined && options.isPidAlive(pid)) {
-              const registered = registerForeignPid(options.registry, pid);
-              registered.terminate();
-              await registered.done;
-            }
-            forgetPendingPane(pane.paneId);
-            await closePane();
-            resolveExited();
-          })();
-          await terminatePromise;
-        },
-      };
-    },
-    async focus(placement) {
-      if (placement.kind !== "herdr")
-        throw new ManagedError("unsupported", "Worker is not hosted in Herdr.");
-      await options.exec(options.bin, ["agent", "focus", placement.paneId]);
-    },
-  };
-}
-
-function execFileText(
-  bin: string,
-  args: readonly string[],
-  options: HerdrExecOptions = {},
-): Promise<string> {
-  const what = `herdr ${args.slice(0, 2).join(" ")}`;
-  const aborted = () =>
-    new ManagedError("aborted", "Managed worker launch was aborted.");
-  return new Promise((resolve, reject) => {
-    if (options.signal?.aborted) {
-      reject(aborted());
-      return;
-    }
-    execFile(
-      bin,
-      [...args],
-      {
-        encoding: "utf8",
-        timeout: options.timeoutMs ?? 15_000,
-        maxBuffer: 4 * 1024 * 1024,
-        ...(options.signal ? { signal: options.signal } : {}),
-      },
-      (error, stdout, stderr) => {
-        if (!error) {
-          resolve(stdout);
-          return;
-        }
-        if (options.signal?.aborted) {
-          reject(aborted());
-          return;
-        }
-        const parsed = parseHerdrError(stderr) ?? parseHerdrError(stdout);
-        if (parsed) {
-          reject(
-            new HerdrCommandError(
-              parsed.code,
-              `${what} failed: ${parsed.message}`,
-            ),
-          );
-          return;
-        }
-        // Node's own message quotes the command line, which carries --env values.
-        const failure = error as { killed?: boolean; code?: unknown };
-        reject(
-          failure.killed
-            ? new HerdrCommandError("timeout", `${what} timed out.`)
-            : new HerdrCommandError(
-                undefined,
-                `${what} failed${typeof failure.code === "string" || typeof failure.code === "number" ? ` (${failure.code})` : ""}.`,
-              ),
-        );
-      },
-    );
-  });
-}
-
-/** Parses `ps -o etime` (`[[dd-]hh:]mm:ss`) into seconds. */
-export function parseElapsedSeconds(text: string): number | undefined {
-  const match = /^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$/.exec(text.trim());
-  if (!match) return undefined;
-  const [, days, hours, minutes, seconds] = match;
-  return (
-    Number(days ?? 0) * 86_400 +
-    Number(hours ?? 0) * 3_600 +
-    Number(minutes) * 60 +
-    Number(seconds)
-  );
-}
-
-/**
- * Pi rewrites its process title, so the command line cannot identify a
- * worker. Its start time can: the process that reported `pid` at `aliveAt`
- * must have started before then; a reused PID starts afterwards.
- */
-async function defaultProcessIdentity(
-  pid: number,
-  aliveAt: number,
-): Promise<ManagedProcessIdentity> {
-  if (!isPidAlive(pid)) return "gone";
-  if (process.platform === "win32") return "unknown";
-  const elapsed = await new Promise<number | undefined>((resolve) => {
-    execFile(
-      "ps",
-      ["-o", "etime=", "-p", String(pid)],
-      {
-        encoding: "utf8",
-        timeout: 5_000,
-        env: { ...process.env, LC_ALL: "C" },
-      },
-      (error, stdout) =>
-        resolve(error ? undefined : parseElapsedSeconds(stdout)),
-    );
-  });
-  if (elapsed === undefined) return isPidAlive(pid) ? "unknown" : "gone";
-  // etime has one-second resolution.
-  const startedAt = Date.now() - (elapsed + 1) * 1000;
-  return startedAt <= aliveAt ? "match" : "other";
-}
-
-function herdrExecutableAvailable(
-  bin: string,
-  env: NodeJS.ProcessEnv,
-): boolean {
-  const candidates =
-    path.isAbsolute(bin) || bin.includes(path.sep)
-      ? [bin]
-      : (env.PATH ?? process.env.PATH ?? "")
-          .split(path.delimiter)
-          .map((directory) => path.join(directory, bin));
-  return candidates.some((candidate) => {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-}
-
-export function detectManagedHost(
-  env: NodeJS.ProcessEnv,
-  registry: SubagentProcessRegistry,
-  pollMs: number,
-): ManagedHostPort {
-  const workspaceId = env.HERDR_WORKSPACE_ID?.trim();
-  const parentPaneId = env.HERDR_PANE_ID?.trim();
-  const tabId = env.HERDR_TAB_ID?.trim();
-  const bin = env.HERDR_BIN_PATH?.trim() || "herdr";
-  if (
-    env.HERDR_ENV === "1" &&
-    workspaceId &&
-    parentPaneId &&
-    tabId &&
-    herdrExecutableAvailable(bin, env)
-  ) {
-    return createHerdrHost({
-      parentPaneId,
-      tabId,
-      bin,
-      exec: execFileText,
-      registry,
-      isPidAlive,
-      sleep: (ms, signal) => defaultSleep(ms, signal),
-      pollMs,
-      forwardEnv: herdrForwardEnvironment(env),
-    });
-  }
-  return createRpcHost(registry);
-}
-
 // ---------------------------------------------------------------- runtime
+
+/** One held subagent slot; moves to a new gate when the session rebinds after reload. */
+interface SlotLease {
+  /** Gives the slot back. Idempotent. */
+  release(): void;
+  /** Gives the slot back to its current gate and holds one in `gate` instead. */
+  transferTo(gate: SessionConcurrencyGate): void;
+}
+
+function leaseSlot(
+  release: () => void,
+  outstanding: Set<SlotLease>,
+): SlotLease {
+  let current: (() => void) | undefined = release;
+  const lease: SlotLease = {
+    release() {
+      if (!current) return;
+      const giveBack = current;
+      current = undefined;
+      outstanding.delete(lease);
+      giveBack();
+    },
+    transferTo(gate) {
+      if (!current) return;
+      current();
+      // acquire() reserves synchronously when a slot is free; the release
+      // function arrives one microtask later.
+      const pending = gate.acquire();
+      current = () =>
+        void pending.then(
+          (giveBack) => giveBack(),
+          () => {},
+        );
+    },
+  };
+  outstanding.add(lease);
+  return lease;
+}
+
+/** What the parent intends for a live worker's exit; decides who records the lifecycle. */
+type ExitIntent =
+  | { readonly kind: "none" }
+  /** The worker began stopping on its own and the host was asked to finish it. */
+  | { readonly kind: "selfStopRequested" }
+  /**
+   * Planned exits (stop/suspend/fallback) set the lifecycle themselves. A
+   * fallback keeps the slot for the next candidate's launch.
+   */
+  | { readonly kind: "planned"; readonly slot: "release" | "keep" }
+  /** Why the parent forced this worker down, reported instead of a generic exit. */
+  | { readonly kind: "killed"; readonly reason: string };
 
 interface LiveWorker {
   readonly bootId: string;
   readonly process: ManagedHostProcess;
-  release: () => void;
-  /** Planned exits (stop/suspend/fallback) set the lifecycle themselves. */
-  planned: boolean;
-  /** The worker began stopping on its own and the host was asked to finish it. */
-  stopRequested: boolean;
-  /** Why the parent forced this worker down, reported instead of a generic exit. */
-  killReason?: string;
+  readonly lease: SlotLease;
+  intent: ExitIntent;
   readonly exitHandled: Promise<void>;
 }
 
-interface LaunchMode {
-  /** Idle resume: never redeliver earlier messages, never fall back. */
-  readonly idleResume: boolean;
-  /** Fresh model attempt: the child starts its inbox from zero in a new session. */
-  readonly fresh: boolean;
+/**
+ * Plain state that must outlive `/reload`. Each module revision builds its
+ * own runtime over it, while exit handlers and watch loops started by earlier
+ * revisions keep working on the same maps. Changing this shape requires a new
+ * `RUNTIME_STATES` key.
+ */
+interface DurableRuntimeState {
+  readonly live: Map<string, LiveWorker>;
+  readonly locks: Map<string, Promise<unknown>>;
+  /** Handles between a held model error and the next candidate's launch. */
+  readonly relaunching: Set<string>;
+  /** Every slot this parent holds: live workers and launches still in flight. */
+  readonly leases: Set<SlotLease>;
+  /** Replaced on rebind; loops read it on every pass so limits stay current. */
+  binding: {
+    readonly gate: SessionConcurrencyGate;
+    readonly limits: SubagentLimitsConfig;
+  };
 }
 
-function attemptSessionId(handle: string, candidateIndex: number): string {
-  return candidateIndex === 0 ? handle : `${handle}-m${candidateIndex}`;
+/** One read of a worker's files and liveness, shared by every derivation in an operation. */
+interface WorkerSnapshot {
+  readonly config: ManagedConfig;
+  readonly paths: ManagedPaths;
+  readonly status: ChildStatus | undefined;
+  readonly liveBootId: string | undefined;
+  readonly relaunchMarked: boolean;
 }
+
+/** A held worker or one starting its next model candidate still owes the initial assignment. */
+function isRelaunching(snapshot: WorkerSnapshot): boolean {
+  if (snapshot.relaunchMarked || snapshot.config.lifecycle === "starting")
+    return true;
+  return (
+    snapshot.liveBootId !== undefined &&
+    snapshot.status?.bootId === snapshot.liveBootId &&
+    snapshot.status.state === "held"
+  );
+}
+
+/** The current session's status already records this assignment, so its archive is irrelevant. */
+function inCurrentSession(
+  snapshot: WorkerSnapshot,
+  assignmentId: string,
+): boolean {
+  const { config, status } = snapshot;
+  return (
+    status?.sessionId === config.sessionId &&
+    status.assignments.some((entry) => entry.id === assignmentId)
+  );
+}
+
+function inboxIndex(
+  paths: ManagedPaths,
+): Map<string, { seq: number; text: string }> {
+  const messages = new Map<string, { seq: number; text: string }>();
+  for (const message of readInbox(paths.inbox))
+    if (message.kind === "assignment")
+      messages.set(message.assignmentId, {
+        seq: message.seq,
+        text: message.text,
+      });
+  return messages;
+}
+
+/** Reads the inbox at most once, and only if a derivation needs it. */
+function lazyInboxText(
+  paths: ManagedPaths,
+): (assignmentId: string) => { seq: number; text: string } | undefined {
+  let index: Map<string, { seq: number; text: string }> | undefined;
+  return (assignmentId) => (index ??= inboxIndex(paths)).get(assignmentId);
+}
+
+const HOST_KIND: unique symbol = Symbol.for(
+  "pi-simple-subagents.managed-host-kind",
+);
 
 class ManagedRuntimeImpl implements ManagedRuntime {
-  private readonly live = new Map<string, LiveWorker>();
-  private readonly locks = new Map<string, Promise<unknown>>();
-  /** Handles between a held model error and the next candidate's launch. */
-  private readonly relaunching = new Set<string>();
   /** Terminal results never change, so a worker's list is reused until its files or liveness do. */
   private readonly resultCache = new Map<
     string,
     { readonly key: string; readonly results: ManagedResultView[] }
   >();
   private readonly parentDir: string;
+  private readonly withLock: KeyedMutex;
 
   constructor(
     readonly parentSessionId: string,
-    private readonly agentDir: string,
-    private limits: SubagentLimitsConfig,
-    private gate: SessionConcurrencyGate,
+    agentDir: string,
     private readonly env: NodeJS.ProcessEnv,
-    private ports: ManagedRuntimePorts,
-    private usesDefaultHost: boolean,
+    private readonly ports: ManagedRuntimePorts,
+    private readonly state: DurableRuntimeState,
   ) {
     this.parentDir = managedParentDir(agentDir, parentSessionId);
+    this.withLock = createKeyedMutex(state.locks);
   }
 
-  /** Replace only a detected default adapter; running processes keep their closures. */
-  refreshDefaultHost(host: ManagedHostPort): void {
-    if (this.usesDefaultHost) this.ports = { ...this.ports, host };
+  get [HOST_KIND](): "herdr" | "rpc" {
+    return this.ports.host.kind;
+  }
+
+  private get limits(): SubagentLimitsConfig {
+    return this.state.binding.limits;
   }
 
   bind(gate: SessionConcurrencyGate, limits: SubagentLimitsConfig): void {
-    this.limits = limits;
-    if (gate === this.gate) return;
-    this.gate = gate;
-    for (const worker of this.live.values()) {
-      worker.release();
-      // acquire() reserves synchronously when a slot is free; the release
-      // function arrives one microtask later.
-      const pending = gate.acquire();
-      worker.release = () =>
-        void pending.then(
-          (release) => release(),
-          () => {},
-        );
-    }
+    const previous = this.state.binding.gate;
+    this.state.binding = { gate, limits };
+    if (gate === previous) return;
+    for (const lease of this.state.leases) lease.transferTo(gate);
   }
 
   async spawn(
@@ -1364,7 +626,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     if (!path.isAbsolute(launch.cwd))
       throw new ManagedError("invalid", "Managed worker cwd must be absolute.");
 
-    const release = await this.reserveSlot(signal);
+    const lease = await this.reserveSlot(signal);
     const handle = `mw-${this.ports.randomId()}`;
     const paths = managedPaths(path.join(this.parentDir, handle));
     const assignmentId = `a-${this.ports.randomId()}`;
@@ -1395,7 +657,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       candidateIndex: 0,
       sessionId: attemptSessionId(handle, 0),
       attempts: [],
-      nextSeq: 2,
+      nextSeq: 1,
       lastAssignmentId: assignmentId,
       updatedAt: now,
     };
@@ -1410,51 +672,53 @@ class ManagedRuntimeImpl implements ManagedRuntime {
           this.limits,
         ),
       );
-      this.writeConfig(config);
-      writeInboxMessage(paths.inbox, {
-        kind: "assignment",
-        seq: 1,
-        id: `m-${this.ports.randomId()}`,
-        assignmentId,
-        delivery: "auto",
-        text: launch.task,
-        createdAt: now,
-      });
+      const first = enqueueInbox(
+        paths.dir,
+        config,
+        {
+          kind: "assignment",
+          id: `m-${this.ports.randomId()}`,
+          assignmentId,
+          delivery: "auto",
+          text: launch.task,
+          createdAt: now,
+        },
+        this.ports.now(),
+      );
+      if (first.kind !== "enqueued") throw first.error;
     } catch (error) {
-      release();
+      lease.release();
       throw new ManagedError(
         "launch",
         `Could not create managed worker store: ${errorText(error)}`,
       );
     }
     await this.withLock(handle, () =>
-      this.launch(config, release, { idleResume: false, fresh: false }, signal),
+      this.launch(config, lease, "initial", signal),
     );
     return { handle, assignmentId };
   }
 
   list(): ManagedWorkerView[] {
     return this.configs()
-      .map((config) => this.view(config))
+      .map((config) => this.view(this.snapshot(config)))
       .sort((a, b) => a.createdAt - b.createdAt);
   }
 
   status(handle: string): ManagedWorkerView {
-    return this.view(this.ownedConfig(handle));
+    return this.view(this.snapshot(this.ownedConfig(handle)));
   }
 
   listResults(): ManagedResultView[] {
     return this.configs()
       .sort((a, b) => a.createdAt - b.createdAt)
-      .flatMap((config) => this.workerResults(config));
+      .flatMap((config) => this.workerResults(this.snapshot(config)));
   }
 
-  private workerResults(config: ManagedConfig): ManagedResultView[] {
+  private workerResults(snapshot: WorkerSnapshot): ManagedResultView[] {
     // The failed attempt's results must not escape while a fallback still owes the work.
-    if (this.isRelaunching(config)) return [];
-    const paths = managedPaths(this.dirOf(config.handle));
-    const status = readChildStatus(paths.status);
-    const live = this.live.get(config.handle);
+    if (isRelaunching(snapshot)) return [];
+    const { config, paths, status, liveBootId } = snapshot;
     const key = [
       config.updatedAt,
       config.nextSeq,
@@ -1462,29 +726,19 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       config.sessionId,
       status?.bootId,
       status?.updatedAt,
-      live?.bootId,
+      liveBootId,
     ].join("\0");
     const cached = this.resultCache.get(config.handle);
     if (cached?.key === key) return cached.results;
 
-    const messages = new Map<string, { seq: number; text: string }>();
-    for (const message of readInbox(paths.inbox))
-      if (message.kind === "assignment")
-        messages.set(message.assignmentId, {
-          seq: message.seq,
-          text: message.text,
-        });
+    const messages = inboxIndex(paths);
     const views: ManagedAssignmentView[] = [];
     for (const assignmentId of messages.keys()) {
-      const archivedAssignment = readArchivedAssignment(
-        paths.dir,
-        config.sessionId,
-        assignmentId,
-      );
-      const recorded =
-        archivedAssignment !== undefined ||
-        (status?.sessionId === config.sessionId &&
-          status.assignments.some((entry) => entry.id === assignmentId));
+      const recordedInStatus = inCurrentSession(snapshot, assignmentId);
+      const archivedAssignment = recordedInStatus
+        ? undefined
+        : readArchivedAssignment(paths.dir, config.sessionId, assignmentId);
+      const recorded = recordedInStatus || archivedAssignment !== undefined;
       // A launch failure was already returned by the spawn or resume call.
       if (config.lifecycle === "failed" && !recorded) continue;
       const view = deriveAssignmentView({
@@ -1492,8 +746,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         status,
         ...(archivedAssignment ? { archivedAssignment } : {}),
         inboxText: (id) => messages.get(id),
-        live: live !== undefined,
-        ...(live ? { liveBootId: live.bootId } : {}),
+        ...(liveBootId !== undefined ? { liveBootId } : {}),
         assignmentId,
       });
       if (view?.terminal) views.push(view);
@@ -1522,25 +775,21 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     const config = this.ownedConfig(handle);
     if (!message.trim())
       throw new ManagedError("invalid", "Message must not be empty.");
-    if (!this.live.has(handle) || config.lifecycle !== "running")
+    if (!this.state.live.has(handle) || config.lifecycle !== "running")
       throw new ManagedError(
         "not_running",
         `Managed worker ${handle} is ${config.lifecycle}; resume it before sending.`,
       );
     const assignmentId = `a-${this.ports.randomId()}`;
-    const seq = config.nextSeq;
-    config.nextSeq = seq + 1;
-    config.lastAssignmentId = assignmentId;
-    this.writeConfig(config);
-    writeInboxMessage(managedPaths(this.dirOf(handle)).inbox, {
+    const enqueued = this.enqueue(config, {
       kind: "assignment",
-      seq,
       id: `m-${this.ports.randomId()}`,
       assignmentId,
       delivery,
       text: message,
       createdAt: this.ports.now(),
     });
+    if (enqueued.kind === "inboxWriteFailed") throw enqueued.error;
     return { assignmentId, state: "queued" };
   }
 
@@ -1555,8 +804,8 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         ? this.ports.now() + options.timeoutMs
         : undefined;
     for (;;) {
-      const config = this.ownedConfig(handle);
-      const view = this.assignment(config, assignmentId);
+      const snapshot = this.snapshot(this.ownedConfig(handle));
+      const view = this.assignment(snapshot, assignmentId);
       if (!view)
         throw new ManagedError(
           "not_found",
@@ -1564,7 +813,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         );
       // A worker relaunching on a fallback model still owes this assignment,
       // so the failed attempt's terminal state must not escape, even on timeout.
-      const relaunching = view.terminal && this.isRelaunching(config);
+      const relaunching = view.terminal && isRelaunching(snapshot);
       if (view.terminal && !relaunching) return view;
       if (deadline !== undefined && this.ports.now() >= deadline) {
         if (!relaunching) return { ...view, waitTimedOut: true };
@@ -1593,7 +842,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
   resume(handle: string): Promise<ManagedWorkerView> {
     this.ownedConfig(handle);
     return this.withLock(handle, async () => {
-      if (!this.live.has(handle))
+      if (!this.state.live.has(handle))
         await this.resumeIdle(this.ownedConfig(handle));
       return this.status(handle);
     });
@@ -1601,7 +850,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
 
   async suspendAll(): Promise<void> {
     await Promise.all(
-      [...this.live.keys()].map((handle) =>
+      [...this.state.live.keys()].map((handle) =>
         this.withLock(handle, () => this.shutdown(handle, "suspended")),
       ),
     );
@@ -1610,12 +859,12 @@ class ManagedRuntimeImpl implements ManagedRuntime {
   async restore(): Promise<ManagedRestoreResult[]> {
     const results: ManagedRestoreResult[] = [];
     for (const config of this.configs()) {
-      if (this.live.has(config.handle)) continue;
+      if (this.state.live.has(config.handle)) continue;
       if (!["running", "suspended", "starting"].includes(config.lifecycle))
         continue;
       try {
         await this.withLock(config.handle, async () => {
-          if (!this.live.has(config.handle))
+          if (!this.state.live.has(config.handle))
             await this.resumeIdle(this.ownedConfig(config.handle));
         });
         results.push({ handle: config.handle, restored: true });
@@ -1632,7 +881,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
 
   async open(handle: string): Promise<void> {
     const config = this.ownedConfig(handle);
-    if (!this.live.has(handle) || config.placement?.kind !== "herdr")
+    if (!this.state.live.has(handle) || config.placement?.kind !== "herdr")
       throw new ManagedError(
         "unsupported",
         `Managed worker ${handle} has no live Herdr tab to open.`,
@@ -1642,29 +891,35 @@ class ManagedRuntimeImpl implements ManagedRuntime {
 
   // ----------------------------------------------------------- internals
 
-  private async reserveSlot(signal?: AbortSignal): Promise<() => void> {
+  private async reserveSlot(signal?: AbortSignal): Promise<SlotLease> {
+    const { gate } = this.state.binding;
     // Fail fast: an idle worker holds its slot indefinitely, so waiting could never end.
-    if (this.gate.status.available < 1)
+    if (gate.status.available < 1)
       throw new ManagedError(
         "capacity",
-        `No subagent slot is free (${this.gate.status.active}/${this.gate.status.limit} in use). Stop a managed worker or wait for bounded work to finish.`,
+        `No subagent slot is free (${gate.status.active}/${gate.status.limit} in use). Stop a managed worker or wait for bounded work to finish.`,
       );
+    let release: () => void;
     try {
-      return await this.gate.acquire(signal);
+      release = await gate.acquire(signal);
     } catch (error) {
-      throw new ManagedError("capacity", errorText(error));
+      throw new ManagedError(
+        signal?.aborted ? "aborted" : "capacity",
+        errorText(error),
+      );
     }
+    return leaseSlot(release, this.state.leases);
   }
 
   private async resumeIdle(config: ManagedConfig): Promise<void> {
-    const release = await this.reserveSlot();
+    const lease = await this.reserveSlot();
     try {
       await this.awaitPreviousBootExit(config);
     } catch (error) {
-      release();
+      lease.release();
       throw error;
     }
-    await this.launch(config, release, { idleResume: true, fresh: false });
+    await this.launch(config, lease, "resume");
   }
 
   /**
@@ -1686,19 +941,13 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         "launch",
         `The previous boot of ${config.handle} (pid ${pid}) may still be running and cannot be verified on this platform. Stop that process, then resume.`,
       );
-    const seq = config.nextSeq;
-    config.nextSeq = seq + 1;
-    this.writeConfig(config);
-    try {
-      writeInboxMessage(paths.inbox, {
-        kind: "shutdown",
-        seq,
-        id: `m-${this.ports.randomId()}`,
-        createdAt: this.ports.now(),
-      });
-    } catch {
-      // The wait below fails safely if the survivor never sees the request.
-    }
+    // An inbox write failure is tolerated: the wait below fails safely if the
+    // survivor never sees the request.
+    this.enqueue(config, {
+      kind: "shutdown",
+      id: `m-${this.ports.randomId()}`,
+      createdAt: this.ports.now(),
+    });
     const deadline = this.ports.now() + this.ports.orphanExitTimeoutMs;
     while (this.ports.now() < deadline) {
       await this.ports.sleep(this.ports.pollMs);
@@ -1713,19 +962,26 @@ class ManagedRuntimeImpl implements ManagedRuntime {
 
   /** Launches one worker, walking model candidates only while nothing could have run. */
   private async launch(
-    config: ManagedConfig,
-    release: () => void,
-    mode: LaunchMode,
+    initial: ManagedConfig,
+    lease: SlotLease,
+    kind: LaunchKind,
     signal?: AbortSignal,
   ): Promise<void> {
+    let config = initial;
     const paths = managedPaths(this.dirOf(config.handle));
     const firstAttempt = config.attempts.length;
-    let fresh = mode.fresh;
+    // Idle resume: never redeliver earlier messages, never fall back.
+    const idleResume = kind === "resume";
+    // Fresh model attempt: the child starts its inbox from zero in a new session.
+    let fresh = kind === "fallback";
     for (;;) {
       const candidates = config.launch.modelCandidates;
       const model = candidates[config.candidateIndex];
-      const hold =
-        !mode.idleResume && config.candidateIndex < candidates.length - 1;
+      const hold = holdsForFallback(
+        kind,
+        config.candidateIndex,
+        candidates.length,
+      );
       const bootId = this.ports.randomId();
       const label = `${formatAgentDisplayName(config.launch.agent)} ${config.handle.slice(3, 9)}`;
       const args = buildManagedChildArgs({
@@ -1746,19 +1002,23 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         maxDepth: this.limits.maxDepth,
       });
       const invocation = this.ports.invocation(args);
-      const floor = String(Math.max(0, config.nextSeq - 1));
+      const floor = Math.max(0, config.nextSeq - 1);
       const env: Record<string, string> = {
-        ...traceEnvironment(config.launch.trace),
-        [MANAGED_DIR_ENV]: paths.dir,
-        [MANAGED_BOOT_ID_ENV]: bootId,
-        [MANAGED_PARENT_PID_ENV]: String(this.ports.parentPid),
-        [MANAGED_RESUME_FLOOR_ENV]: mode.idleResume ? floor : "0",
-        [MANAGED_CONTROL_FLOOR_ENV]: floor,
-        [MANAGED_HOLD_ON_MODEL_ERROR_ENV]: hold ? "1" : "0",
-        [MANAGED_FRESH_ATTEMPT_ENV]: fresh ? "1" : "0",
-        [MANAGED_MAX_RUNTIME_ENV]: String(this.limits.maxRuntimeMs),
-        [MANAGED_MAX_INACTIVITY_ENV]: String(this.limits.maxInactivityMs),
-        [MANAGED_SESSION_ID_ENV]: config.sessionId,
+        ...delegationTraceEnvironment(config.launch.trace),
+        ...encodeManagedBootEnv({
+          dir: paths.dir,
+          bootId,
+          parentPid: this.ports.parentPid,
+          expectedSessionId: config.sessionId,
+          resumeFloorSeq: idleResume ? floor : 0,
+          controlFloorSeq: floor,
+          freshAttempt: fresh,
+          holdOnInitialModelError: hold,
+          limits: {
+            maxRuntimeMs: this.limits.maxRuntimeMs,
+            maxInactivityMs: this.limits.maxInactivityMs,
+          },
+        }),
       };
 
       let failure: string;
@@ -1781,9 +1041,13 @@ class ManagedRuntimeImpl implements ManagedRuntime {
           piArgs: args,
           env,
           paths,
-          ownedPlacements: [...this.live.values()].map(
+          ownedPlacements: [...this.state.live.values()].map(
             (worker) => worker.process.placement,
           ),
+          readBootPid: () => {
+            const status = readChildStatus(paths.status);
+            return status?.bootId === bootId ? status.pid : undefined;
+          },
           ...(signal ? { signal } : {}),
         });
         ({ failure, retryable } = await this.waitReady(
@@ -1799,10 +1063,11 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         retryable = error instanceof ManagedStartupError && error.retryable;
       }
       if (proc && !failure) {
-        this.track(config.handle, bootId, proc, release);
-        config.lifecycle = "running";
-        config.placement = proc.placement;
-        delete config.lastError;
+        this.track(config.handle, bootId, proc, lease);
+        config = transition(config, {
+          kind: "started",
+          placement: proc.placement,
+        });
         this.writeConfig(config);
         // Herdr must observe an idle prompt before the first task starts.
         writeJsonAtomic(paths.activation, { bootId });
@@ -1815,39 +1080,39 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       const ran =
         status?.bootId === bootId &&
         (status.ackedSeq > 0 || status.toolActivity);
-      config.attempts.push({
+      const attempt: ManagedAttempt = {
         candidateIndex: config.candidateIndex,
         sessionId: config.sessionId,
         error: failure,
         ...(model ? { model } : {}),
+      };
+      const step = nextCandidateStep({
+        launchKind: kind,
+        aborted,
+        retryable,
+        ran,
+        candidateIndex: config.candidateIndex,
+        candidateCount: candidates.length,
       });
-      if (
-        !mode.idleResume &&
-        !aborted &&
-        retryable &&
-        !ran &&
-        config.candidateIndex + 1 < candidates.length
-      ) {
-        config.candidateIndex++;
-        config.sessionId = attemptSessionId(
-          config.handle,
-          config.candidateIndex,
-        );
+      if (step.kind === "advance") {
+        config = transition(config, { kind: "candidateAdvanced", attempt });
         fresh = true;
         this.writeConfig(config);
         continue;
       }
-      release();
-      config.lifecycle = "failed";
-      config.lastError = failure;
+      lease.release();
+      config = transition(config, {
+        kind: "launchFailed",
+        attempt,
+        error: failure,
+      });
       this.writeConfig(config);
       const tried = config.attempts.slice(firstAttempt);
       const detail =
         tried.length > 1
           ? tried
               .map(
-                (attempt) =>
-                  `${attempt.model ?? "default model"}: ${attempt.error}`,
+                (entry) => `${entry.model ?? "default model"}: ${entry.error}`,
               )
               .join("; ")
           : failure;
@@ -1902,7 +1167,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     handle: string,
     bootId: string,
     proc: ManagedHostProcess,
-    release: () => void,
+    lease: SlotLease,
   ): void {
     let resolveHandled = () => {};
     const exitHandled = new Promise<void>((resolve) => {
@@ -1911,41 +1176,46 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     const worker: LiveWorker = {
       bootId,
       process: proc,
-      release,
-      planned: false,
-      stopRequested: false,
+      lease,
+      intent: { kind: "none" },
       exitHandled,
     };
-    this.live.set(handle, worker);
+    this.state.live.set(handle, worker);
     void proc.exited.then(() => {
-      if (this.live.get(handle) === worker) this.live.delete(handle);
-      worker.release();
-      if (!worker.planned) {
-        const config = this.readOwned(handle);
-        if (config && config.lifecycle === "running") {
-          const status = readChildStatus(
-            managedPaths(this.dirOf(handle)).status,
-          );
-          const ownStatus = status?.bootId === bootId ? status : undefined;
-          // The child recorded its own orderly shutdown (for example /quit in its tab).
-          const cleanExit =
-            worker.killReason === undefined &&
-            ownStatus?.state === "exited" &&
-            ownStatus.sessionId === config.sessionId &&
-            ownStatus.lastError === undefined;
-          config.lifecycle = "exited";
-          if (cleanExit) delete config.lastError;
-          else
-            config.lastError =
-              worker.killReason ??
-              ownStatus?.lastError ??
-              `Worker process exited unexpectedly.${stderrTail(managedPaths(this.dirOf(handle)))}`;
-          this.writeConfig(config);
-        }
-      }
+      if (this.state.live.get(handle) === worker)
+        this.state.live.delete(handle);
+      const { intent } = worker;
+      if (intent.kind !== "planned" || intent.slot === "release")
+        worker.lease.release();
+      if (intent.kind !== "planned") this.recordUnplannedExit(handle, worker);
       resolveHandled();
     });
     void this.watchWorker(handle, worker);
+  }
+
+  private recordUnplannedExit(handle: string, worker: LiveWorker): void {
+    const config = this.readOwned(handle);
+    if (!config || config.lifecycle !== "running") return;
+    const paths = managedPaths(this.dirOf(handle));
+    const exit = classifyUnplannedExit({
+      killReason:
+        worker.intent.kind === "killed" ? worker.intent.reason : undefined,
+      status: readChildStatus(paths.status),
+      bootId: worker.bootId,
+      sessionId: config.sessionId,
+    });
+    const lastError =
+      exit.kind === "clean"
+        ? undefined
+        : exit.kind === "failed"
+          ? exit.reason
+          : `${UNEXPECTED_EXIT_MESSAGE}${stderrTail(paths)}`;
+    this.writeConfig(
+      transition(config, {
+        kind: "exitedUnplanned",
+        ...(lastError !== undefined ? { lastError } : {}),
+      }),
+    );
   }
 
   /**
@@ -1954,46 +1224,33 @@ class ManagedRuntimeImpl implements ManagedRuntime {
    */
   private async watchWorker(handle: string, worker: LiveWorker): Promise<void> {
     const paths = managedPaths(this.dirOf(handle));
-    while (this.live.get(handle) === worker) {
+    while (this.state.live.get(handle) === worker) {
       const status = readChildStatus(paths.status);
       let running = false;
-      if (status?.bootId === worker.bootId && !worker.planned) {
+      if (
+        status?.bootId === worker.bootId &&
+        worker.intent.kind !== "planned"
+      ) {
         if (
           (status.state === "stopping" || status.state === "exited") &&
-          !worker.stopRequested
+          worker.intent.kind === "none"
         ) {
           // RPC Pi acts on the bridge's shutdown only after its next command; EOF completes it.
-          worker.stopRequested = true;
+          worker.intent = { kind: "selfStopRequested" };
           worker.process.requestStop?.();
         }
-        const active = status.activeAssignmentId
-          ? status.assignments.find(
-              (entry) => entry.id === status.activeAssignmentId,
-            )
-          : undefined;
-        const limit = this.limits.maxRuntimeMs;
-        if (active?.state === "running" && active.startedAt !== undefined) {
-          running = true;
-          if (
-            limit > 0 &&
-            this.ports.now() >
-              active.startedAt + limit + this.ports.watchdogGraceMs
-          ) {
-            worker.killReason = `Worker exceeded the ${limit} ms runtime limit and did not stop itself; the parent terminated it.`;
-            await worker.process.terminate().catch(() => {});
-            return;
-          }
-          const inactivity = this.limits.maxInactivityMs;
-          if (
-            inactivity > 0 &&
-            this.ports.now() >
-              status.updatedAt + inactivity + this.ports.watchdogGraceMs
-          ) {
-            worker.killReason = `Worker exceeded the ${inactivity} ms inactivity limit and did not stop itself; the parent terminated it.`;
-            await worker.process.terminate().catch(() => {});
-            return;
-          }
+        const verdict = watchdogVerdict(
+          status,
+          this.limits,
+          this.ports.now(),
+          this.ports.watchdogGraceMs,
+        );
+        if (verdict.kind === "terminate") {
+          worker.intent = { kind: "killed", reason: verdict.reason };
+          await worker.process.terminate().catch(() => {});
+          return;
         }
+        running = verdict.kind === "running";
       }
       // Idle workers are checked rarely; their only job is noticing a self-stop.
       await this.ports.sleep(
@@ -2005,38 +1262,43 @@ class ManagedRuntimeImpl implements ManagedRuntime {
   /** Graceful shutdown through the inbox, then forced tree cleanup after the grace window. */
   private async shutdown(
     handle: string,
+    lifecycle: "stopped" | "suspended",
+  ): Promise<void> {
+    await this.stopWorker(handle, lifecycle, "release");
+  }
+
+  /**
+   * Shuts a worker down for a fallback relaunch and hands its slot to the
+   * caller; undefined when no worker was live.
+   */
+  private shutdownKeepingSlot(handle: string): Promise<SlotLease | undefined> {
+    // "starting" is durable: a reader that misses the in-memory mark still waits.
+    return this.stopWorker(handle, "starting", "keep");
+  }
+
+  private async stopWorker(
+    handle: string,
     lifecycle: "stopped" | "suspended" | "starting",
-    keepSlot = false,
-  ): Promise<(() => void) | undefined> {
-    const config = this.ownedConfig(handle);
-    const worker = this.live.get(handle);
+    slot: "release" | "keep",
+  ): Promise<SlotLease | undefined> {
+    const current = this.ownedConfig(handle);
+    const worker = this.state.live.get(handle);
     if (!worker) {
-      if (config.lifecycle !== "stopped") {
-        config.lifecycle = lifecycle;
-        this.writeConfig(config);
-      }
+      const next = transition(current, { kind: "shutdownIdle", lifecycle });
+      if (next !== current) this.writeConfig(next);
       return undefined;
     }
-    worker.planned = true;
-    let kept: (() => void) | undefined;
-    if (keepSlot) {
-      kept = worker.release;
-      worker.release = () => {};
-    }
-    const seq = config.nextSeq;
-    config.nextSeq = seq + 1;
-    config.lifecycle = lifecycle;
-    this.writeConfig(config);
-    try {
-      writeInboxMessage(managedPaths(this.dirOf(handle)).inbox, {
-        kind: "shutdown",
-        seq,
-        id: `m-${this.ports.randomId()}`,
-        createdAt: this.ports.now(),
-      });
-    } catch {
-      // Forced cleanup below still runs.
-    }
+    worker.intent = { kind: "planned", slot };
+    const config = transition(current, {
+      kind: "shutdownRequested",
+      lifecycle,
+    });
+    // An inbox write failure is tolerated: forced cleanup below still runs.
+    this.enqueue(config, {
+      kind: "shutdown",
+      id: `m-${this.ports.randomId()}`,
+      createdAt: this.ports.now(),
+    });
     worker.process.requestStop?.();
     const graceful = await Promise.race([
       worker.process.exited.then(() => true),
@@ -2046,7 +1308,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       await worker.process.terminate().catch(() => {});
     await worker.process.exited;
     await worker.exitHandled;
-    return kept;
+    return slot === "keep" ? worker.lease : undefined;
   }
 
   private async watchInitialAssignment(
@@ -2054,12 +1316,12 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     bootId: string,
   ): Promise<void> {
     const paths = managedPaths(this.dirOf(handle));
-    while (this.live.get(handle)?.bootId === bootId) {
+    while (this.state.live.get(handle)?.bootId === bootId) {
       const status = readChildStatus(paths.status);
       if (status?.bootId === bootId) {
         if (status.state === "held") {
           // Visible to wait() before the lock is taken, so no stale terminal view escapes.
-          this.relaunching.add(handle);
+          this.state.relaunching.add(handle);
           await this.withLock(handle, () =>
             this.fallback(handle, bootId, status),
           ).catch(() => {});
@@ -2080,83 +1342,70 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     status: ChildStatus,
   ): Promise<void> {
     try {
-      if (this.live.get(handle)?.bootId !== bootId || status.toolActivity)
+      if (this.state.live.get(handle)?.bootId !== bootId || status.toolActivity)
         return;
       const config = this.ownedConfig(handle);
       const first = status.assignments[0];
-      // "starting" is durable: a reader that misses the in-memory mark still waits.
-      const release = await this.shutdown(handle, "starting", true);
-      if (!release) return;
-      const failed = this.ownedConfig(handle);
+      const lease = await this.shutdownKeepingSlot(handle);
+      if (!lease) return;
       const model =
         config.launch.modelCandidates[config.candidateIndex] ?? status.model;
-      failed.attempts.push({
-        candidateIndex: config.candidateIndex,
-        sessionId: config.sessionId,
-        error:
-          first?.outcome?.result ?? "Model error before any tool activity.",
-        ...(model ? { model } : {}),
+      const next = transition(this.ownedConfig(handle), {
+        kind: "candidateAdvanced",
+        attempt: {
+          candidateIndex: config.candidateIndex,
+          sessionId: config.sessionId,
+          error:
+            first?.outcome?.result ?? "Model error before any tool activity.",
+          ...(model ? { model } : {}),
+        },
       });
-      failed.candidateIndex++;
-      failed.sessionId = attemptSessionId(handle, failed.candidateIndex);
-      failed.lifecycle = "starting";
-      this.writeConfig(failed);
-      await this.launch(failed, release, { idleResume: false, fresh: true });
+      this.writeConfig(next);
+      await this.launch(next, lease, "fallback");
     } finally {
-      this.relaunching.delete(handle);
+      this.state.relaunching.delete(handle);
     }
   }
 
-  /** A held worker or one starting its next model candidate still owes the initial assignment. */
-  private isRelaunching(config: ManagedConfig): boolean {
-    if (this.relaunching.has(config.handle) || config.lifecycle === "starting")
-      return true;
-    const worker = this.live.get(config.handle);
-    if (!worker) return false;
-    const status = readChildStatus(
-      managedPaths(this.dirOf(config.handle)).status,
-    );
-    return status?.bootId === worker.bootId && status.state === "held";
+  private snapshot(config: ManagedConfig): WorkerSnapshot {
+    const paths = managedPaths(this.dirOf(config.handle));
+    return {
+      config,
+      paths,
+      status: readChildStatus(paths.status),
+      liveBootId: this.state.live.get(config.handle)?.bootId,
+      relaunchMarked: this.state.relaunching.has(config.handle),
+    };
   }
 
   private assignment(
-    config: ManagedConfig,
+    snapshot: WorkerSnapshot,
     assignmentId: string,
+    inboxText = lazyInboxText(snapshot.paths),
   ): ManagedAssignmentView | undefined {
-    const paths = managedPaths(this.dirOf(config.handle));
-    const archivedAssignment = readArchivedAssignment(
-      paths.dir,
-      config.sessionId,
-      assignmentId,
-    );
+    const { config, paths, status, liveBootId } = snapshot;
+    const archivedAssignment = inCurrentSession(snapshot, assignmentId)
+      ? undefined
+      : readArchivedAssignment(paths.dir, config.sessionId, assignmentId);
     return deriveAssignmentView({
       config,
-      status: readChildStatus(paths.status),
+      status,
       ...(archivedAssignment ? { archivedAssignment } : {}),
-      inboxText: (id) => {
-        const message = readInbox(paths.inbox).find(
-          (entry) => entry.kind === "assignment" && entry.assignmentId === id,
-        );
-        return message?.kind === "assignment"
-          ? { seq: message.seq, text: message.text }
-          : undefined;
-      },
-      live: this.live.has(config.handle),
-      ...(this.live.get(config.handle)
-        ? { liveBootId: this.live.get(config.handle)!.bootId }
-        : {}),
+      inboxText,
+      ...(liveBootId !== undefined ? { liveBootId } : {}),
       assignmentId,
     });
   }
 
-  private view(config: ManagedConfig): ManagedWorkerView {
-    const paths = managedPaths(this.dirOf(config.handle));
-    const raw = readChildStatus(paths.status);
+  private view(snapshot: WorkerSnapshot): ManagedWorkerView {
+    const { config, paths } = snapshot;
+    const raw = snapshot.status;
     const status = raw?.sessionId === config.sessionId ? raw : undefined;
-    const live = this.live.has(config.handle);
+    const live = snapshot.liveBootId !== undefined;
+    const inboxText = lazyInboxText(paths);
     const recent = (status?.assignments ?? [])
       .slice(-ASSIGNMENT_PREVIEW_COUNT)
-      .flatMap((entry) => this.assignment(config, entry.id) ?? []);
+      .flatMap((entry) => this.assignment(snapshot, entry.id, inboxText) ?? []);
     const model =
       status?.model ?? config.launch.modelCandidates[config.candidateIndex];
     // Pre-reload exit callbacks still write the old generic diagnostic.
@@ -2165,7 +1414,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       config.lifecycle === "exited" &&
       status?.state === "exited" &&
       !status.lastError &&
-      config.lastError?.startsWith("Worker process exited unexpectedly.");
+      config.lastError?.startsWith(UNEXPECTED_EXIT_MESSAGE);
     const lastError = cleanLegacyExit ? undefined : config.lastError;
     return {
       handle: config.handle,
@@ -2197,17 +1446,10 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       ...(lastError ? { lastError } : {}),
     };
   }
-
   private configs(): ManagedConfig[] {
-    let names: string[];
-    try {
-      names = fs.readdirSync(this.parentDir);
-    } catch {
-      return [];
-    }
-    return names
-      .filter(isManagedHandle)
-      .flatMap((handle) => this.readOwned(handle) ?? []);
+    return listManagedHandles(this.parentDir).flatMap(
+      (handle) => this.readOwned(handle) ?? [],
+    );
   }
 
   private readOwned(handle: string): ManagedConfig | undefined {
@@ -2244,59 +1486,44 @@ class ManagedRuntimeImpl implements ManagedRuntime {
   }
 
   private writeConfig(config: ManagedConfig): void {
-    config.updatedAt = this.ports.now();
-    writeJsonAtomic(managedPaths(this.dirOf(config.handle)).config, config);
+    writeManagedConfig(this.dirOf(config.handle), config, this.ports.now());
   }
 
-  private withLock<T>(handle: string, fn: () => Promise<T>): Promise<T> {
-    const previous = this.locks.get(handle) ?? Promise.resolve();
-    const next = previous.then(fn, fn);
-    const settled = next.then(
-      () => {},
-      () => {},
+  /**
+   * Queues one inbox command. A config write failure throws because nothing
+   * was queued; an inbox write failure is returned for the caller to decide.
+   */
+  private enqueue(
+    config: ManagedConfig,
+    command: ManagedInboxCommand,
+  ): Exclude<ManagedEnqueueResult, { kind: "configWriteFailed" }> {
+    const result = enqueueInbox(
+      this.dirOf(config.handle),
+      config,
+      command,
+      this.ports.now(),
     );
-    this.locks.set(handle, settled);
-    void settled.then(() => {
-      if (this.locks.get(handle) === settled) this.locks.delete(handle);
-    });
-    return next;
+    if (result.kind === "configWriteFailed") throw result.error;
+    return result;
   }
-}
-
-function traceEnvironment(trace: DelegationTrace): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(
-    buildSubagentEnvironment(trace, {}),
-  )) {
-    if (typeof value === "string") env[key] = value;
-  }
-  return env;
 }
 
 function stderrTail(paths: ManagedPaths): string {
-  try {
-    const tail = truncateUtf8Tail(
-      fs.readFileSync(paths.stderr, "utf8"),
-      2048,
-    ).value.trim();
-    return tail ? ` stderr: ${tail}` : "";
-  } catch {
-    return "";
-  }
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const tail = readStderrTail(paths.stderr, 2048).trim();
+  return tail ? ` stderr: ${tail}` : "";
 }
 
 // ------------------------------------------------------------ composition
 
-const RUNTIMES: unique symbol = Symbol.for(
-  "pi-simple-subagents.managed-runtimes",
+const RUNTIME_STATES: unique symbol = Symbol.for(
+  "pi-simple-subagents.managed-runtime-states.v1",
 );
-type RuntimeStore = typeof globalThis & {
-  [RUNTIMES]?: Map<string, ManagedRuntime>;
+type RuntimeStateStore = typeof globalThis & {
+  [RUNTIME_STATES]?: Map<string, DurableRuntimeState>;
 };
+
+/** One runtime per durable state within this module revision; a reload starts empty. */
+const runtimes = new WeakMap<DurableRuntimeState, ManagedRuntimeImpl>();
 
 function defaultPorts(
   env: NodeJS.ProcessEnv,
@@ -2318,73 +1545,58 @@ function defaultPorts(
     graceMs: overrides.graceMs ?? 5_000,
     startupTimeoutMs: overrides.startupTimeoutMs ?? 60_000,
     pollMs,
-    processIdentity: overrides.processIdentity ?? defaultProcessIdentity,
+    processIdentity:
+      overrides.processIdentity ??
+      ((pid, aliveAt) => processStartIdentity(pid, aliveAt)),
     orphanExitTimeoutMs: overrides.orphanExitTimeoutMs ?? 15_000,
     watchdogGraceMs: overrides.watchdogGraceMs ?? 30_000,
   };
 }
 
 /**
- * `/reload` re-evaluates this module, but the runtime survives on globalThis
- * with the previous module's prototype. Moving it onto the current class keeps
- * its live workers, gates, and closures while exposing current methods. Fields
- * added since that revision are created here; their initializers never ran.
- */
-function adoptCurrentRevision(
-  runtime: ManagedRuntime,
-  options: ManagedRuntimeOptions,
-  env: NodeJS.ProcessEnv,
-): boolean {
-  const changed =
-    Object.getPrototypeOf(runtime) !== ManagedRuntimeImpl.prototype;
-  if (changed) Object.setPrototypeOf(runtime, ManagedRuntimeImpl.prototype);
-  const fields = runtime as unknown as {
-    resultCache?: unknown;
-    usesDefaultHost?: boolean;
-  };
-  if (!(fields.resultCache instanceof Map)) fields.resultCache = new Map();
-  // Older runtime revisions did not record whether their host was injected.
-  // A host supplied by this call remains an explicit override.
-  if (fields.usesDefaultHost === undefined)
-    fields.usesDefaultHost = options.ports?.host === undefined;
-  if (changed && options.ports?.host === undefined) {
-    const host = detectManagedHost(
-      env,
-      new SubagentProcessRegistry(),
-      options.ports?.pollMs ?? 200,
-    );
-    (runtime as ManagedRuntimeImpl).refreshDefaultHost(host);
-  }
-  return changed;
-}
-
-/**
- * Returns the reload-surviving runtime for one parent session. Later calls
- * (for example after `/reload`) rebind the current gate and limits; default
- * host adapters are refreshed on module revision changes only.
+ * Returns the runtime for one parent session. Within a module revision later
+ * calls return the same runtime and only rebind the current gate and limits.
+ * After `/reload` the new revision builds a fresh runtime (with its own ports
+ * and host detection) over the durable state its predecessor left behind.
  */
 export function getManagedRuntime(
   options: ManagedRuntimeOptions,
 ): ManagedRuntime {
-  const store = globalThis as RuntimeStore;
-  const runtimes = (store[RUNTIMES] ??= new Map<string, ManagedRuntime>());
+  const store = globalThis as RuntimeStateStore;
+  const states = (store[RUNTIME_STATES] ??= new Map());
   const key = `${path.resolve(options.agentDir)}\0${options.parentSessionId}`;
-  const existing = runtimes.get(key);
-  const env = options.env ?? process.env;
-  if (existing) {
-    adoptCurrentRevision(existing, options, env);
-    existing.bind(options.gate, options.limits);
-    return existing;
+  let state = states.get(key);
+  if (!state) {
+    state = {
+      live: new Map(),
+      locks: new Map(),
+      relaunching: new Set(),
+      leases: new Set(),
+      binding: { gate: options.gate, limits: options.limits },
+    };
+    states.set(key, state);
   }
-  const runtime = new ManagedRuntimeImpl(
-    options.parentSessionId,
-    options.agentDir,
-    options.limits,
-    options.gate,
-    env,
-    defaultPorts(env, options.ports ?? {}),
-    options.ports?.host === undefined,
-  );
-  runtimes.set(key, runtime);
+  let runtime = runtimes.get(state);
+  if (!runtime) {
+    const env = options.env ?? process.env;
+    runtime = new ManagedRuntimeImpl(
+      options.parentSessionId,
+      options.agentDir,
+      env,
+      defaultPorts(env, options.ports ?? {}),
+      state,
+    );
+    runtimes.set(state, runtime);
+  }
+  runtime.bind(options.gate, options.limits);
   return runtime;
+}
+
+/** Host kind of a runtime from any module revision; undefined for other implementations. */
+export function managedRuntimeHostKind(
+  runtime: ManagedRuntime,
+): "herdr" | "rpc" | undefined {
+  // SAFETY: reads one optional symbol-keyed property; any other value is rejected below.
+  const kind = (runtime as { readonly [HOST_KIND]?: unknown })[HOST_KIND];
+  return kind === "herdr" || kind === "rpc" ? kind : undefined;
 }

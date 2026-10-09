@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import {
   type BridgeContext,
+  type BridgeScheduler,
   ManagedChildBridge,
   type ManagedChildBridgeOptions,
   managedBridgeOptionsFromEnv,
@@ -22,13 +23,69 @@ import {
 
 const roots: string[] = [];
 afterEach(() => {
-  vi.useRealTimers();
   for (const root of roots.splice(0))
     fs.rmSync(root, { recursive: true, force: true });
 });
 
 const CONFIRM_MS = 1_000;
 const GRACE_MS = 500;
+
+interface ManualTimer {
+  at: number;
+  callback: () => void;
+  everyMs?: number;
+}
+
+/** Virtual timers that share the harness clock; `advance` fires what comes due, in order. */
+class ManualScheduler implements BridgeScheduler {
+  private nextHandle = 1;
+  private readonly timers = new Map<unknown, ManualTimer>();
+
+  constructor(private readonly clock: { now: number }) {}
+
+  setTimeout(callback: () => void, delayMs: number): unknown {
+    return this.add({ at: this.clock.now + delayMs, callback });
+  }
+
+  setInterval(callback: () => void, delayMs: number): unknown {
+    return this.add({
+      at: this.clock.now + delayMs,
+      callback,
+      everyMs: delayMs,
+    });
+  }
+
+  clearTimeout(handle: unknown): void {
+    this.timers.delete(handle);
+  }
+
+  clearInterval(handle: unknown): void {
+    this.timers.delete(handle);
+  }
+
+  advance(ms: number): void {
+    const end = this.clock.now + ms;
+    for (;;) {
+      let due: [unknown, ManualTimer] | undefined;
+      for (const entry of this.timers)
+        if (entry[1].at <= end && (!due || entry[1].at < due[1].at))
+          due = entry;
+      if (!due) break;
+      const [handle, timer] = due;
+      this.clock.now = Math.max(this.clock.now, timer.at);
+      if (timer.everyMs === undefined) this.timers.delete(handle);
+      else timer.at += Math.max(1, timer.everyMs);
+      timer.callback();
+    }
+    this.clock.now = end;
+  }
+
+  private add(timer: ManualTimer): unknown {
+    const handle = this.nextHandle++;
+    this.timers.set(handle, timer);
+    return handle;
+  }
+}
 
 interface Harness {
   bridge: ManagedChildBridge;
@@ -40,6 +97,8 @@ interface Harness {
     shutdowns: number;
   };
   clock: { now: number };
+  /** Moves the clock forward, firing bridge and watchdog timers as they come due. */
+  advance: (ms: number) => void;
   dir: string;
   send: (seq: number, text: string, delivery?: ManagedDelivery) => void;
   shutdownMessage: (seq: number) => void;
@@ -55,6 +114,7 @@ function harness(
   const paths = managedPaths(dir);
   const sent: Harness["sent"] = [];
   const clock = { now: 1_000 };
+  const scheduler = new ManualScheduler(clock);
   const ctx = {
     idle: true,
     pending: false,
@@ -88,6 +148,7 @@ function harness(
     sendUserMessage: (text, delivery) =>
       sent.push({ text, steer: delivery?.deliverAs === "steer" }),
     now: () => clock.now,
+    scheduler,
     pollMs: 0,
     deliveryConfirmMs: CONFIRM_MS,
     settleGraceMs: GRACE_MS,
@@ -98,6 +159,7 @@ function harness(
     sent,
     ctx,
     clock,
+    advance: (ms) => scheduler.advance(ms),
     dir,
     send: (seq, text, delivery = "auto") =>
       writeInboxMessage(paths.inbox, {
@@ -683,13 +745,13 @@ describe("managed child bridge recovery", () => {
     expect(h.ctx.shutdowns).toBe(1);
   });
 
-  test("an abort that never settles does not leave the worker busy", async () => {
+  test("an abort that never settles does not leave the worker busy", () => {
     const h = harness({ limits: { maxRuntimeMs: 10, maxInactivityMs: 0 } });
     h.send(1, "slow");
     h.send(2, "next", "followUp");
     h.bridge.start(h.ctx);
     runPrompt(h);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    h.advance(25);
     expect(h.ctx.aborts).toBe(1);
     // Pi stopped, but agent_settled never arrives.
     h.ctx.idle = true;
@@ -714,29 +776,28 @@ describe("managed child bridge recovery", () => {
     expect(assignmentOf(h, "a1")?.state).toBe("delivering");
   });
 
-  test("streaming activity refreshes inactivity without writing status per delta", async () => {
-    vi.useFakeTimers();
+  test("streaming activity refreshes inactivity without writing status per delta", () => {
     const h = harness({ limits: { maxRuntimeMs: 0, maxInactivityMs: 100 } });
     h.send(1, "streaming task");
     h.bridge.start(h.ctx);
     runPrompt(h);
 
     const startedAt = h.status()?.updatedAt;
-    h.clock.now += 49;
+    h.advance(49);
     h.bridge.onActivity();
     expect(h.status()?.updatedAt).toBe(startedAt);
 
-    h.clock.now += 1;
+    h.advance(1);
     h.bridge.onActivity();
     expect(h.status()?.updatedAt).toBe(startedAt! + 50);
     const firstHeartbeat = h.status()?.updatedAt;
-    h.clock.now += 10;
+    h.advance(10);
     h.bridge.onActivity();
     expect(h.status()?.updatedAt).toBe(firstHeartbeat);
 
+    // 360 ms of streaming against a 100 ms inactivity limit.
     for (let index = 0; index < 4; index++) {
-      await vi.advanceTimersByTimeAsync(90);
-      h.clock.now += 50;
+      h.advance(90);
       h.bridge.onActivity();
     }
 
@@ -840,15 +901,15 @@ describe("managed child bridge recovery", () => {
     });
   });
 
-  test("watchdog aborts only the active assignment and records a timeout", async () => {
+  test("watchdog aborts only the active assignment and records a timeout", () => {
     const h = harness({ limits: { maxRuntimeMs: 10, maxInactivityMs: 0 } });
     h.bridge.start(h.ctx);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    h.advance(20);
     expect(h.ctx.aborts).toBe(0);
     h.send(1, "slow");
     h.bridge.poll();
     runPrompt(h);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    h.advance(25);
     expect(h.ctx.aborts).toBe(1);
     h.bridge.onMessageEnd({
       role: "assistant",
@@ -904,7 +965,6 @@ describe("managed child bridge recovery", () => {
 
 describe("managed child bridge shutdown and session safety", () => {
   test("a dead parent aborts the run, shuts down, and force-exits if shutdown stalls", () => {
-    vi.useFakeTimers();
     let forced = 0;
     const alive = { parent: true };
     const h = harness({
@@ -927,7 +987,9 @@ describe("managed child bridge shutdown and session safety", () => {
     h.bridge.checkParent();
     expect(h.ctx.shutdowns).toBe(1);
 
-    vi.advanceTimersByTime(15_000);
+    h.advance(14_999);
+    expect(forced).toBe(0);
+    h.advance(1);
     expect(forced).toBe(1);
   });
 
@@ -1023,5 +1085,52 @@ describe("managed child bridge environment", () => {
         () => {},
       ),
     ).toThrow(/FRESH_ATTEMPT must be 0 or 1/);
+  });
+});
+
+describe("managed child bridge timers and queued text", () => {
+  test("background polling and parent checks run on the injected scheduler until dispose", () => {
+    const alive = { parent: true };
+    const h = harness({
+      pollMs: 200,
+      parentPid: 99,
+      isPidAlive: () => alive.parent,
+    });
+    h.bridge.start(h.ctx);
+    h.send(1, "polled");
+    h.advance(199);
+    expect(h.sent).toHaveLength(0);
+    h.advance(1);
+    expect(h.sent).toHaveLength(1);
+
+    alive.parent = false;
+    h.advance(2_000);
+    expect(h.ctx.shutdowns).toBe(1);
+
+    h.bridge.dispose();
+    h.send(2, "after dispose");
+    h.advance(1_000);
+    expect(h.sent).toHaveLength(1);
+  });
+
+  test("a queued follow-up is delivered with its full text, not the capped preview", () => {
+    const h = harness();
+    const long = `start-${"x".repeat(5_000)}-end`;
+    h.send(1, "first");
+    h.send(2, long, "followUp");
+    h.bridge.start(h.ctx);
+    runPrompt(h);
+    expect(assignmentOf(h, "a2")).toMatchObject({
+      state: "accepted",
+      disposition: "followUp",
+    });
+    expect(
+      Buffer.byteLength(assignmentOf(h, "a2")!.preview),
+    ).toBeLessThanOrEqual(2 * 1024);
+    yieldResult(h, "done");
+    settle(h);
+    expect(h.sent).toHaveLength(2);
+    expect(h.sent[1]!.text).toContain(long);
+    expect(assignmentOf(h, "a2")?.state).toBe("delivering");
   });
 });

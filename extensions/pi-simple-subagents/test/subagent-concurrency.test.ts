@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { SessionConcurrencyGate } from "../src/_concurrency.ts";
+import {
+  createKeyedMutex,
+  SessionConcurrencyGate,
+} from "../src/_concurrency.ts";
 
 describe("SessionConcurrencyGate", () => {
   test("queues above the active limit and releases slots on completion", async () => {
@@ -73,5 +76,35 @@ describe("SessionConcurrencyGate", () => {
     await expect(gate.acquire()).rejects.toThrow("session is shutting down");
     release();
     expect(gate.status.active).toBe(0);
+  });
+});
+
+describe("createKeyedMutex", () => {
+  test("serializes per key, survives rejections, and clears idle keys", async () => {
+    const tails = new Map<string, Promise<unknown>>();
+    const lock = createKeyedMutex(tails);
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    const first = lock("a", async () => {
+      await new Promise<void>((resolve) => (releaseFirst = resolve));
+      order.push("a1");
+      throw new Error("boom");
+    });
+    const second = lock("a", async () => {
+      order.push("a2");
+      return 2;
+    });
+    const other = lock("b", async () => {
+      order.push("b1");
+    });
+    await other;
+    expect(order).toEqual(["b1"]);
+    releaseFirst();
+    await expect(first).rejects.toThrow("boom");
+    await expect(second).resolves.toBe(2);
+    expect(order).toEqual(["b1", "a1", "a2"]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(tails.size).toBe(0);
   });
 });

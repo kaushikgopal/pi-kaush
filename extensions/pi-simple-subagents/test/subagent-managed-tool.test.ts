@@ -21,11 +21,19 @@ import {
 } from "../src/_delegation.ts";
 import type { AgentConfig } from "../src/_definition.ts";
 import type { SubagentProcessRegistry } from "../src/_process-tree.ts";
-import { parseSubagentProfiles } from "../src/_profiles.ts";
+import { parseModelProfiles } from "@pi-kaush/pi-model-profiles";
 import {
+  boundManagedToolOutput,
+  MANAGED_TOOL_OUTPUT_LIMIT_BYTES,
   prepareManagedLaunch,
-  validateManagedAction,
+  truncateManagedText,
 } from "../src/_managed-tool.ts";
+import { parseSubagentCall } from "../src/_subagent-command.ts";
+
+function parseError(params: Record<string, unknown>): string | undefined {
+  const parsed = parseSubagentCall(params);
+  return parsed.ok ? undefined : parsed.error;
+}
 
 const mockState = vi.hoisted(() => ({ agentDir: "" }));
 vi.mock("@earendil-works/pi-coding-agent", async () => {
@@ -55,7 +63,7 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true });
 });
 
-const profiles = parseSubagentProfiles({
+const profiles = parseModelProfiles({
   version: 1,
   profiles: {
     quick: {
@@ -226,28 +234,43 @@ describe("managed launch preparation", () => {
   });
 });
 
+describe("managed tool output bounds", () => {
+  test("truncated output stays within its byte limit, marker included", () => {
+    const bounded = boundManagedToolOutput(
+      "x".repeat(MANAGED_TOOL_OUTPUT_LIMIT_BYTES + 1),
+    );
+    expect(Buffer.byteLength(bounded)).toBe(MANAGED_TOOL_OUTPUT_LIMIT_BYTES);
+    expect(bounded).toContain("managed result truncated");
+    const preview = truncateManagedText("y".repeat(5000), 2048);
+    expect(Buffer.byteLength(preview)).toBe(2048);
+    expect(preview.endsWith("\n… result preview truncated.")).toBe(true);
+    expect(truncateManagedText("short", 2048)).toBe("short");
+  });
+});
+
 describe("managed action validation and bounded isolation", () => {
   test("keeps run as the no-action default and rejects mixed control requests", () => {
+    const run = parseSubagentCall({ agent: "coder", task: "x" });
+    expect(run.ok && run.command.kind).toBe("run");
     expect(
-      validateManagedAction("run", { agent: "coder", task: "x" }),
-    ).toBeUndefined();
-    expect(
-      validateManagedAction("status", {
+      parseError({
+        action: "status",
         handle: "mw-123456",
         model: "provider/model-a",
       }),
     ).toContain("does not accept launch fields: model");
     expect(
-      validateManagedAction("send", {
+      parseError({
+        action: "send",
         handle: "mw-123456",
         message: "hello",
         waitTimeoutMs: 1,
       }),
     ).toContain("does not accept assignmentId or waitTimeoutMs");
     expect(
-      validateManagedAction("spawn", { chain: [{ agent: "coder" }] }),
+      parseError({ action: "spawn", chain: [{ agent: "coder" }] }),
     ).toContain("does not support chains");
-    expect(validateManagedAction("spawn", { tasks: [] })).toContain(
+    expect(parseError({ action: "spawn", tasks: [] })).toContain(
       "non-empty tasks[]",
     );
   });

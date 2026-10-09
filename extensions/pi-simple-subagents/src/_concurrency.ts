@@ -110,3 +110,28 @@ export class SessionConcurrencyGate {
       pending.signal.removeEventListener("abort", pending.onAbort);
   }
 }
+
+/** Runs `fn` after every earlier operation on `key` settles, whether it resolved or rejected. */
+export type KeyedMutex = <T>(key: string, fn: () => Promise<T>) => Promise<T>;
+
+/**
+ * Per-key FIFO serialization. Pass `tails` to keep the queue state on an
+ * object that outlives this closure (for example across module reloads).
+ */
+export function createKeyedMutex(
+  tails: Map<string, Promise<unknown>> = new Map(),
+): KeyedMutex {
+  return <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+    const previous = tails.get(key) ?? Promise.resolve();
+    const next = previous.then(fn, fn);
+    const settled = next.then(
+      () => {},
+      () => {},
+    );
+    tails.set(key, settled);
+    void settled.then(() => {
+      if (tails.get(key) === settled) tails.delete(key);
+    });
+    return next;
+  };
+}

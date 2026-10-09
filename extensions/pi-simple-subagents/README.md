@@ -77,10 +77,20 @@ path. An idle parent starts a turn to present the answer; a busy parent receives
 as a follow-up after the current turn. Steers merged into a running assignment
 are reported with it. Reports are recorded in the parent session, so `/reload`
 and restarts neither repeat nor lose them, and results already collected with
-`wait` are not reported again. `wait` remains available for deterministic
-collection inside a turn. The managed-worker status line hides exited or
-stopped workers once their results are reported or collected; live idle
-workers stay visible.
+`wait` are not reported again. Receipts follow the active branch: after `/tree`
+navigation, a result reported only on the abandoned branch is reported again.
+Each report is sent at most three times. `wait` remains available for
+deterministic collection inside a turn. The managed-worker status line hides
+exited or stopped workers once their results are reported or collected; live
+idle workers stay visible.
+
+The status line is published as the extension status
+`below-footer:managed-subagents`, one worker per line, at most five rows plus a
+`+N more` row. With [pi-footer-minimal](../pi-footer-minimal/README.md)
+installed, each line renders as its own dimmed row below the footer. Without it,
+Pi's native footer joins every extension status into one line, so the worker
+rows appear inline with other statuses, separated by spaces and clipped to the
+terminal width.
 
 Spawn confirmations and controls stay in the expanded tool output. IDs are
 explicitly labeled `worker-handle [mw-…]` and `assignment-id [a-…]`; expand the

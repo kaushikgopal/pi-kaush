@@ -211,25 +211,46 @@ export function createDelegationTrace(
   };
 }
 
+/** Parent-scoped prefixes a child must never inherit: Herdr pane control and managed-worker wiring. */
+const PARENT_CONTROL_ENV_PREFIXES = ["HERDR_", "PI_MANAGED_SUBAGENT_"];
+
+/** Copy of `env` without parent control variables (case-insensitive prefix match). */
+export function stripParentControlEnvironment(
+  env: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const result = { ...env };
+  for (const key of Object.keys(result)) {
+    const normalized = key.toUpperCase();
+    if (
+      PARENT_CONTROL_ENV_PREFIXES.some((prefix) =>
+        normalized.startsWith(prefix),
+      )
+    )
+      delete result[key];
+  }
+  return result;
+}
+
+/** Only the delegation trace variables a child needs to know its place in the tree. */
+export function delegationTraceEnvironment(
+  trace: DelegationTrace,
+): Record<string, string> {
+  return {
+    [ROOT_SESSION_ENV]: trace.rootSessionId,
+    [PARENT_SESSION_ENV]: trace.parentSessionId,
+    [PARENT_TOOL_CALL_ENV]: trace.parentToolCallId,
+    [DEPTH_ENV]: String(trace.depth),
+  };
+}
+
 export function buildSubagentEnvironment(
   trace: DelegationTrace,
   baseEnv: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const env = { ...baseEnv };
-  for (const key of Object.keys(env)) {
-    const normalized = key.toUpperCase();
-    if (
-      normalized.startsWith("HERDR_") ||
-      normalized.startsWith("PI_MANAGED_SUBAGENT_")
-    )
-      delete env[key];
-  }
-
-  env[ROOT_SESSION_ENV] = trace.rootSessionId;
-  env[PARENT_SESSION_ENV] = trace.parentSessionId;
-  env[PARENT_TOOL_CALL_ENV] = trace.parentToolCallId;
-  env[DEPTH_ENV] = String(trace.depth);
-  return env;
+  return {
+    ...stripParentControlEnvironment(baseEnv),
+    ...delegationTraceEnvironment(trace),
+  };
 }
 
 export function resolveRequestedModel(
@@ -255,21 +276,6 @@ export function buildChildSessionName(agentName: string, task: string): string {
   return `subagent(${agentName}): ${clipped}`;
 }
 
-export function hasDelegatedToolActivity(
-  messages: readonly {
-    role: string;
-    content?: string | readonly { type: string }[];
-  }[],
-): boolean {
-  return messages.some(
-    (message) =>
-      message.role === "toolResult" ||
-      (message.role === "assistant" &&
-        Array.isArray(message.content) &&
-        message.content.some((part) => part.type === "toolCall")),
-  );
-}
-
 export function buildDelegatedSystemPrompt(
   agentPrompt: string,
   trace: DelegationTrace,
@@ -291,14 +297,4 @@ export function buildDelegatedSystemPrompt(
 
   const prompt = agentPrompt.trim();
   return prompt ? `${prompt}\n\n${boundary}` : boundary;
-}
-
-export function sessionIdFromJsonEvent(event: unknown): string | undefined {
-  if (!event || typeof event !== "object") return undefined;
-  const candidate = event as { type?: unknown; id?: unknown };
-  return candidate.type === "session" &&
-    typeof candidate.id === "string" &&
-    candidate.id.length > 0
-    ? candidate.id
-    : undefined;
 }

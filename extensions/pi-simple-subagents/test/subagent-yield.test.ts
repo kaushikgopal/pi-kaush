@@ -22,17 +22,24 @@ const {
   registerSubagentYield,
   subagentYieldFromMessage,
 } = await import("../src/_yield.ts");
+const { parseChildMessage } = await import("../src/_child-events.ts");
+
+function parsed(message: unknown) {
+  const result = parseChildMessage(message);
+  if (!result) throw new Error("test message did not parse");
+  return result;
+}
 
 function yieldMessage(
   status: "completed" | "blocked" | "failed",
   result = "finished",
   artifacts?: string[],
 ) {
-  return {
+  return parsed({
     role: "toolResult",
     toolName: "yield",
     details: { status, result, artifacts },
-  };
+  });
 }
 
 describe("structured subagent yield", () => {
@@ -61,6 +68,24 @@ describe("structured subagent yield", () => {
       result: "implemented the fix",
       artifacts: ["src/fix.ts"],
     });
+  });
+
+  test("registers the managed-assignment variant with the same schema limits", async () => {
+    let tool: any;
+    registerSubagentYield(
+      { registerTool: (definition: unknown) => (tool = definition) } as any,
+      "managedAssignment",
+    );
+
+    expect(tool.name).toBe("yield");
+    expect(tool.description).toContain("managed assignment");
+    expect(tool.parameters.properties.artifacts.maxItems).toBe(20);
+    const result = await tool.execute("call", {
+      status: "blocked",
+      result: "need access",
+    });
+    expect(result.content[0].text).toBe("Yielded managed assignment: blocked");
+    expect(result.terminate).toBe(true);
   });
 
   test("applies completed, blocked, and failed outcomes to the parent result", () => {
@@ -99,18 +124,18 @@ describe("structured subagent yield", () => {
 
   test("ignores malformed or unrelated tool results", () => {
     expect(
-      subagentYieldFromMessage({
-        role: "toolResult",
-        toolName: "read",
-        details: {},
-      }),
+      subagentYieldFromMessage(
+        parsed({ role: "toolResult", toolName: "read", details: {} }),
+      ),
     ).toBeUndefined();
     expect(
-      subagentYieldFromMessage({
-        role: "toolResult",
-        toolName: "yield",
-        details: { status: "unknown", result: "bad" },
-      }),
+      subagentYieldFromMessage(
+        parsed({
+          role: "toolResult",
+          toolName: "yield",
+          details: { status: "unknown", result: "bad" },
+        }),
+      ),
     ).toBeUndefined();
     expect(
       subagentYieldFromMessage(

@@ -15,11 +15,9 @@ class FakeScheduler {
   set(callback: () => void, delayMs: number) {
     const id = this.nextId++;
     this.tasks.set(id, { callback, delayMs });
-    return id as unknown as ReturnType<typeof setTimeout>;
-  }
-
-  clear(handle: ReturnType<typeof setTimeout>) {
-    this.tasks.delete(handle as unknown as number);
+    return () => {
+      this.tasks.delete(id);
+    };
   }
 
   fire(delayMs: number) {

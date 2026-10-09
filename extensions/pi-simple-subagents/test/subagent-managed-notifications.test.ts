@@ -198,7 +198,10 @@ function worker(handle: string): ManagedWorkerView {
   } as ManagedWorkerView;
 }
 
-function setup(parent = new FakeParent()) {
+function setup(
+  parent = new FakeParent(),
+  options: Parameters<typeof registerManagedNotifications>[2] = {},
+) {
   const results: ManagedResultView[] = [];
   const runtime = {
     listResults: vi.fn(() => [...results]),
@@ -212,6 +215,7 @@ function setup(parent = new FakeParent()) {
   const notifications = registerManagedNotifications(
     parent.pi as never,
     getRuntime,
+    options,
   );
   return { parent, results, runtime, getRuntime, notifications };
 }
@@ -510,6 +514,177 @@ describe("managed result notifications", () => {
     await poll(60_000);
     expect(parent.sent).toHaveLength(0);
   });
+  test("a current wait result after the first receipt is not read as a legacy receipt", async () => {
+    const parent = new FakeParent();
+    const waitResult = (assignmentId: string, toolCallId: string) => ({
+      type: "message",
+      message: {
+        role: "toolResult",
+        toolName: "subagent",
+        toolCallId,
+        content: [
+          {
+            type: "text",
+            text: `mw-aaaaaa · ${assignmentId} · completed\ndone`,
+          },
+        ],
+        details: { results: [] },
+      },
+    });
+    parent.push(waitResult("a-legacy", "c0"));
+    parent.push({
+      type: "custom",
+      customType: "managed-subagent-collected",
+      data: { handle: "mw-bbbbbb", assignmentId: "a-other" },
+    });
+    parent.push(waitResult("a-current", "c1"));
+    const { results, notifications } = setup(parent);
+    results.push(result("mw-aaaaaa", "a-current"));
+    parent.start();
+
+    expect(
+      notifications.isReported(parent.ctx(), "mw-aaaaaa", "a-legacy"),
+    ).toBe(true);
+    expect(
+      notifications.isReported(parent.ctx(), "mw-aaaaaa", "a-current"),
+    ).toBe(false);
+    await poll();
+    expect(parent.reports()).toMatchObject([{ assignmentId: "a-current" }]);
+  });
+
+  test("every send records an intent, and restarts restore the attempt count from them", async () => {
+    const intent = {
+      type: "custom",
+      customType: "managed-subagent-report-intent",
+      data: { reports: [{ handle: "mw-aaaaaa", assignmentId: "a-1" }] },
+    };
+    const intentsFor = (parent: FakeParent) =>
+      parent.entries.filter(
+        (entry) =>
+          entry.type === "custom" &&
+          entry.customType === "managed-subagent-report-intent",
+      ).length;
+
+    // Three earlier sends exhausted the cap; a restart does not reset it.
+    const capped = new FakeParent();
+    for (let index = 0; index < 3; index++) capped.push(intent);
+    const first = setup(capped);
+    first.results.push(result("mw-aaaaaa", "a-1"));
+    capped.start();
+    await poll(120_000);
+    expect(capped.sent).toHaveLength(0);
+    expect(
+      first.notifications.isReported(capped.ctx(), "mw-aaaaaa", "a-1"),
+    ).toBe(false);
+    capped.emit("session_shutdown", { reason: "quit" });
+
+    // Two earlier sends leave exactly one, and that send records its own intent.
+    const retried = new FakeParent();
+    for (let index = 0; index < 2; index++) retried.push(intent);
+    const second = setup(retried);
+    second.results.push(result("mw-aaaaaa", "a-1"));
+    retried.start();
+    await poll(120_000);
+    expect(retried.sent).toHaveLength(1);
+    expect(intentsFor(retried)).toBe(3);
+    expect(retried.reports()).toHaveLength(1);
+  });
+
+  test("an aborted retry appends a second intent for the resend", async () => {
+    const { parent, results } = setup();
+    parent.start();
+    parent.startRun();
+    results.push(result("mw-aaaaaa", "a-1"));
+    await poll();
+    parent.endRun(true);
+    await poll(3_000);
+    expect(parent.sent).toHaveLength(2);
+    expect(
+      parent.entries.filter(
+        (entry) =>
+          entry.type === "custom" &&
+          entry.customType === "managed-subagent-report-intent",
+      ),
+    ).toHaveLength(2);
+  });
+
+  test("tree navigation rebuilds receipts from the new branch", async () => {
+    const { parent, results, notifications } = setup();
+    parent.start();
+    const collected = result("mw-aaaaaa", "a-collected");
+    notifications.markCollected(parent.ctx(), collected);
+    results.push(result("mw-aaaaaa", "a-1"));
+    await poll();
+    expect(parent.sent).toHaveLength(1);
+    const reportedBranch = [...parent.entries];
+
+    // Navigate to a point before the report and the collection.
+    parent.entries.splice(0);
+    parent.emit("session_tree", { newLeafId: null, oldLeafId: "e3" });
+    expect(notifications.isReported(parent.ctx(), "mw-aaaaaa", "a-1")).toBe(
+      false,
+    );
+    expect(
+      notifications.isReported(parent.ctx(), "mw-aaaaaa", "a-collected"),
+    ).toBe(false);
+    await poll();
+    expect(parent.sent).toHaveLength(2);
+
+    // Navigating back restores that branch's receipts.
+    parent.entries.splice(0, parent.entries.length, ...reportedBranch);
+    parent.emit("session_tree", { newLeafId: "e3", oldLeafId: null });
+    expect(
+      notifications.isReported(parent.ctx(), "mw-aaaaaa", "a-collected"),
+    ).toBe(true);
+  });
+
+  test("retry deadlines come from the injected clock", async () => {
+    let clock = 0;
+    const { parent, results } = setup(new FakeParent(), { now: () => clock });
+    parent.start();
+    parent.startRun();
+    results.push(result("mw-aaaaaa", "a-1"));
+    await poll();
+    parent.endRun(true);
+
+    // Timers advance, but the injected clock has not reached the settle retry.
+    await poll(60_000);
+    expect(parent.sent).toHaveLength(1);
+
+    clock = 2_000;
+    await poll();
+    expect(parent.sent).toHaveLength(2);
+    expect(parent.sent[1]!.triggerTurn).toBe(false);
+  });
+
+  test("a stale context is expected during reload; other poll failures are logged once", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { parent, getRuntime, results } = setup();
+      parent.start();
+      getRuntime.mockRejectedValue(
+        new Error(
+          "This extension ctx is stale after session replacement or reload.",
+        ),
+      );
+      await poll(3_000);
+      expect(errors).not.toHaveBeenCalled();
+
+      getRuntime.mockRejectedValue(new Error("broken runtime"));
+      await poll(3_000);
+      expect(errors).toHaveBeenCalledTimes(1);
+      expect(String(errors.mock.calls[0]?.[1])).toContain("broken runtime");
+
+      // Polling continues once the runtime recovers.
+      getRuntime.mockReset();
+      getRuntime.mockImplementation(async () => undefined);
+      results.push(result("mw-aaaaaa", "a-1"));
+      await poll();
+      expect(getRuntime).toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
+    }
+  });
 });
 
 describe("managed report formatting", () => {
@@ -540,6 +715,57 @@ describe("managed report formatting", () => {
     expect(expanded).toContain("Transcript: /sessions/mw-aaaaaa.jsonl");
     expect(expanded).not.toContain("This is not a user message");
     expect(expanded).not.toContain("Present the worker's answer directly");
+  });
+
+  test("the renderer starts at the stored report offset and falls back for older messages", async () => {
+    const { parent, results, runtime } = setup();
+    parent.start();
+    // A handle outside the `mw-` shape defeats the legacy boundary search.
+    results.push(result("worker-1", "a-1"));
+    await poll();
+    const render = parent.pi.registerMessageRenderer.mock.calls[0]?.[1];
+    const message = parent.sent[0]?.message;
+    if (!render || !message)
+      throw new Error("Missing registered report renderer or message");
+    // SAFETY: this renderer uses only these two theme helpers.
+    const theme = {
+      fg: (_color: string, text: string) => text,
+      bold: (text: string) => text,
+    } as unknown as Theme;
+    const expand = (details: unknown) =>
+      render(
+        { ...message, details } as never,
+        { expanded: true, outputPad: 0 },
+        theme,
+      )
+        ?.render(240)
+        .join("\n") ?? "";
+
+    const details = message.details as ManagedReportDetails;
+    expect(details.reportsOffset).toBe(
+      message.content.indexOf("### worker-1 · a-1"),
+    );
+    expect(expand(details)).not.toContain("This is not a user message");
+    expect(expand(details)).toContain("worker-1 · a-1 · completed");
+
+    // Older messages without the offset keep the boundary search.
+    const { reportsOffset: _, ...legacy } = details;
+    expect(expand(legacy)).toContain("This is not a user message");
+    expect(runtime.status).toHaveBeenCalledWith("worker-1");
+  });
+
+  test("duplicate replacements drop the report offset with the report body", async () => {
+    const { parent, results, notifications } = setup();
+    parent.start();
+    parent.startRun();
+    const pending = result("mw-aaaaaa", "a-1");
+    results.push(pending);
+    await poll();
+    notifications.markCollected(parent.ctx(), pending);
+    parent.endRun(false);
+    const [duplicate] = parent.reports();
+    expect(duplicate).toMatchObject({ duplicate: true });
+    expect(duplicate).not.toHaveProperty("reportsOffset");
   });
 
   test("ten maximum-size results each keep identity and bounded output within 50KiB", () => {

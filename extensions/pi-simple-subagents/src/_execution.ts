@@ -4,21 +4,20 @@ import type { SubagentLimitsConfig } from "./_limits.ts";
 
 export type SubagentTimeoutReason = "inactivity" | "runtime";
 
-type TimerHandle = ReturnType<typeof setTimeout>;
+/** Cancels one scheduled timer; calling it after the timer fired is harmless. */
+type CancelTimer = () => void;
 
-interface TimerScheduler {
-  set(callback: () => void, delayMs: number): TimerHandle;
-  clear(handle: TimerHandle): void;
+/** One-shot timers for the watchdog. The returned cancel function is the timer's opaque handle. */
+export interface TimerScheduler {
+  set(callback: () => void, delayMs: number): CancelTimer;
 }
 
+/** Real timers that never keep the process alive on their own. */
 const defaultScheduler: TimerScheduler = {
   set(callback, delayMs) {
     const handle = setTimeout(callback, delayMs);
     handle.unref?.();
-    return handle;
-  },
-  clear(handle) {
-    clearTimeout(handle);
+    return () => clearTimeout(handle);
   },
 };
 
@@ -56,20 +55,17 @@ export function createSubagentExecutionWatchdog(
   onTimeout: (reason: SubagentTimeoutReason) => void,
   scheduler: TimerScheduler = defaultScheduler,
 ): SubagentExecutionWatchdog {
-  let runtimeTimer: TimerHandle | undefined;
-  let inactivityTimer: TimerHandle | undefined;
+  let cancelRuntime: CancelTimer | undefined;
+  let cancelInactivity: CancelTimer | undefined;
   let stopped = false;
 
-  const clearTimer = (handle: TimerHandle | undefined): void => {
-    if (handle !== undefined) scheduler.clear(handle);
-  };
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
-    clearTimer(runtimeTimer);
-    clearTimer(inactivityTimer);
-    runtimeTimer = undefined;
-    inactivityTimer = undefined;
+    cancelRuntime?.();
+    cancelInactivity?.();
+    cancelRuntime = undefined;
+    cancelInactivity = undefined;
   };
   const expire = (reason: SubagentTimeoutReason): void => {
     if (stopped) return;
@@ -77,15 +73,15 @@ export function createSubagentExecutionWatchdog(
     onTimeout(reason);
   };
   const armInactivityTimer = (): void => {
-    clearTimer(inactivityTimer);
-    inactivityTimer =
+    cancelInactivity?.();
+    cancelInactivity =
       limits.maxInactivityMs > 0
         ? scheduler.set(() => expire("inactivity"), limits.maxInactivityMs)
         : undefined;
   };
 
   if (limits.maxRuntimeMs > 0) {
-    runtimeTimer = scheduler.set(() => expire("runtime"), limits.maxRuntimeMs);
+    cancelRuntime = scheduler.set(() => expire("runtime"), limits.maxRuntimeMs);
   }
   armInactivityTimer();
 
