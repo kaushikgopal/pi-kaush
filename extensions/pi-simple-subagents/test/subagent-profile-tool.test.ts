@@ -68,6 +68,7 @@ function registerTestTool(): {
       },
       on: (event: string, handler: () => Promise<void>) =>
         (handlers[event] = handler),
+      registerCommand: () => undefined,
     } as any,
     makeTestExtensionDir(),
   );
@@ -151,7 +152,9 @@ describe("subagent profile tool surface", () => {
 
   test("registers yield only inside delegated child sessions", () => {
     const previousDepth = process.env.PI_SUBAGENT_DEPTH;
+    const previousManagedDir = process.env.PI_MANAGED_SUBAGENT_DIR;
     try {
+      delete process.env.PI_MANAGED_SUBAGENT_DIR;
       delete process.env.PI_SUBAGENT_DEPTH;
       expect(registerTestTool().tools.map((tool) => tool.name)).toEqual([
         "subagent",
@@ -162,9 +165,16 @@ describe("subagent profile tool surface", () => {
         "yield",
         "subagent",
       ]);
+      process.env.PI_MANAGED_SUBAGENT_DIR = "/managed/worker";
+      expect(registerTestTool().tools.map((tool) => tool.name)).toEqual([
+        "subagent",
+      ]);
     } finally {
       if (previousDepth === undefined) delete process.env.PI_SUBAGENT_DEPTH;
       else process.env.PI_SUBAGENT_DEPTH = previousDepth;
+      if (previousManagedDir === undefined)
+        delete process.env.PI_MANAGED_SUBAGENT_DIR;
+      else process.env.PI_MANAGED_SUBAGENT_DIR = previousManagedDir;
     }
   });
 

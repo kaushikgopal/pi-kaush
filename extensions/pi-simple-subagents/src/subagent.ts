@@ -57,10 +57,12 @@ import {
   resolveAgentDisplayName,
 } from "./_display.ts";
 import {
+  buildSubagentIsolationArgs,
   createSubagentExecutionWatchdog,
   formatDuration,
   formatSubagentTimeoutMessage,
   getPiInvocation,
+  type SubagentIsolationOptions,
   type SubagentTimeoutReason,
 } from "./_execution.ts";
 import {
@@ -100,6 +102,34 @@ import {
   SUBAGENT_YIELD_TOOL_NAME,
   type SubagentYieldStatus,
 } from "./_yield.ts";
+import {
+  getManagedRuntime,
+  isManagedChildProcess,
+  ManagedError,
+  type ManagedAssignmentView,
+  type ManagedRuntime,
+  type ManagedRuntimeOptions,
+  type ManagedWorkerView,
+} from "./_managed.ts";
+import { registerManagedNotifications } from "./_managed-notifications.ts";
+import {
+  formatManualManagedOpenHint,
+  registerManagedUi,
+} from "./_managed-ui.ts";
+import {
+  boundManagedToolOutput,
+  formatManagedWorkerSummary,
+  prepareManagedLaunch,
+  truncateManagedText,
+  validateManagedAction,
+  type ManagedIsolationOptions,
+  type ManagedLaunchRequest,
+} from "./_managed-tool.ts";
+
+const SUBAGENT_EXTENSION_ENTRYPOINT = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "index.ts",
+);
 
 const COLLAPSED_ITEM_COUNT = 10;
 const COLLAPSED_OUTPUT_PREVIEW_BYTES = 4 * 1024;
@@ -282,7 +312,6 @@ interface SingleResult {
   spawnBlocked?: boolean;
   executionTimedOut?: boolean;
 }
-
 interface SubagentDetails {
   mode: "single" | "parallel" | "chain";
   agentScope: AgentScope;
@@ -290,6 +319,23 @@ interface SubagentDetails {
   trace: DelegationTrace;
   concurrency: SubagentConcurrencyStatus;
   results: SingleResult[];
+  managedSpawn?: {
+    readonly started: number;
+    readonly failed: number;
+    readonly manualOpen?: boolean;
+  };
+}
+
+interface SubagentRunOptions {
+  readonly isolation?: SubagentIsolationOptions;
+  readonly tools?: readonly string[];
+}
+
+export interface SubagentRegistrationOptions {
+  readonly managedRuntimeFactory?: (
+    options: ManagedRuntimeOptions,
+  ) => ManagedRuntime;
+  readonly processRegistryFactory?: () => SubagentProcessRegistry;
 }
 
 interface AgentDisplayCache {
@@ -540,6 +586,7 @@ async function runSingleAgent(
   onUpdate: OnUpdateCallback | undefined,
   makeDetails: (results: SingleResult[]) => SubagentDetails,
   resolveModel?: (spec: string) => string | undefined,
+  options: SubagentRunOptions = {},
 ): Promise<SingleResult> {
   const agent = agents.find((a) => a.name === agentName);
 
@@ -589,9 +636,16 @@ async function runSingleAgent(
   } else {
     args.push("--no-session");
   }
+  args.push(
+    ...buildSubagentIsolationArgs(
+      options.isolation,
+      SUBAGENT_EXTENSION_ENTRYPOINT,
+    ),
+  );
   if (requestedModel) args.push("--model", requestedModel);
-  if (agent.tools && agent.tools.length > 0) {
-    args.push("--tools", includeSubagentYieldTool(agent.tools).join(","));
+  const tools = options.tools ?? agent.tools;
+  if (tools && tools.length > 0) {
+    args.push("--tools", includeSubagentYieldTool([...tools]).join(","));
   }
   if (trace.depth >= limits.maxDepth) args.push("--exclude-tools", "subagent");
 
@@ -966,6 +1020,7 @@ async function runAgentWithProfile(
   onUpdate: OnUpdateCallback | undefined,
   makeDetails: (results: SingleResult[]) => SubagentDetails,
   resolveModel?: (spec: string) => string | undefined,
+  options: SubagentRunOptions = {},
 ): Promise<SingleResult> {
   const agent = agents.find((candidate) => candidate.name === agentName);
   if (agent?.profile && agent.model) {
@@ -997,6 +1052,7 @@ async function runAgentWithProfile(
       onUpdate,
       makeDetails,
       resolveModel,
+      options,
     );
   }
 
@@ -1065,6 +1121,7 @@ async function runAgentWithProfile(
       onUpdate,
       makeDetails,
       resolveModel,
+      options,
     );
     attempts.push(summarizeModelAttempt(result));
     result.attempts = [...attempts];
@@ -1126,6 +1183,26 @@ function createSubagentParams(
       description:
         "Agent name; selects behavior and tools. Profile separately selects compute.",
     });
+  const toolsSchema = () =>
+    Type.Optional(
+      Type.Array(Type.String(), {
+        description: "Override the agent's tool allowlist for this invocation.",
+      }),
+    );
+  const isolationSchema = () =>
+    Type.Optional(
+      Type.Object({
+        noExtensions: Type.Optional(Type.Boolean()),
+        noSkills: Type.Optional(Type.Boolean()),
+        noContextFiles: Type.Optional(Type.Boolean()),
+        noPromptTemplates: Type.Optional(Type.Boolean()),
+        noMcp: Type.Optional(
+          Type.Boolean({
+            description: "Disable MCP servers and tools for bounded children.",
+          }),
+        ),
+      }),
+    );
   const TaskItem = Type.Object({
     agent: agentSchema(),
     task: Type.String({ description: "Task to delegate to the agent" }),
@@ -1134,6 +1211,8 @@ function createSubagentParams(
     cwd: Type.Optional(
       Type.String({ description: "Working directory for the agent process" }),
     ),
+    tools: toolsSchema(),
+    isolation: isolationSchema(),
   });
 
   const ChainItem = Type.Object({
@@ -1146,9 +1225,59 @@ function createSubagentParams(
     cwd: Type.Optional(
       Type.String({ description: "Working directory for the agent process" }),
     ),
+    tools: toolsSchema(),
+    isolation: isolationSchema(),
   });
 
   return Type.Object({
+    action: Type.Optional(
+      StringEnum(
+        [
+          "run",
+          "spawn",
+          "status",
+          "list",
+          "send",
+          "wait",
+          "stop",
+          "resume",
+        ] as const,
+        {
+          description:
+            "run (default), spawn, status, list, send, wait, stop, or resume.",
+          default: "run",
+        },
+      ),
+    ),
+    handle: Type.Optional(
+      Type.String({
+        description: "Managed worker handle for control actions.",
+      }),
+    ),
+    assignmentId: Type.Optional(
+      Type.String({
+        description:
+          "Assignment ID to wait for; defaults to the latest assignment.",
+      }),
+    ),
+    message: Type.Optional(
+      Type.String({
+        description: "Message to send or steer to a managed worker.",
+      }),
+    ),
+    delivery: Type.Optional(
+      StringEnum(["auto", "followUp"] as const, {
+        description:
+          'Delivery for send: "auto" steers active work; "followUp" queues a separate assignment.',
+      }),
+    ),
+    waitTimeoutMs: Type.Optional(
+      Type.Number({
+        minimum: 0,
+        maximum: 86_400_000,
+        description: "Optional wait deadline in milliseconds (max 24 hours).",
+      }),
+    ),
     agent: Type.Optional(agentSchema()),
     task: Type.Optional(
       Type.String({ description: "Task to delegate (for single mode)" }),
@@ -1187,14 +1316,18 @@ function createSubagentParams(
         description: "Working directory for the agent process (single mode)",
       }),
     ),
+    tools: toolsSchema(),
+    isolation: isolationSchema(),
   });
 }
 
 export function registerSubagent(
   pi: ExtensionAPI,
   extensionDir = path.dirname(fileURLToPath(import.meta.url)),
+  options: SubagentRegistrationOptions = {},
 ) {
-  if (currentDelegationDepth() > 0) registerSubagentYield(pi);
+  if (currentDelegationDepth() > 0 && !isManagedChildProcess())
+    registerSubagentYield(pi);
   const profilesPath = resolveProfilesPath(getAgentDir());
   // Registration-time snapshot drives the tool schema (profile-name enum) and
   // description; call-time resolution reloads on file change so ladder edits
@@ -1206,11 +1339,174 @@ export function registerSubagent(
     return profilesCache.config;
   };
   const limits = loadSubagentLimits(path.join(extensionDir, "limits.json"));
-  const activeProcesses = new SubagentProcessRegistry();
-  const concurrency = new SessionConcurrencyGate(limits.maxConcurrency);
-  pi.on("session_shutdown", async () => {
+  const runtimeFactory = options.managedRuntimeFactory ?? getManagedRuntime;
+  const processRegistryFactory =
+    options.processRegistryFactory ?? (() => new SubagentProcessRegistry());
+  let activeProcesses = processRegistryFactory();
+  let concurrency = new SessionConcurrencyGate(limits.maxConcurrency);
+  let currentSessionId: string | undefined;
+  let sessionClosed = false;
+  let shutdownTransition: Promise<void> | undefined;
+  let resourceTransition:
+    | { sessionId: string; promise: Promise<void> }
+    | undefined;
+  const managedRuntimes = new Map<string, ManagedRuntime>();
+  const restoreAttempted = new Set<string>();
+
+  const notifyLifecycle = (ctx: ExtensionContext, message: string): void => {
+    if (!ctx.hasUI) return;
+    try {
+      ctx.ui.notify(message, "warning");
+    } catch {
+      // The UI may be tearing down during shutdown or session replacement.
+    }
+  };
+
+  const createRuntimeOptions = (
+    parentSessionId: string,
+  ): ManagedRuntimeOptions => ({
+    parentSessionId,
+    agentDir: getAgentDir(),
+    limits,
+    gate: concurrency,
+    env: process.env,
+  });
+
+  const rotateSessionResources = async (sessionId: string): Promise<void> => {
+    const previousSessionId = currentSessionId;
+    if (previousSessionId !== undefined || sessionClosed) {
+      concurrency.close();
+      await activeProcesses.terminateAll();
+      const suspended = await Promise.allSettled(
+        [...managedRuntimes.values()].map((runtime) => runtime.suspendAll()),
+      );
+      for (const result of suspended)
+        if (result.status === "rejected")
+          console.warn("Could not suspend managed subagents:", result.reason);
+    }
+    concurrency = new SessionConcurrencyGate(limits.maxConcurrency);
+    activeProcesses = processRegistryFactory();
+    currentSessionId = sessionId;
+    sessionClosed = false;
+    restoreAttempted.delete(sessionId);
+  };
+
+  const ensureSessionResources = async (
+    ctx: ExtensionContext,
+    initializeManagedRuntime = true,
+  ): Promise<ManagedRuntime | undefined> => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    if (shutdownTransition) await shutdownTransition;
+    if (resourceTransition && resourceTransition.sessionId !== sessionId)
+      await resourceTransition.promise;
+    if (currentSessionId !== sessionId || sessionClosed) {
+      if (!resourceTransition || resourceTransition.sessionId !== sessionId) {
+        const promise = rotateSessionResources(sessionId);
+        resourceTransition = { sessionId, promise };
+      }
+      try {
+        await resourceTransition.promise;
+      } finally {
+        if (resourceTransition?.sessionId === sessionId)
+          resourceTransition = undefined;
+      }
+    }
+    if (currentDelegationDepth() > 0 || !initializeManagedRuntime)
+      return undefined;
+
+    let runtime = managedRuntimes.get(sessionId);
+    if (!runtime) {
+      runtime = runtimeFactory(createRuntimeOptions(sessionId));
+      runtime.bind(concurrency, limits);
+      managedRuntimes.set(sessionId, runtime);
+    }
+    if (!restoreAttempted.has(sessionId)) {
+      restoreAttempted.add(sessionId);
+      try {
+        const restored = await runtime.restore();
+        for (const result of restored)
+          if (!result.restored && result.error)
+            notifyLifecycle(
+              ctx,
+              `Could not restore ${result.handle}: ${result.error}`,
+            );
+      } catch (error) {
+        notifyLifecycle(
+          ctx,
+          `Could not restore managed subagents: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return runtime;
+  };
+
+  const runtimeForUi = (ctx: ExtensionContext): ManagedRuntime => {
+    if (currentDelegationDepth() > 0)
+      throw new ManagedError(
+        "depth",
+        "Managed subagents are only available in a top-level Pi session.",
+      );
+    const sessionId = ctx.sessionManager.getSessionId();
+    if (sessionClosed || currentSessionId !== sessionId)
+      throw new Error(
+        "Managed subagents are not ready until the session starts.",
+      );
+    const runtime =
+      managedRuntimes.get(sessionId) ??
+      runtimeFactory(createRuntimeOptions(sessionId));
+    runtime.bind(concurrency, limits);
+    managedRuntimes.set(sessionId, runtime);
+    return runtime;
+  };
+
+  pi.on("session_start", async (_event, ctx) => {
+    try {
+      await ensureSessionResources(ctx);
+    } catch (error) {
+      notifyLifecycle(
+        ctx,
+        `Could not initialize managed subagents: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  });
+  pi.on("session_shutdown", async (event, ctx) => {
+    sessionClosed = true;
     concurrency.close();
-    await activeProcesses.terminateAll();
+    shutdownTransition = (async () => {
+      await activeProcesses.terminateAll();
+      const suspended =
+        event.reason === "reload"
+          ? []
+          : await Promise.allSettled(
+              [...managedRuntimes.values()].map((runtime) =>
+                runtime.suspendAll(),
+              ),
+            );
+      for (const result of suspended)
+        if (result.status === "rejected")
+          notifyLifecycle(
+            ctx,
+            `Could not suspend managed subagents: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
+          );
+    })();
+    try {
+      await shutdownTransition;
+    } finally {
+      shutdownTransition = undefined;
+    }
+  });
+  // Registered after the session handlers above so the runtime exists before reports start.
+  const managedNotifications = registerManagedNotifications(pi, async (ctx) => {
+    if (currentDelegationDepth() > 0) return undefined;
+    const sessionId = ctx.sessionManager.getSessionId();
+    if (
+      sessionClosed ||
+      currentSessionId !== sessionId ||
+      shutdownTransition ||
+      resourceTransition
+    )
+      return undefined;
+    return managedRuntimes.get(sessionId);
   });
   const initialUserAgents = discoverAgents(process.cwd(), "user").agents;
   const listedAgents = formatAgentList(initialUserAgents, 20);
@@ -1239,37 +1535,372 @@ export function registerSubagent(
       'Delegate bounded tasks to specialized subagents with isolated context; use agent "bee" (🐝) for general execution.',
       `Agents select behavior and tools; profiles select compute. They compose independently, and their order in the user's wording does not matter.${compositionExample}`,
       `Available user agents: ${agentGuidance}.`,
-      "Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
-      "Parallel tasks may share one immutable context string that is prepended to every child task.",
+      "Default action run preserves bounded single, parallel, and chain execution. Opt in with spawn for persistent managed workers; use status, list, send, wait, stop, and resume to control them by handle.",
+      "Managed spawn accepts one agent/task or tasks[] with optional shared context; it does not support chains. Idle managed workers keep a shared concurrency slot until stopped or suspended.",
+      "Parallel tasks may share one immutable context string that is prepended to every task.",
       `Execution profiles: ${profileGuidance}`,
       `Hard delegation limits: depth ${limits.maxDepth}; ${limits.maxConcurrency} active child processes per Pi session; ${limits.maxChildrenPerCall} children per call; ${maxTreeChildren} maximum active descendants across a fully expanded root tree. Completed children release their concurrency slots.`,
       `Child execution limits: ${formatDuration(limits.maxRuntimeMs)} total runtime; ${formatDuration(limits.maxInactivityMs)} without output. These limits do not apply to the orchestrator.`,
       "Full child stdout/stderr transcripts are stored as private JSONL artifacts; session details retain bounded previews and artifact paths.",
-      "Each invocation may choose a profile or an explicit model; an explicit model overrides the profile and agent definition.",
+      "Each invocation may choose a profile or an explicit model; an explicit model overrides the profile and agent definition. Managed worker results report automatically to the parent; wait is optional for collecting a specific assignment. Interrupted tasks are never replayed automatically.",
+      "Successful spawn confirmations, worker handles, assignment IDs, and control hints belong in the expanded tool output, not a separate assistant chat acknowledgement. Do not ask the user to wait or poll for automatic results.",
+      "Isolation flags are opt-in; noExtensions still explicitly loads this package's child bridge and yield tool. noMcp is currently available for bounded runs only.",
       `Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
       `To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
       "Agent frontmatter may set confirmProjectAgents; the invocation parameter overrides it.",
     ].join(" "),
     promptSnippet:
-      "Delegate bounded work with isolated agents and optional execution profiles",
+      "Delegate bounded work or manage persistent subagents with optional execution profiles",
     promptGuidelines: [
       `For subagent, agent and profile are independent: agent selects behavior and tools; profile selects compute. When the user names both in either order, preserve both.${compositionExample}`,
       `When invoking subagent, select the least expensive profile that safely fits the task: ${profileGuidance}`,
-      `Subagent delegation is capped at depth ${limits.maxDepth}, ${limits.maxConcurrency} active children per Pi session, and ${limits.maxChildrenPerCall} children per call. Completed children release their slots.`,
+      `Bounded delegation is capped at depth ${limits.maxDepth}, ${limits.maxConcurrency} active child processes per Pi session, and ${limits.maxChildrenPerCall} children per call. Managed spawn is top-level only and uses the same process gate; idle workers retain slots.`,
+      "Use action run (or omit action) for the existing bounded single/parallel/chain behavior. Use spawn only when the user needs a reusable worker with a stable handle.",
+      "After a successful spawn, do not repeat the launch confirmation, worker handle, assignment ID, or control hints in chat. If spawning is the only request, finish without a prose acknowledgement; the tool output confirms startup and the result will report automatically. Still report launch errors and answer any other questions in the user's request.",
       "Use subagent model only for an exact model override; model takes precedence over profile.",
-      "Use top-level context only for background or constraints shared by every parallel task.",
+      "Use top-level context only for background or constraints shared by every parallel task or managed spawn batch.",
     ],
     parameters: SubagentParams,
 
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const profiles = loadCurrentProfiles();
-      const agentScope: AgentScope = params.agentScope ?? "user";
-      const discovery = discoverAgents(ctx.cwd, agentScope);
-      const agents = discovery.agents;
+      const action = typeof params.action === "string" ? params.action : "run";
       const trace = createDelegationTrace(
         ctx.sessionManager.getSessionId(),
         toolCallId,
       );
+      const managedResult = (text: string, isError = false) => ({
+        content: [
+          { type: "text" as const, text: boundManagedToolOutput(text) },
+        ],
+        details: {
+          mode: "single" as const,
+          agentScope: "user" as const,
+          projectAgentsDir: null,
+          trace,
+          concurrency: concurrency.status,
+          results: [],
+        },
+        ...(isError ? { isError: true } : {}),
+      });
+      if (action !== "run" && currentDelegationDepth() > 0)
+        return managedResult(
+          "Managed spawn and control actions are available only in a top-level Pi session; nested workers may use bounded action run.",
+          true,
+        );
+      const actionError = validateManagedAction(
+        action,
+        params as Record<string, unknown>,
+      );
+      if (actionError) return managedResult(actionError, true);
+      let managedRuntime: ManagedRuntime | undefined;
+      try {
+        managedRuntime = await ensureSessionResources(ctx, action !== "run");
+      } catch (error) {
+        return managedResult(
+          `Could not initialize subagent runtime: ${error instanceof Error ? error.message : String(error)}`,
+          true,
+        );
+      }
+      if (action === "run" && currentDelegationDepth() === 0) {
+        const liveWorkers =
+          managedRuntimes
+            .get(ctx.sessionManager.getSessionId())
+            ?.list()
+            .filter((worker) => worker.live) ?? [];
+        if (liveWorkers.length >= limits.maxConcurrency)
+          return managedResult(
+            `All ${limits.maxConcurrency} subagent slots are held by managed workers: ${liveWorkers.map((worker) => worker.handle).join(", ")}. Stop a worker before running bounded work; yielding does not release a managed worker's slot.`,
+            true,
+          );
+      }
+      if (action !== "run") {
+        if (!managedRuntime)
+          return managedResult(
+            "Managed subagents are unavailable in nested sessions.",
+            true,
+          );
+        const handle = params.handle as string | undefined;
+        try {
+          if (action === "list") {
+            const workers = managedRuntime.list();
+            const shown = workers.slice(0, 25).map(formatManagedWorkerSummary);
+            return managedResult(
+              workers.length === 0
+                ? "No managed subagents in this session."
+                : [
+                    `Managed subagents (${workers.length}):`,
+                    ...shown,
+                    ...(workers.length > shown.length
+                      ? [`… ${workers.length - shown.length} more`]
+                      : []),
+                  ].join("\n"),
+            );
+          }
+          if (action === "status") {
+            const worker = managedRuntime.status(handle!);
+            const assignments = worker.recentAssignments
+              .slice(-5)
+              .map((entry) => {
+                const outcome = entry.outcome?.result
+                  ? `\n  Result: ${truncateManagedText(entry.outcome.result, 4 * 1024)}`
+                  : "";
+                return `\n- ${entry.id} · ${entry.state}${entry.disposition ? ` · ${entry.disposition}` : ""}\n  Task: ${truncateManagedText(entry.preview, 2 * 1024)}${outcome}`;
+              });
+            return managedResult(
+              [
+                formatManagedWorkerSummary(worker),
+                `Session: ${worker.sessionId}`,
+                ...(worker.sessionFile
+                  ? [`Transcript: ${worker.sessionFile}`]
+                  : []),
+                `Usage: ${formatUsageStats(worker.usage, worker.model) || "not yet recorded"}`,
+                `Latest assignments (${worker.recentAssignments.length} recorded):`,
+                ...assignments,
+              ].join("\n"),
+            );
+          }
+          if (action === "send") {
+            const sent = managedRuntime.send(
+              handle!,
+              params.message as string,
+              (params.delivery as "auto" | "followUp" | undefined) ?? "auto",
+            );
+            return managedResult(
+              `Sent to ${handle} as ${sent.assignmentId} (${sent.state}).`,
+            );
+          }
+          if (action === "wait") {
+            const assignment = await managedRuntime.wait(handle!, {
+              ...(params.assignmentId
+                ? { assignmentId: params.assignmentId as string }
+                : {}),
+              ...(params.waitTimeoutMs !== undefined
+                ? { timeoutMs: params.waitTimeoutMs as number }
+                : {}),
+              ...(signal ? { signal } : {}),
+            });
+            managedNotifications.markCollected(ctx, assignment);
+            const state = assignment.waitTimedOut
+              ? `${assignment.state} (wait timed out)`
+              : assignment.state;
+            const outcome = assignment.outcome?.result
+              ? `\n${truncateManagedText(assignment.outcome.result)}`
+              : "\n(no result recorded)";
+            const artifacts = assignment.outcome?.artifacts ?? [];
+            const usage = formatUsageStats(assignment.usage, assignment.model);
+            return managedResult(
+              `${assignment.handle} · ${assignment.id} · ${state}${outcome}${usage ? `\nUsage: ${usage}` : ""}${artifacts.length ? `\nArtifacts: ${artifacts.join(", ")}` : ""}`,
+              [
+                "failed",
+                "timedOut",
+                "aborted",
+                "interrupted",
+                "cancelled",
+              ].includes(assignment.state),
+            );
+          }
+          if (action === "stop") {
+            const worker = await managedRuntime.stop(handle!);
+            return managedResult(
+              `Stopped; session and transcripts retained.\n${formatManagedWorkerSummary(worker)}`,
+            );
+          }
+          if (action === "resume") {
+            const worker = await managedRuntime.resume(handle!);
+            return managedResult(
+              `Resumed.\n${formatManagedWorkerSummary(worker)}`,
+            );
+          }
+          if (action !== "spawn")
+            return managedResult(
+              `Unsupported subagent action "${action}".`,
+              true,
+            );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return managedResult(truncateManagedText(message, 2 * 1024), true);
+        }
+      }
+      const profiles = loadCurrentProfiles();
+      const agentScope: AgentScope = params.agentScope ?? "user";
+      const discovery = discoverAgents(ctx.cwd, agentScope);
+      const agents = discovery.agents;
+      if (action === "spawn") {
+        if (!managedRuntime)
+          return managedResult("Managed runtime is unavailable.", true);
+        if (trace.depth > limits.maxDepth)
+          return managedResult(
+            `Managed spawn blocked at depth ${trace.depth}; hard maximum is ${limits.maxDepth}.`,
+            true,
+          );
+        const taskBatch = Array.isArray(params.tasks)
+          ? (params.tasks as Array<Record<string, unknown>>)
+          : undefined;
+        if (taskBatch && taskBatch.length > limits.maxChildrenPerCall)
+          return managedResult(
+            `Too many managed tasks (${taskBatch.length}). Max is ${limits.maxChildrenPerCall}.`,
+            true,
+          );
+        const requests: ManagedLaunchRequest[] = taskBatch
+          ? taskBatch.map((item) => ({
+              agent: item.agent as string,
+              task: item.task as string,
+              ...(item.profile ? { profile: item.profile as string } : {}),
+              ...(item.model ? { model: item.model as string } : {}),
+              ...((item.cwd ?? params.cwd)
+                ? { cwd: (item.cwd ?? params.cwd) as string }
+                : {}),
+              ...((item.tools ?? params.tools)
+                ? { tools: (item.tools ?? params.tools) as string[] }
+                : {}),
+              ...((item.isolation ?? params.isolation)
+                ? {
+                    isolation: (item.isolation ??
+                      params.isolation) as ManagedIsolationOptions,
+                  }
+                : {}),
+            }))
+          : [
+              {
+                agent: params.agent as string,
+                task: params.task as string,
+                ...(params.profile
+                  ? { profile: params.profile as string }
+                  : {}),
+                ...(params.model ? { model: params.model as string } : {}),
+                ...(params.cwd ? { cwd: params.cwd as string } : {}),
+                ...(params.tools ? { tools: params.tools as string[] } : {}),
+                ...(params.isolation
+                  ? { isolation: params.isolation as ManagedIsolationOptions }
+                  : {}),
+              },
+            ];
+        if ((agentScope === "project" || agentScope === "both") && ctx.hasUI) {
+          const requestedNames = new Set(
+            requests.map((request) => request.agent),
+          );
+          const requiringConfirmation = [...requestedNames]
+            .map((name) => agents.find((agent) => agent.name === name))
+            .filter(
+              (agent): agent is AgentConfig =>
+                agent?.source === "project" &&
+                shouldConfirmProjectAgent(agent, params.confirmProjectAgents),
+            );
+          if (requiringConfirmation.length > 0) {
+            const names = requiringConfirmation
+              .map((agent) => formatAgentDisplayName(agent))
+              .join(", ");
+            const ok = await ctx.ui.confirm(
+              "Run project-local agents?",
+              `Agents: ${names}\nSource: ${discovery.projectAgentsDir ?? "(unknown)"}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
+            );
+            if (!ok)
+              return managedResult(
+                "Canceled: project-local agents not approved.",
+                true,
+              );
+          }
+        }
+        try {
+          await (
+            ctx.modelRegistry.refresh as (options: {
+              allowNetwork: boolean;
+            }) => void | Promise<unknown>
+          )({ allowNetwork: false });
+          const delegationModels = ctx.modelRegistry.getAvailable();
+          const availableModelReferences = new Set(
+            delegationModels.map((model) =>
+              `${model.provider}/${model.id}`.toLowerCase(),
+            ),
+          );
+          const resolveModel = createModelResolver(delegationModels);
+          const prepared = requests.map((request) =>
+            prepareManagedLaunch({
+              discovery,
+              profiles,
+              availableModelReferences,
+              resolveModel,
+              defaultCwd: ctx.cwd,
+              trace,
+              ...(taskBatch && typeof params.context === "string"
+                ? { context: params.context }
+                : {}),
+              request,
+            }),
+          );
+          const started = await Promise.all(
+            prepared.map(async (preparation, index) => {
+              const label = taskBatch
+                ? `Task ${index + 1}`
+                : requests[index]!.agent;
+              if (!preparation.ok)
+                return {
+                  text: `- ${label}: ${preparation.error}`,
+                  failed: true,
+                };
+              try {
+                const worker = await managedRuntime.spawn(
+                  preparation.launch,
+                  signal,
+                );
+                const view = managedRuntime.status(worker.handle);
+                const warning =
+                  view.hostKind === "rpc"
+                    ? formatManualManagedOpenHint(view)
+                    : undefined;
+                return {
+                  text: `- ${label}: worker-handle [${worker.handle}] assignment-id [${worker.assignmentId}]`,
+                  failed: false,
+                  ...(warning ? { warning } : {}),
+                };
+              } catch (error) {
+                const message =
+                  error instanceof Error ? error.message : String(error);
+                return {
+                  text: `- ${label}: ${truncateManagedText(message, 2 * 1024)}`,
+                  failed: true,
+                };
+              }
+            }),
+          );
+          const failures = started.filter((result) => result.failed).length;
+          const warnings = started.flatMap((result) =>
+            "warning" in result && result.warning ? [result.warning] : [],
+          );
+          if (ctx.hasUI && warnings.length)
+            ctx.ui.notify(warnings.join("\n\n"), "warning");
+          const response = managedResult(
+            [
+              `Managed spawn ${failures === 0 ? "accepted" : `finished with ${failures} failure(s)`}:`,
+              ...started.map((result) => result.text),
+              ...(failures < started.length
+                ? [
+                    "",
+                    "Results report automatically. To inspect sooner, ask me for status or to wait for a specific assignment; use /subagent to open or control the worker.",
+                  ]
+                : []),
+              ...(warnings.length ? ["", ...warnings] : []),
+            ].join("\n"),
+            failures === started.length,
+          );
+          return {
+            ...response,
+            details: {
+              ...response.details,
+              managedSpawn: {
+                started: started.length - failures,
+                failed: failures,
+                ...(warnings.length ? { manualOpen: true } : {}),
+              },
+            },
+          };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          return managedResult(truncateManagedText(message, 2 * 1024), true);
+        }
+      }
       if (trace.depth > limits.maxDepth) {
         return {
           content: [
@@ -1441,6 +2072,17 @@ export function registerSubagent(
             chainUpdate,
             makeDetails("chain"),
             resolveModel,
+            {
+              ...((step.isolation ?? params.isolation) !== undefined
+                ? {
+                    isolation: (step.isolation ??
+                      params.isolation) as SubagentIsolationOptions,
+                  }
+                : {}),
+              ...((step.tools ?? params.tools) !== undefined
+                ? { tools: (step.tools ?? params.tools) as readonly string[] }
+                : {}),
+            },
           );
           results.push(result);
 
@@ -1581,6 +2223,17 @@ export function registerSubagent(
               },
               makeDetails("parallel"),
               resolveModel,
+              {
+                ...((t.isolation ?? params.isolation) !== undefined
+                  ? {
+                      isolation: (t.isolation ??
+                        params.isolation) as SubagentIsolationOptions,
+                    }
+                  : {}),
+                ...((t.tools ?? params.tools) !== undefined
+                  ? { tools: (t.tools ?? params.tools) as readonly string[] }
+                  : {}),
+              },
             );
             result.task = t.task;
             allResults[index] = result;
@@ -1636,6 +2289,14 @@ export function registerSubagent(
           onUpdate,
           makeDetails("single"),
           resolveModel,
+          {
+            ...(params.isolation !== undefined
+              ? { isolation: params.isolation as SubagentIsolationOptions }
+              : {}),
+            ...(params.tools !== undefined
+              ? { tools: params.tools as readonly string[] }
+              : {}),
+          },
         );
         const isError = isFailedResult(result);
         if (isError) {
@@ -1743,6 +2404,15 @@ export function registerSubagent(
 
     renderResult(result, { expanded }, theme, _context) {
       const details = result.details as SubagentDetails | undefined;
+      if (details?.managedSpawn && !expanded) {
+        const { started, failed, manualOpen } = details.managedSpawn;
+        const summary = `${started} background worker${started === 1 ? "" : "s"} started${failed ? ` · ${failed} launch${failed === 1 ? "" : "es"} failed` : ""}${manualOpen ? " · manual open only" : ""}`;
+        return new Text(
+          theme.fg(failed || manualOpen ? "warning" : "muted", summary),
+          0,
+          0,
+        );
+      }
       if (!details || details.results.length === 0) {
         const text = result.content[0];
         return new Text(
@@ -2191,4 +2861,5 @@ export function registerSubagent(
       return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
     },
   });
+  registerManagedUi(pi, runtimeForUi, managedNotifications.isReported);
 }

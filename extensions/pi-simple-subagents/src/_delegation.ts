@@ -217,7 +217,12 @@ export function buildSubagentEnvironment(
 ): NodeJS.ProcessEnv {
   const env = { ...baseEnv };
   for (const key of Object.keys(env)) {
-    if (key.toUpperCase().startsWith("HERDR_")) delete env[key];
+    const normalized = key.toUpperCase();
+    if (
+      normalized.startsWith("HERDR_") ||
+      normalized.startsWith("PI_MANAGED_SUBAGENT_")
+    )
+      delete env[key];
   }
 
   env[ROOT_SESSION_ENV] = trace.rootSessionId;

@@ -22,6 +22,30 @@ const defaultScheduler: TimerScheduler = {
   },
 };
 
+export interface SubagentIsolationOptions {
+  readonly noExtensions?: boolean;
+  readonly noSkills?: boolean;
+  readonly noContextFiles?: boolean;
+  readonly noPromptTemplates?: boolean;
+  readonly noMcp?: boolean;
+}
+
+/** Build only explicit isolation flags; extension discovery stays unchanged by default. */
+export function buildSubagentIsolationArgs(
+  isolation: SubagentIsolationOptions | undefined,
+  extensionEntrypoint: string,
+): string[] {
+  if (!isolation) return [];
+  const args: string[] = [];
+  if (isolation.noExtensions)
+    args.push("--no-extensions", "--extension", extensionEntrypoint);
+  if (isolation.noSkills) args.push("--no-skills");
+  if (isolation.noContextFiles) args.push("--no-context-files");
+  if (isolation.noPromptTemplates) args.push("--no-prompt-templates");
+  if (isolation.noMcp) args.push("--no-mcp");
+  return args;
+}
+
 export interface SubagentExecutionWatchdog {
   recordActivity(): void;
   stop(): void;

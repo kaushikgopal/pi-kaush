@@ -280,6 +280,9 @@ describe("delegation lineage", () => {
       HERDR_SOCKET_PATH: "/tmp/herdr.sock",
       HERDR_PANE_ID: "1-1",
       Herdr_Mixed_Case: "enabled",
+      PI_MANAGED_SUBAGENT_DIR: "/managed",
+      PI_MANAGED_SUBAGENT_HOLD_ON_MODEL_ERROR: "1",
+      PI_MANAGED_SUBAGENT_FUTURE_SETTING: "must not leak",
     };
     const trace = createDelegationTrace("main-session", "call-1", {});
     const childEnv = buildSubagentEnvironment(trace, baseEnv);
@@ -289,6 +292,10 @@ describe("delegation lineage", () => {
     expect(childEnv.HERDR_SOCKET_PATH).toBeUndefined();
     expect(childEnv.HERDR_PANE_ID).toBeUndefined();
     expect(childEnv.Herdr_Mixed_Case).toBeUndefined();
+    for (const key of Object.keys(baseEnv).filter((name) =>
+      name.startsWith("PI_MANAGED_SUBAGENT_"),
+    ))
+      expect(childEnv[key]).toBeUndefined();
     expect(childEnv.PI_SUBAGENT_ROOT_SESSION_ID).toBe("main-session");
     expect(childEnv.PI_SUBAGENT_PARENT_SESSION_ID).toBe("main-session");
     expect(childEnv.PI_SUBAGENT_PARENT_TOOL_CALL_ID).toBe("call-1");

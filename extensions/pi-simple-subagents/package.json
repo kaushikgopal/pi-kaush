@@ -1,7 +1,7 @@
 {
   "name": "@pi-kaush/pi-simple-subagents",
   "version": "0.1.2",
-  "description": "Delegate bounded tasks to isolated Pi subagent processes, with execution profiles, bounded delegation, process-tree cleanup, and resumable child sessions.",
+  "description": "Delegate bounded tasks or persistent managed workers to isolated Pi processes, with execution profiles, bounded delegation, and process-tree cleanup.",
   "license": "MIT",
   "author": "Kaushik Gopal",
   "type": "module",

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Add opt-in managed workers via `subagent` actions `spawn`, `status`, `list`,
+  `send`, `wait`, `stop`, and `resume`; bounded `run` remains the default.
+  Managed workers reuse their session, share the bounded concurrency gate, and
+  suspend on parent shutdown without replaying interrupted assignments.
+- Report terminal managed-worker results to the parent automatically as
+  bounded `managed-subagent-result` messages: idle parents start a turn, busy
+  parents get a follow-up, and receipts persist in the parent session so reload
+  and restart neither repeat nor drop reports. Manual `wait` stays optional.
+- Keep spawn IDs and control hints in expanded tool output, hide collapsed
+  completion metadata, and guide the parent to present answers without worker
+  announcements or task recaps.
+- Treat a worker that quits cleanly from its own TUI as exited rather than
+  failed; its last result stays collectable.
+- Host Herdr workers in unfocused panes split down from the caller, stack later
+  workers below earlier ones, and close only extension-owned panes. Keep headless
+  Pi RPC fallback and warn before manually opening an RPC worker's live session.
 - Resolve subagent profiles and bare model overrides from Pi's refreshed,
   authenticated catalog instead of the parent's `enabledModels`/`--models`
   cycling scope. Delegation may use available models outside that scope.
