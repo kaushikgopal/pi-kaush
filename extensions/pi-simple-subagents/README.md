@@ -7,6 +7,72 @@ managed workers keep their Pi session between assignments.
 Despite the name, this is the full-featured subagent tool — "simple" refers to
 the bounded default: tasks in, structured results out.
 
+## Quick start
+
+```fish
+pi install npm:@pi-kaush/pi-simple-subagents
+```
+
+The tool needs two things on disk before it is useful:
+
+1. **At least one agent definition.** A subagent call names an agent, and an
+   unknown name fails with the list of available agents. Create
+   `~/.pi/agent/agents/bee.md`:
+
+   ```markdown
+   ---
+   emoji: 🐝
+   profile: quick
+   ---
+
+   You are a general worker. Do the delegated task and report the result
+   concisely.
+   ```
+
+   Run `/reload` after adding or renaming agents. See [Agents](#agents).
+
+2. **`~/.pi/agent/profiles.yaml`.** The extension loads it at startup and fails
+   to register without it. A minimal file:
+
+   ```yaml
+   version: 1
+   profiles:
+     quick:
+       description: Fast, low-cost execution for simple tasks.
+       candidates:
+         - model: anthropic/claude-haiku-4-5
+   ```
+
+   Use any `provider/model` you are authenticated for. The schema lives in
+   [`@pi-kaush/pi-model-profiles`](https://www.npmjs.com/package/@pi-kaush/pi-model-profiles).
+
+## Examples
+
+Ask the parent model in plain language; it chooses the `subagent` call.
+
+Bounded runs (the default) return a result inside the current turn:
+
+- `Use a quick bee subagent to count the .ts files under src and reply with the number only.`
+- `In parallel, have two quick bee subagents summarize README.md and CHANGELOG.md in one sentence each.`
+- `Chain: a bee subagent lists the exported functions in src/index.ts, then a bee subagent writes one line describing {previous}.`
+- Press Esc during a run to stop every child; partial results are kept.
+
+Managed workers keep their session and report back on their own:
+
+- `Spawn a managed bee worker: read src/index.ts and tell me in 3 bullets what it does.`
+  In Herdr it opens in an unfocused pane below; elsewhere it
+  runs headless. The answer arrives without calling `wait`.
+- `Send that worker a follow-up: list any timers it creates.` Same session, new
+  assignment, second report.
+- `Steer that worker: focus only on error handling.` Folds into the running task.
+- `Stop the worker.` then `Resume it and ask what it remembers.` Context is kept;
+  interrupted work is never replayed.
+- `/subagent` opens a picker to inspect, focus, message, or stop workers.
+
+Workers survive `/reload`, come back idle after `pi --continue`, and each result
+is reported once. Bounded runs and managed workers share five slots; when idle
+workers hold them all, a bounded run fails immediately and names workers to stop.
+
 ## What it adds
 
 - `subagent`, an LLM-callable tool with three modes:

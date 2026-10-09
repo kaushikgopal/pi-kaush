@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
+- Document setup requirements (an agent definition and `profiles.yaml`) and
+  add usage examples to the README.
 - Add opt-in managed workers via `subagent` actions `spawn`, `status`, `list`,
   `send`, `wait`, `stop`, and `resume`; bounded `run` remains the default.
   Managed workers reuse their session, share the bounded concurrency gate, and
