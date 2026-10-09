@@ -1,17 +1,18 @@
 // Collapsed-row color policy.
 //
 // Collapsed blocks (tool calls, settled "+ Thought" labels, subagent rows)
-// default to the theme's `syntaxComment` token — it ships with every Pi
-// theme and reads as a muted tone — instead of the louder
-// muted/toolTitle/toolOutput split. A theme can override each collapsed
-// kind independently with a `collapsedToolCall` or `collapsedThinkingCall`
-// color token.
+// default to the theme's `dim` token — it ships with every Pi theme and sits
+// below `muted` — instead of the louder muted/toolTitle/toolOutput split.
+// Pi's generated `system` theme solves `syntaxComment` to the same contrast
+// as `muted`, so only `dim` keeps collapsed rows clearly behind chat text.
+// A theme can override each collapsed kind independently with a
+// `collapsedToolCall` or `collapsedThinkingCall` color token.
 //
 // Failures always fall back to the historical tokens.
 
 const TOOL_OVERRIDE_TOKEN = "collapsedToolCall";
 const THINKING_OVERRIDE_TOKEN = "collapsedThinkingCall";
-const DEFAULT_TOKEN = "syntaxComment";
+const DEFAULT_TOKEN = "dim";
 
 type CollapsedTheme = {
   fg(color: string, text: string): string;
@@ -57,7 +58,7 @@ export function paletteSample(theme: CollapsedTheme): string {
   return PALETTE_TOKENS.map((token) => tokenAnsi(theme, token) ?? "").join(",");
 }
 
-// Override token when defined, else the theme's syntaxComment color, else
+// Override token when defined, else the theme's dim color, else
 // null (caller falls back to the historical tokens).
 function collapsedAnsi(
   theme: CollapsedTheme,
@@ -95,8 +96,7 @@ export function fgCollapsed(
 }
 
 // Decoration rails recede further than collapsed text. No palette token is
-// guaranteed lighter than the collapsed color (e.g. catppuccin-latte's `dim`
-// resolves to the same overlay0 as syntaxComment), so apply the terminal's
+// guaranteed lighter than the collapsed `dim` color, so apply the terminal's
 // faint attribute: it lightens toward the background on light themes and
 // darkens on dark ones. The rail keeps this muted weight even on failed
 // rows, where only the row's text turns error-colored.

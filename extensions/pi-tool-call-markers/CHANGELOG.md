@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Paint collapsed rows with the theme's `dim` token instead of
+  `syntaxComment`. Pi's generated `system` theme solves `syntaxComment` to
+  the same contrast as `muted` and `toolOutput`, so collapsed tool calls
+  read almost like chat text there. `dim` stays a step below in every
+  theme; `collapsedToolCall` and `collapsedThinkingCall` overrides still win.
+
 - Give the codemode tool its own `¢` anchor and collapsed label. Codemode
   rows used to collapse to a script preview; they now show the nested
   calls the script ran (repeats deduped to `name ×N`) followed by the

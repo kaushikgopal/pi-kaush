@@ -135,7 +135,7 @@ Names are comma-separated and matched exactly. Listed rows never join a group, a
 
 ### Collapsed-row colors
 
-Collapsed rows (tool calls, `+ Thought`, subagents) default to the theme's `syntaxComment` color — it ships with every Pi theme and reads as a muted tone — with the row's anchor and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
+Collapsed rows (tool calls, `+ Thought`, subagents) default to the theme's `dim` color — it ships with every Pi theme and sits below `muted`, including in the generated `system` theme — with the row's anchor and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
 
 A theme can override each collapsed kind independently with optional color tokens:
 
