@@ -1,6 +1,6 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import registerFooter from "../src/index.ts";
+import registerFooter, { BELOW_FOOTER_PREFIX } from "../src/index.ts";
 
 type Footer = {
   render(width: number): string[];
@@ -168,6 +168,10 @@ function plain(text: string): string {
   return text.replace(/\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
 }
 
+test("exports the below-footer status prefix contract", () => {
+  expect(BELOW_FOOTER_PREFIX).toBe("below-footer:");
+});
+
 describe("edge padding", () => {
   test("renders footer metadata without a blank separator row", () => {
     const harness = createHarness();
@@ -267,6 +271,27 @@ describe("usage and context", () => {
     harness.commands.get("footer-more-stats")?.("on", harness.context);
 
     expect(footer.render(100)[1]).toContain("↑1.0k ↓30 ¢33.3%");
+  });
+
+  test("counts entries appended between renders and tolerates malformed usage", () => {
+    const entries: any[] = [usageEntry(100, 10, 0, 0, 0.5)];
+    const harness = createHarness({ entries });
+    const footer = harness.start();
+    harness.commands.get("footer-more-stats")?.("on", harness.context);
+    expect(footer.render(100)[1]).toContain("↑100 ↓10");
+
+    entries.push(usageEntry(900, 20, 0, 0, 1));
+    entries.push({
+      type: "message",
+      message: { role: "assistant", usage: {} },
+    });
+    entries.push({ type: "compaction", usage: { input: 1_000, output: 0 } });
+    expect(footer.render(100)[1]).toContain("↑2.0k ↓30");
+    expect(mainLine(footer, 100)).toContain("$1.50");
+
+    // A shorter entry list is a different history; totals start over.
+    entries.splice(0, entries.length, usageEntry(5, 6));
+    expect(footer.render(100)[1]).toContain("↑5 ↓6");
   });
 
   test.each([

@@ -29,7 +29,7 @@ After `/footer-more-stats` (two metadata lines):
 
 - **Line 1:** cwd `(branch)` [session], session cost, and context usage (colorized at 60%/80% thresholds). Model, active agent, and thinking level stay right-aligned. Working state stays with Pi's native indicator in the chat output — nothing is animated or hidden here.
 - **Line 2** (via `/footer-more-stats [on|off|toggle]`, off by default): cumulative input/output tokens, the gateway provider when multiple providers are available, a compact 🔌 MCP badge, and ordinary extension statuses.
-- **Rows below the footer:** Statuses whose keys begin with `below-footer:` render after the main metadata and optional stats, whether or not stats are enabled. Their value is split on newlines; each row is inset and dimmed, with terminal controls stripped and long text clipped to the terminal width.
+- **Rows below the footer:** Statuses whose keys begin with `below-footer:` render after the main metadata and optional stats, whether or not stats are enabled. Keys sort alphabetically, and each value is split on newlines; each row is inset and dimmed, with terminal controls stripped and long text clipped to the terminal width. The prefix is exported as `BELOW_FOOTER_PREFIX`.
 
 When the terminal is narrow, line 1 degrades in stages: the cwd flattens to its basename, then the session cost and optional active-agent status drop, with ellipsis truncation as a last resort. The right-aligned model never changes shape and remains the final visible cell.
 
