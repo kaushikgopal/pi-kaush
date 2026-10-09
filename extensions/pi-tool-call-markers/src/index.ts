@@ -24,7 +24,7 @@ import { isQuestionToolCall, renderQuestionBlock } from "./question-block.ts";
 import { sanitizeInline } from "./sanitize.ts";
 
 const OUTER_INSET = 2;
-const SUBAGENT_MARKER = "↪";
+const SUBAGENT_MARKER = "│";
 const GROUP_CALL_MARKER = "│";
 // Collapsed rows anchor with a glyph instead of repeating the tool name;
 // tools that read as one family share a glyph, and unmapped tools fall back
@@ -901,7 +901,7 @@ function codemodeCallLabel(row: ToolExecutionRow): string | undefined {
 // The collapsed-row seam lives here and nowhere else: which anchor a row
 // takes, how that anchor is styled, and the call text that follows it.
 // Anchors always render bold and take no joining colon — `│ ● src/a.ts`,
-// `│ $ npm test` — and subagent fallbacks keep their `↪ subagent …`
+// `│ $ npm test` — and subagent fallbacks keep their `│ subagent …`
 // reading instead of a glyph. Callers append the outcome tail.
 function collapsedSeam(
   row: ToolExecutionRow,
@@ -1173,10 +1173,10 @@ function subagentProgressText(row: ToolExecutionRow): string | undefined {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-// Subagents render as an ordinary unboxed tool block: a `↪` heading with the
+// Subagents render as an ordinary unboxed tool block: a `│` heading with the
 // plan kind/count/scope, then the numbered chain steps or parallel tasks with
 // agent identities (emoji, profile badge, name badge) in accent. Single calls
-// collapse to one row: `↪ <emoji> [<profile>][<name>] <task preview>`. Everything
+// collapse to one row: `│ <emoji> [<profile>][<name>] <task preview>`. Everything
 // else stays muted (or error on failure), matching the shared tool-row aesthetic.
 function renderSubagentPlan(
   row: ToolExecutionRow,
