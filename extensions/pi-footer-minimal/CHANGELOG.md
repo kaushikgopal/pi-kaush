@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.4
 
 - Export the `below-footer:` status prefix as `BELOW_FOOTER_PREFIX`, count session usage incrementally instead of rescanning every entry per render, and treat malformed usage fields as zero instead of failing the render.
 - Render `below-footer:` status rows after the main footer and optional stats, with terminal control stripping, width clipping, and ultra-dim styling.
+
+## 0.1.3
+
 - Remove the blank separator row between the active prompt and footer metadata.
 - Drop footer-owned working state: no spinner cell, no interval, and Pi's native working row stays visible in the chat output (reverts the footer working-indicator design).
 - Prepend one blank separator row above the footer metadata, restoring visual separation from the active prompt surface (supersedes the zero-separator prototype).
