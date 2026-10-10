@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Draw subagent rows with the same faint rail as every other collapsed
+  tool call. They used a bold `│` of their own, and failed subagent plans
+  painted the rail in the error color.
+- Stop the thinking spinner from forcing full transcript redraws. Changing
+  a line above the viewport makes the terminal clear and replay the whole
+  transcript, and the live label kept animating after answer text pushed it
+  out of view. The label now settles when the answer or a tool call starts,
+  so its duration is the real thinking time. With several thinking runs in
+  one message, earlier runs show a static `│ * Thought`, and the current
+  run animates only while it is the message's last line.
+- Never animate over a click-revealed thinking trace or answer Markdown
+  that happens to equal the label.
+- Keep `/toggle-info` replay from bringing back thinking that a message's
+  final update dropped.
+
 - Fix assistant replies vanishing behind the thinking label. The label
   restyle matched any text node containing the label, so a reply that quoted
   `Thinking...` or `│ * Thought` was replaced by the label until Ctrl+T. Only
