@@ -41,6 +41,18 @@ text at this package's message inset, so `pi-tool-call-markers` mirrors
 `contentInset` for its bash blocks (see its `src/bash-block.ts`). Change
 indentation in both packages together.
 
+## Cache-miss notices
+
+Native cache-miss notices gain a `✗` marker aligned with tool and Thought glyphs:
+
+```text
+    ✗ Cache miss: 32k tokens re-billed ($0.16)
+```
+
+Pi's model-switch and idle-gap labels, token counts, warning color, and notice
+thresholds remain unchanged. The cost is still Pi's estimate; only the `~` is
+hidden. No cache detection or billing logic is replaced.
+
 ## Queued steering previews
 
 Pi renders queued `Steering:` messages in the native `dim` color. This package

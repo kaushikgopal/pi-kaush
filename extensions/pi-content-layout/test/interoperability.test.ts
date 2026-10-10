@@ -75,7 +75,7 @@ const theme = {
   getBgAnsi: bgAnsiFor,
 } as Theme;
 
-function setup(order: "inline-first" | "layout-first") {
+function setup(order: "inline-first" | "layout-first", markersFirst = false) {
   const handlers = new Map<string, Handler[]>();
   const eventBus = new Map<string, Array<(payload: unknown) => void>>();
   let editorFactory: EditorFactory | undefined;
@@ -123,6 +123,7 @@ function setup(order: "inline-first" | "layout-first") {
     transform: () => ({ action: "continue" }),
   };
 
+  if (markersFirst) registerToolMarkers(pi);
   if (order === "inline-first") {
     registerInlineIdentifierFeature(pi, inlineFeature);
     contentLayout(pi);
@@ -131,7 +132,7 @@ function setup(order: "inline-first" | "layout-first") {
     registerInlineIdentifierFeature(pi, inlineFeature);
   }
   registerFooter(pi);
-  registerToolMarkers(pi);
+  if (!markersFirst) registerToolMarkers(pi);
   registerThinkingMarkers(pi);
 
   const context = {
@@ -295,5 +296,38 @@ describe.each(["inline-first", "layout-first"] as const)(
       expect(footerLine?.endsWith("  ")).toBe(true);
       footer?.dispose();
     });
+  },
+);
+
+test.each([true, false])(
+  "cache-miss notices compose with tool grouping (markers first: %s)",
+  (markersFirst) => {
+    initTheme("dark");
+    const harness = setup("layout-first", markersFirst);
+    cleanups.push(() => harness.fire("session_shutdown"));
+    const HostContainer = Object.getPrototypeOf(
+      AssistantMessageComponent.prototype,
+    ).constructor as typeof Container;
+    const chat = new HostContainer();
+    chat.addChild(
+      new AssistantMessageComponent({
+        role: "assistant",
+        content: [{ type: "text", text: "neighbor" }],
+        stopReason: "stop",
+      } as never),
+    );
+    chat.addChild(createSettledReadRow());
+    chat.addChild(
+      new Text(
+        theme.fg("warning", "Cache miss: 32k tokens re-billed (~$0.16)"),
+        1,
+        0,
+      ),
+    );
+    const lines = chat.render(100).map(stripControls);
+    expect(lines.find((line) => line.includes("Cache miss"))?.trimEnd()).toBe(
+      "    ✗ Cache miss: 32k tokens re-billed ($0.16)",
+    );
+    expect(lines.find((line) => line.includes("│"))).toMatch(/^  │/);
   },
 );

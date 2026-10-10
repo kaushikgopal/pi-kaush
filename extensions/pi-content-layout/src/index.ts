@@ -11,6 +11,8 @@ import {
   type EditorComponent,
   type EditorTheme,
   Loader,
+  stripTerminalSequences,
+  Text,
   TruncatedText,
   type TUI,
   visibleWidth,
@@ -241,7 +243,8 @@ function isSystemTextChild(child: unknown): child is NativeTextRow {
     return false;
   const text = child as NativeTextRow & { constructor?: { name?: string } };
   return (
-    text.constructor?.name === "Text" &&
+    (text.constructor?.name === "Text" ||
+      text.constructor?.name === "ThemedText") &&
     typeof text.text === "string" &&
     text.paddingX === 1 &&
     text.paddingY === 0 &&
@@ -250,6 +253,12 @@ function isSystemTextChild(child: unknown): child is NativeTextRow {
 }
 
 const knownChatContainers = new WeakSet<object>();
+const systemTextPresentations = new WeakMap<
+  object,
+  { text: string; presentation: Text | undefined }
+>();
+const CACHE_MISS_TEXT =
+  /^Cache miss(?: after model switch| after \d+m idle)?: \d+(?:\.\d+)?[kM]? tokens re-billed(?: \(~\$\d+\.\d{2}\))?$/;
 
 let systemTextHookActive = 0;
 
@@ -282,16 +291,36 @@ function systemTextHook(
   for (const child of children) {
     if (!isSystemTextChild(child)) continue;
     const extraInset = Math.max(0, targetInset - (child.paddingX ?? 0));
-    if (extraInset === 0) continue;
+    const ownRender = Object.getOwnPropertyDescriptor(child, "render");
     const originalRender = child.render;
-    child.render = (childWidth: number): string[] =>
-      insetLines(
-        originalRender.call(child, Math.max(1, childWidth - extraInset * 2)),
+    child.render = (childWidth: number): string[] => {
+      const innerWidth = Math.max(1, childWidth - extraInset * 2);
+      // ThemedText builds its source lazily and refreshes it on theme changes.
+      const lines = originalRender.call(child, innerWidth);
+      const text = child.text ?? "";
+      let cached = systemTextPresentations.get(child);
+      if (!cached || cached.text !== text) {
+        cached = {
+          text,
+          presentation: CACHE_MISS_TEXT.test(stripTerminalSequences(text))
+            ? new Text(
+                text.replace("Cache miss", "✗ Cache miss").replace("(~$", "($"),
+                (child.paddingX ?? 0) + 2,
+                child.paddingY,
+              )
+            : undefined,
+        };
+        systemTextPresentations.set(child, cached);
+      }
+      return insetLines(
+        cached.presentation?.render(innerWidth) ?? lines,
         childWidth,
         extraInset,
       );
+    };
     restores.push(() => {
-      delete (child as Partial<NativeTextRow>).render;
+      if (ownRender) Object.defineProperty(child, "render", ownRender);
+      else delete (child as Partial<NativeTextRow>).render;
     });
   }
   if (restores.length === 0) return undefined;

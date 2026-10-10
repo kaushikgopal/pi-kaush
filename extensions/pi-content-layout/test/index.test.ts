@@ -7,6 +7,7 @@ import type {
 import {
   AssistantMessageComponent,
   initTheme,
+  InteractiveMode,
   ToolExecutionComponent,
   UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
@@ -544,6 +545,114 @@ describe("native transcript adapters", () => {
     }
   });
 
+  test.each([
+    ["Cache miss", false, 0, 32_000, 0.16, "32k", " ($0.16)"],
+    ["Cache miss after model switch", true, 0, 32_000, 0.16, "32k", " ($0.16)"],
+    [
+      "Cache miss after 8m idle",
+      false,
+      480_000,
+      32_000,
+      0.16,
+      "32k",
+      " ($0.16)",
+    ],
+    ["Cache miss", false, 0, 1_200_000, 0, "1.2M", ""],
+  ] as const)(
+    "restyles the native %s notice without changing its source",
+    (label, modelChanged, idleMs, missedTokens, missedCost, tokens, cost) => {
+      const HostContainer = Object.getPrototypeOf(
+        AssistantMessageComponent.prototype,
+      ).constructor as typeof Container;
+      const chat = new HostContainer();
+      chat.addChild(
+        new AssistantMessageComponent({
+          role: "assistant",
+          content: [{ type: "text", text: "neighbor" }],
+          stopReason: "stop",
+        } as never),
+      );
+      // Exercise Pi's actual lazy ThemedText notice through its exported host.
+      const native = InteractiveMode.prototype as unknown as {
+        addCacheMissNotice(miss: {
+          modelChanged: boolean;
+          idleMs: number;
+          missedTokens: number;
+          missedCost: number;
+        }): void;
+      };
+      native.addCacheMissNotice.call(
+        { chatContainer: chat },
+        { modelChanged, idleMs, missedTokens, missedCost },
+      );
+      const row = chat.children.at(-1) as Text;
+      const originalRender = row.render;
+      const nativeLines = row.render(100);
+      row.invalidate();
+      const harness = createHarness();
+      activeHarnesses.push(harness);
+      harness.fire("session_start");
+
+      const expected = `✗ ${label}: ${tokens} tokens re-billed${cost}`;
+      for (const width of [100, 24, 4, 100]) {
+        const lines = chat.render(width);
+        expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+        if (width === 100) {
+          const line = lines.find((line) => stripControls(line).includes("✗"));
+          expect(stripControls(line ?? "").trimEnd()).toBe(`    ${expected}`);
+          expect(line).toContain(nativeLines[0]?.match(CSI_RE)?.[0]);
+        }
+        expect(row.render).toBe(originalRender);
+        expect(row.render(100)).toEqual(nativeLines);
+      }
+
+      initTheme("light");
+      row.invalidate();
+      const recoloredNative = row.render(100);
+      const recolored = chat
+        .render(100)
+        .find((line) => stripControls(line).includes("✗"));
+      expect(recolored).toContain(recoloredNative[0]?.match(CSI_RE)?.[0]);
+      expect(stripControls(recolored ?? "").trimEnd()).toBe(`    ${expected}`);
+
+      harness.fire("session_shutdown");
+      activeHarnesses.pop();
+      expect(
+        chat.render(100).some((line) => stripControls(line).includes("✗")),
+      ).toBe(false);
+      expect(row.render(100)).toEqual(recoloredNative);
+    },
+  );
+
+  test("leaves unrelated system text and cache-miss lookalikes unchanged", () => {
+    const harness = createHarness();
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+    const HostContainer = Object.getPrototypeOf(
+      AssistantMessageComponent.prototype,
+    ).constructor as typeof Container;
+    const chat = new HostContainer();
+    chat.addChild(
+      new AssistantMessageComponent({
+        role: "assistant",
+        content: [{ type: "text", text: "neighbor" }],
+        stopReason: "stop",
+      } as never),
+    );
+    for (const text of [
+      "Reloaded keybindings",
+      "Cache miss: details unavailable",
+      "Example: Cache miss: 32k tokens re-billed (~$0.16)",
+    ]) {
+      chat.addChild(new Text(theme.fg("warning", text), 1, 0));
+    }
+    const lines = chat.render(100).map(stripControls);
+    expect(lines).toContain("  Reloaded keybindings".padEnd(100));
+    expect(lines).toContain("  Cache miss: details unavailable".padEnd(100));
+    expect(lines.some((line) => line.includes("✗"))).toBe(false);
+    expect(lines.some((line) => line.includes("(~$0.16)"))).toBe(true);
+  });
+
   test("keeps system rows inset when an outer grouping wrapper composes through hooks", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);
@@ -580,6 +689,19 @@ describe("native transcript adapters", () => {
         } as never),
       );
       chat.addChild(new Text(theme.fg("muted", "Reloaded keybindings"), 1, 0));
+      chat.addChild(
+        new Text(
+          theme.fg("warning", "Cache miss: 32k tokens re-billed (~$0.16)"),
+          1,
+          0,
+        ),
+      );
+      const missLine = chat
+        .render(80)
+        .find((line) => stripControls(line).includes("Cache miss"));
+      expect(stripControls(missLine ?? "").trimEnd()).toBe(
+        "    ✗ Cache miss: 32k tokens re-billed ($0.16)",
+      );
       const statusLine = chat
         .render(40)
         .find((line) => stripControls(line).includes("Reloaded keybindings"));
