@@ -95,22 +95,6 @@ export function fgCollapsed(
   return theme.fg(color, bold && theme.bold ? theme.bold(text) : text);
 }
 
-// Collapsed thought rows (grouped hidden thinking) take the thinking
-// override instead of the tool one, with the same fallbacks.
-export function fgCollapsedThinking(
-  theme: CollapsedTheme,
-  text: string,
-  bold = false,
-): string {
-  const ansi = collapsedThinkingAnsi(theme);
-  if (ansi) {
-    return bold
-      ? `${ansi}\x1b[1m${text}\x1b[22m\x1b[39m`
-      : `${ansi}${text}\x1b[39m`;
-  }
-  return theme.fg("muted", bold && theme.bold ? theme.bold(text) : text);
-}
-
 // Decoration rails recede further than collapsed text. No palette token is
 // guaranteed lighter than the collapsed `dim` color, so apply the terminal's
 // faint attribute: it lightens toward the background on light themes and

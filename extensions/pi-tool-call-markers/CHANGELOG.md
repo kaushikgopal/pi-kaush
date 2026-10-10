@@ -2,15 +2,6 @@
 
 ## Unreleased
 
-- Thread hidden thoughts into the tool-call rail. A `+ Thought` row used to
-  break every quiet-turn group, so a think-call-think-call turn alternated
-  native labels with singleton tool rows, each wrapped in blank lines. An
-  assistant row that shows only hidden thinking now joins the adjacent group
-  as `│ ✦ Thought · 2.5s`; the live spinner takes the glyph slot and settles
-  in place without changing the row count. Clicking the row still reveals
-  the trace, which then renders natively and breaks the group like any
-  visible content. A thought with no adjacent call keeps Pi's native label.
-
 - Paint collapsed rows with the theme's `dim` token instead of
   `syntaxComment`. Pi's generated `system` theme solves `syntaxComment` to
   the same contrast as `muted` and `toolOutput`, so collapsed tool calls
