@@ -25,6 +25,7 @@ const expected = [
   "src/question-block.ts",
   "src/sanitize.ts",
   "src/thinking-block-merger.ts",
+  "src/thought-rows.ts",
 ].sort();
 
 if (JSON.stringify(files) !== JSON.stringify(expected)) {

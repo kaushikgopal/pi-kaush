@@ -22,6 +22,12 @@ import {
 import { fgCollapsed, fgCollapsedRail, paletteSample } from "./muted.ts";
 import { isQuestionToolCall, renderQuestionBlock } from "./question-block.ts";
 import { sanitizeInline } from "./sanitize.ts";
+import {
+  type HiddenThought,
+  hiddenThoughtOf,
+  thoughtMouseTarget,
+  thoughtRowLine,
+} from "./thought-rows.ts";
 
 const OUTER_INSET = 2;
 const SUBAGENT_MARKER = "│";
@@ -123,9 +129,11 @@ type GroupingPatchState = {
 type GroupRenderCache = {
   lines: string[];
   // The first member absorbs the leading blank; each member owns its line.
-  heights: Array<{ component: ToolExecutionRow; height: number }>;
-  members: ToolExecutionRow[];
+  heights: Array<{ component: unknown; height: number }>;
+  members: GroupMember[];
   memberVersions: number[];
+  // Thought labels change without a tool-row version bump.
+  thoughtKey: string;
   themeSample: string;
   width: number;
 };
@@ -1312,37 +1320,72 @@ function renderCollapsedToolRow(
   return ["", ...insetLines(body, width)];
 }
 
+// A group member is a collapsed tool call or an assistant row that shows
+// only hidden-thinking labels; both draw one rail row per entry.
+type GroupMember =
+  | { kind: "tool"; row: ToolExecutionRow }
+  | { kind: "thought"; row: unknown; thought: HiddenThought };
+
+function toolMembers(members: GroupMember[]): ToolExecutionRow[] {
+  return members.flatMap((member) =>
+    member.kind === "tool" ? [member.row] : [],
+  );
+}
+
+function thoughtKeyOf(members: GroupMember[]): string {
+  return members
+    .map((member) =>
+      member.kind === "thought"
+        ? `${member.thought.regions.length}:${member.thought.label}`
+        : "",
+    )
+    .join("\u0000");
+}
+
 function renderGroupedCallLines(
-  rows: ToolExecutionRow[],
+  members: GroupMember[],
   width: number,
   theme: ThemeLike,
-): Array<{ row: ToolExecutionRow; lines: string[] }> {
-  const segments: Array<{ row: ToolExecutionRow; lines: string[] }> = [];
-  for (const row of rows) {
-    segments.push({ row, lines: [collapsedRowLine(row, width, theme)] });
+): Array<{ component: unknown; lines: string[] }> {
+  const segments: Array<{ component: unknown; lines: string[] }> = [];
+  for (const member of members) {
+    if (member.kind === "tool") {
+      segments.push({
+        component: member.row,
+        lines: [collapsedRowLine(member.row, width, theme)],
+      });
+      continue;
+    }
+    // Each label owns its line and forwards clicks to its own reveal toggle.
+    for (const region of member.thought.regions) {
+      segments.push({
+        component: thoughtMouseTarget(region),
+        lines: [thoughtRowLine(member.thought.label, width, theme)],
+      });
+    }
   }
   return segments;
 }
 
-function sameMembers(
-  left: ToolExecutionRow[],
-  right: ToolExecutionRow[],
-): boolean {
+function sameMembers(left: GroupMember[], right: GroupMember[]): boolean {
   return (
     left.length === right.length &&
-    left.every((member, index) => member === right[index])
+    left.every((member, index) => member.row === right[index]!.row)
   );
 }
 
 function sameMemberVersions(
-  rows: ToolExecutionRow[],
+  members: GroupMember[],
   versions: number[],
   state: PresentationPatchState,
 ): boolean {
   return (
-    rows.length === versions.length &&
-    rows.every(
-      (row, index) => (state.rowVersions.get(row) ?? 0) === versions[index],
+    members.length === versions.length &&
+    members.every(
+      (member, index) =>
+        (member.kind === "tool"
+          ? (state.rowVersions.get(member.row) ?? 0)
+          : 0) === versions[index],
     )
   );
 }
@@ -1351,12 +1394,12 @@ type GroupBlock = {
   lines: string[];
   // Click-routing accounting aligned with `lines`: one entry per drawn row
   // segment, so mouse events land on the member that owns the line.
-  heights: Array<{ component: ToolExecutionRow; height: number }>;
+  heights: Array<{ component: unknown; height: number }>;
 };
 
 function renderGroupedToolRows(
   row: ToolExecutionRow,
-  rows: ToolExecutionRow[],
+  members: GroupMember[],
   width: number,
   state: PresentationPatchState,
 ): GroupBlock {
@@ -1366,21 +1409,23 @@ function renderGroupedToolRows(
     return { lines, heights: [{ component: row, height: lines.length }] };
   }
   const themeSample = themeSampleFor(theme);
+  const thoughtKey = thoughtKeyOf(members);
   const cached = state.groupCache.get(row);
-  const hasLiveMembers = rows.some(isLiveRow);
+  const hasLiveMembers = toolMembers(members).some(isLiveRow);
   if (
     !hasLiveMembers &&
     cached &&
     cached.width === width &&
     cached.themeSample === themeSample &&
-    sameMembers(cached.members, rows) &&
-    sameMemberVersions(rows, cached.memberVersions, state)
+    cached.thoughtKey === thoughtKey &&
+    sameMembers(cached.members, members) &&
+    sameMemberVersions(members, cached.memberVersions, state)
   ) {
     return { lines: cached.lines, heights: cached.heights };
   }
 
   const layout = insetLayout(width);
-  const segments = renderGroupedCallLines(rows, layout.contentWidth, theme);
+  const segments = renderGroupedCallLines(members, layout.contentWidth, theme);
   const lines = [
     "",
     ...insetLines(
@@ -1388,19 +1433,31 @@ function renderGroupedToolRows(
       width,
     ),
   ];
-  // The first member owns the leading blank; every member owns its call line.
-  const heights = segments.map((segment, index) => ({
-    component: segment.row,
-    height: index === 0 ? segment.lines.length + 1 : segment.lines.length,
-  }));
+  // The leading blank belongs to the first tool member, or stands alone
+  // ahead of a thought so it never toggles the thought's trace.
+  const heights: Array<{ component: unknown; height: number }> = [];
+  segments.forEach((segment, index) => {
+    const height = segment.lines.length;
+    if (index > 0) {
+      heights.push({ component: segment.component, height });
+    } else if (members[0]?.kind === "tool") {
+      heights.push({ component: segment.component, height: height + 1 });
+    } else {
+      heights.push({ component: members[0]?.row, height: 1 });
+      heights.push({ component: segment.component, height });
+    }
+  });
   if (hasLiveMembers) {
     state.groupCache.delete(row);
   } else {
     state.groupCache.set(row, {
       lines,
       heights,
-      members: [...rows],
-      memberVersions: rows.map((member) => state.rowVersions.get(member) ?? 0),
+      members: [...members],
+      memberVersions: members.map((member) =>
+        member.kind === "tool" ? (state.rowVersions.get(member.row) ?? 0) : 0,
+      ),
+      thoughtKey,
       themeSample,
       width,
     });
@@ -1429,20 +1486,39 @@ function renderContainerWithToolGroups(
     rendered.set(index, next);
     return next;
   };
+  const thoughtAt = (index: number): HiddenThought | undefined => {
+    const child = children[index];
+    if (!isAssistantMessageRow(child)) return undefined;
+    try {
+      return hiddenThoughtOf(child);
+    } catch {
+      return undefined;
+    }
+  };
+  const memberAt = (index: number): GroupMember | undefined => {
+    const child = children[index];
+    if (isToolExecutionRow(child)) {
+      return isGroupableToolRow(child, children, index, renderAt, presentation)
+        ? { kind: "tool", row: child }
+        : undefined;
+    }
+    const thought = thoughtAt(index);
+    return thought ? { kind: "thought", row: child, thought } : undefined;
+  };
+  const renderNative = (index: number) => {
+    const drawn = renderAt(index);
+    lines.push(...drawn);
+    heights.push({ component: children[index], height: drawn.length });
+  };
 
   for (let index = 0; index < children.length; index++) {
-    const child = children[index];
-    if (
-      !isToolExecutionRow(child) ||
-      !isGroupableToolRow(child, children, index, renderAt, presentation)
-    ) {
-      const drawn = renderAt(index);
-      lines.push(...drawn);
-      heights.push({ component: child, height: drawn.length });
+    const first = memberAt(index);
+    if (!first) {
+      renderNative(index);
       continue;
     }
 
-    const group: ToolExecutionRow[] = [child];
+    const members: GroupMember[] = [first];
     let lastMemberIndex = index;
     for (
       let candidateIndex = index + 1;
@@ -1451,38 +1527,37 @@ function renderContainerWithToolGroups(
     ) {
       const candidate = children[candidateIndex];
       if (isAssistantMessageRow(candidate)) {
+        const thought = thoughtAt(candidateIndex);
+        if (thought) {
+          members.push({ kind: "thought", row: candidate, thought });
+          lastMemberIndex = candidateIndex;
+          continue;
+        }
         if (renderAt(candidateIndex).some(hasVisibleContent)) break;
         continue;
       }
       if (isToolExecutionRow(candidate)) {
-        if (
-          !isGroupableToolRow(
-            candidate,
-            children,
-            candidateIndex,
-            renderAt,
-            presentation,
-          )
-        )
-          break;
-        group.push(candidate);
+        const member = memberAt(candidateIndex);
+        if (!member) break;
+        members.push(member);
         lastMemberIndex = candidateIndex;
         continue;
       }
       if (renderAt(candidateIndex).some(hasVisibleContent)) break;
     }
 
-    if (group.length === 1) {
-      const drawn = renderAt(index);
-      lines.push(...drawn);
-      heights.push({ component: child, height: drawn.length });
+    // A thought only joins the rail beside a tool call; a lone call or a
+    // run of thoughts with no call keeps Pi's native rendering.
+    const tools = toolMembers(members);
+    if (tools.length === 0 || members.length === 1) {
+      renderNative(index);
       continue;
     }
 
-    // Use a live member while any call is pending, then the first member once
+    // Use a live member while any call is pending, then the first call once
     // settled. Either way, the grouped row keeps the same number of lines.
-    const shellRow = group.find(isLiveRow) ?? child;
-    const block = renderGroupedToolRows(shellRow, group, width, presentation);
+    const shellRow = tools.find(isLiveRow) ?? tools[0]!;
+    const block = renderGroupedToolRows(shellRow, members, width, presentation);
     lines.push(...block.lines);
     heights.push(...block.heights);
     index = lastMemberIndex;
