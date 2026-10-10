@@ -210,12 +210,27 @@ function unitalicizeSettledThinking(row: AssistantMessageRow): void {
 // matches, and a candidate's plain text must equal the label exactly. Pi 1.0
 // wraps each thinking run in a MouseRegion; each child is judged on its own,
 // unwrapped when it has a wrapped inner.
-function hiddenLabelNodes(row: AssistantMessageRow): unknown[] {
+function hiddenLabelNodes(
+  row: AssistantMessageRow,
+  plainLabel: string,
+): Array<{ node: TextLikeChild; trailing: boolean }> {
   const children = row.contentContainer?.children;
   if (!Array.isArray(children)) return [];
-  return children
-    .map((child) => (child as { child?: unknown } | undefined)?.child ?? child)
-    .filter((node) => !isMarkdownLike(node));
+  const labels: Array<{ node: TextLikeChild; trailing: boolean }> = [];
+  children.forEach((child, index) => {
+    const node = ((child as { child?: unknown } | undefined)?.child ??
+      child) as TextLikeChild | undefined;
+    if (
+      isMarkdownLike(node) ||
+      typeof node?.text !== "string" ||
+      typeof node.setText !== "function" ||
+      plainText(node.text) !== plainLabel
+    ) {
+      return;
+    }
+    labels.push({ node, trailing: index === children.length - 1 });
+  });
+  return labels;
 }
 
 // Duck-typed, not `instanceof`: a locally loaded extension can resolve its
@@ -257,8 +272,15 @@ function animateLiveLabel(node: TextLikeChild, startedAt: number): void {
   };
 }
 
+// Pi gives every thinking run in a message the same label. Only the last
+// run is the current one; earlier runs read as settled so a line above later
+// content never changes. The current run animates only when it is the
+// message's last line and no tool rows render below the message: changing
+// a line above the viewport makes pi-tui clear and replay the transcript.
+// Otherwise it holds one spinner frame until it settles.
 function restyleHiddenThinkingLabel(
   row: AssistantMessageRow,
+  message: AssistantMessageLike,
   liveSince?: number,
 ): void {
   if (
@@ -269,20 +291,28 @@ function restyleHiddenThinkingLabel(
   }
   const label = row.hiddenThinkingLabel;
   if (!stylesThinkingLabels()) return;
-  const styled = visibleThoughtLabel(label);
-  const plainLabel = plainText(label);
-  for (const child of hiddenLabelNodes(row)) {
-    const textChild = child as TextLikeChild | undefined;
-    if (
-      typeof textChild?.text !== "string" ||
-      typeof textChild.setText !== "function" ||
-      plainText(textChild.text) !== plainLabel
-    ) {
-      continue;
+  const labels = hiddenLabelNodes(row, plainText(label));
+  const hasToolCalls =
+    Array.isArray(message.content) &&
+    message.content.some(
+      (block) => (block as { type?: unknown } | undefined)?.type === "toolCall",
+    );
+  labels.forEach(({ node, trailing }, index) => {
+    if (index < labels.length - 1) {
+      node.setText?.(visibleThoughtLabel(SETTLED_THOUGHT));
+      return;
     }
-    textChild.setText(styled);
-    if (liveSince !== undefined) animateLiveLabel(textChild, liveSince);
-  }
+    if (liveSince === undefined) {
+      node.setText?.(visibleThoughtLabel(label));
+    } else if (trailing && !hasToolCalls) {
+      node.setText?.(visibleThoughtLabel(label));
+      animateLiveLabel(node, liveSince);
+    } else {
+      node.setText?.(
+        visibleThoughtLabel(liveThinkingLabel(liveSince, liveSince)),
+      );
+    }
+  });
 }
 
 type ThinkingTiming = {
@@ -601,7 +631,7 @@ function installThinkingGroupingPatch():
             timing && timingLive(streaming, timing)
               ? timing.startedAt
               : undefined;
-          restyleHiddenThinkingLabel(this, liveSince);
+          restyleHiddenThinkingLabel(this, combined, liveSince);
         }
       } catch {
         // Keep Pi's native label styling if the row shape changes.

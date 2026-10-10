@@ -341,6 +341,44 @@ describe("thinking block merger", () => {
     );
   });
 
+  test("never restyles unwrapped answer Markdown that equals the label", () => {
+    // Older Pi adds thinking labels and answer Markdown as direct children.
+    for (const handler of shutdownHandlers.splice(0)) handler();
+    const originalUpdateContent =
+      MockAssistantMessageComponent.prototype.updateContent;
+    const prose = Object.assign(new MockThinkingMarkdown(), {
+      text: "",
+      setText(text: string) {
+        this.text = text;
+      },
+    });
+    MockAssistantMessageComponent.prototype.updateContent =
+      function updateContentWithProse(
+        this: MockAssistantMessageComponent,
+        message: { content: unknown[] },
+        ...args: unknown[]
+      ) {
+        Reflect.apply(originalUpdateContent, this, [message, ...args]);
+        prose.text = this.hiddenThinkingLabel;
+        this.contentContainer.children.push(prose);
+      };
+
+    install();
+    try {
+      vi.useFakeTimers();
+      startSession(mockTheme());
+      vi.setSystemTime(1_000);
+      const assistant = new MockAssistantMessageComponent();
+      assistant.updateContent(thinkingMessage(), true);
+      expect(prose.text).toBe("│ ⠋ Thinking…");
+      expect(assistant.labelChild?.text).toContain("\x1b[1m⠋");
+    } finally {
+      for (const handler of shutdownHandlers.splice(0)) handler();
+      MockAssistantMessageComponent.prototype.updateContent =
+        originalUpdateContent;
+    }
+  });
+
   test("leaves visible-thinking rows without a replacement label node", () => {
     startSession(mockTheme());
     const visible = new MockAssistantMessageComponent();

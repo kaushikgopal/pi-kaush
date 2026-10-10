@@ -457,6 +457,58 @@ describe("tool-call-markers with Pi's real renderer", () => {
     }
   });
 
+  test("animates only a trailing label, never one above later content", () => {
+    vi.useFakeTimers();
+    try {
+      const assistant = new AssistantMessageComponent(undefined, true);
+      const update = assistant.updateContent as unknown as (
+        m: unknown,
+        streaming?: boolean,
+      ) => void;
+      const thinking = { type: "thinking", thinking: "ponder" };
+      const answer = { type: "text", text: "Interim answer line." };
+      const labels = () =>
+        renderPlain(assistant as unknown as Container)
+          .split("\n")
+          .filter((line) => /│ \S Thought|Thinking/.test(line))
+          .map((line) => line.slice(line.indexOf("│")).trim());
+
+      // Interleaved thinking: Pi gives every run the same row label.
+      vi.setSystemTime(10_000);
+      update.call(
+        assistant,
+        { role: "assistant", content: [thinking, answer, thinking] },
+        true,
+      );
+      const first = labels();
+      expect(first).toEqual(["│ * Thought", "│ ⠋ Thinking…"]);
+      vi.setSystemTime(10_080);
+      expect(labels()).toEqual(["│ * Thought", "│ ⠙ Thinking…"]);
+
+      // A tool call renders below the message, so its label is not last:
+      // neither redraws nor later deltas may change it before it settles.
+      const tooling = new AssistantMessageComponent(undefined, true);
+      const toolingMessage = {
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "t1", name: "read", arguments: {} },
+          thinking,
+        ],
+      };
+      vi.setSystemTime(20_000);
+      update.call(tooling, toolingMessage, true);
+      const before = renderPlain(tooling as unknown as Container);
+      expect(before).toContain("│ ⠋ Thinking…");
+      vi.setSystemTime(20_080);
+      expect(renderPlain(tooling as unknown as Container)).toBe(before);
+      vi.setSystemTime(20_160);
+      update.call(tooling, toolingMessage, true);
+      expect(renderPlain(tooling as unknown as Container)).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("never animates a revealed trace that reads like the live label", () => {
     vi.useFakeTimers();
     try {
