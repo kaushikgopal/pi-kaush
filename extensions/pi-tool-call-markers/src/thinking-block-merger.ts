@@ -205,18 +205,28 @@ function unitalicizeSettledThinking(row: AssistantMessageRow): void {
 // terminal. Swap the node's text for a self-contained styled version after
 // each native render pass instead.
 //
-// Only label nodes qualify. Answer prose is a Markdown node that also carries
-// `text` and `setText`, so a reply that merely mentions the label must never
-// match: Pi 1.0 wraps each thinking run in a MouseRegion and leaves prose
-// unwrapped, so wrapped inners are the only candidates when wrappers exist,
-// and a candidate's plain text must equal the label exactly.
+// Only label nodes qualify. Answer prose and a click-revealed trace are
+// Markdown nodes that also carry `text` and `setText`, so Markdown never
+// matches, and a candidate's plain text must equal the label exactly. Pi 1.0
+// wraps each thinking run in a MouseRegion; each child is judged on its own,
+// unwrapped when it has a wrapped inner.
 function hiddenLabelNodes(row: AssistantMessageRow): unknown[] {
   const children = row.contentContainer?.children;
   if (!Array.isArray(children)) return [];
-  const wrapped = children
-    .map((child) => (child as { child?: unknown } | undefined)?.child)
-    .filter((inner) => inner !== undefined && inner !== null);
-  return wrapped.length > 0 ? wrapped : children;
+  return children
+    .map((child) => (child as { child?: unknown } | undefined)?.child ?? child)
+    .filter((node) => !isMarkdownLike(node));
+}
+
+// Duck-typed, not `instanceof`: a locally loaded extension can resolve its
+// own pi-tui copy, so class identity is not shared with Pi's. pi-tui's
+// Markdown declares `theme` and `defaultTextStyle` fields; Text has neither.
+function isMarkdownLike(node: unknown): boolean {
+  return (
+    !!node &&
+    typeof node === "object" &&
+    ("defaultTextStyle" in node || "theme" in node)
+  );
 }
 
 function plainText(text: string): string {
@@ -316,7 +326,9 @@ function trackReplayRow(
   args: unknown[],
 ): void {
   try {
-    if (!hasThinkingContent(message)) return;
+    // A tracked row keeps tracking even when its final content drops
+    // thinking, so a replay never resurrects an earlier streaming snapshot.
+    if (!hasThinkingContent(message) && !state.rows.has(row)) return;
     state.rows.set(row, { message, args });
     while (state.rows.size > MAX_REPLAY_ROWS) {
       const oldest = state.rows.keys().next().value;
@@ -406,14 +418,46 @@ function thinkingStillLive(
   );
 }
 
+// Thinking ends when the answer starts: visible text or a tool call after
+// the last thinking block. Settling there keeps the duration honest and
+// keeps a live label as the transcript's last line, so its spinner never
+// changes a line scrolled above the viewport (which forces a full replay).
+function answerStarted(message: AssistantMessageLike): boolean {
+  const content = Array.isArray(message.content) ? message.content : [];
+  let lastThinking = -1;
+  content.forEach((block, index) => {
+    if (isThinkingContent(block)) lastThinking = index;
+  });
+  return content.slice(lastThinking + 1).some((block) => {
+    const b = block as { type?: unknown; text?: unknown } | undefined;
+    return (
+      b?.type === "toolCall" ||
+      (b?.type === "text" && typeof b.text === "string" && b.text.trim() !== "")
+    );
+  });
+}
+
+function timingLive(
+  streaming: boolean | undefined,
+  timing: ThinkingTiming | undefined,
+): boolean {
+  return (
+    streaming !== false &&
+    timing !== undefined &&
+    timing.finishedAt === undefined
+  );
+}
+
 function lifecycleLabel(
   row: AssistantMessageRow,
+  message: AssistantMessageLike,
   streaming: boolean | undefined,
   timings: WeakMap<AssistantMessageRow, ThinkingTiming>,
 ): string {
   const now = Date.now();
   const previous = timings.get(row);
-  if (thinkingStillLive(streaming, previous)) {
+  const answering = answerStarted(message);
+  if (!answering && thinkingStillLive(streaming, previous)) {
     const current =
       previous && previous.finishedAt === undefined
         ? previous
@@ -422,7 +466,11 @@ function lifecycleLabel(
     return liveThinkingLabel(current.startedAt, now);
   }
 
-  if (streaming === false && previous && previous.finishedAt === undefined) {
+  if (
+    (streaming === false || answering) &&
+    previous &&
+    previous.finishedAt === undefined
+  ) {
     previous.finishedAt = now;
   }
 
@@ -475,7 +523,7 @@ function applyHiddenThinkingLabel(
 ): void {
   // Record the component's first streaming update even when the provider has
   // not emitted a non-empty thinking block yet.
-  const label = lifecycleLabel(row, streaming, timings);
+  const label = lifecycleLabel(row, message, streaming, timings);
   if (!hasThinkingContent(message)) return;
   if (
     row.hideThinkingBlock !== true ||
@@ -550,7 +598,7 @@ function installThinkingGroupingPatch():
         if (hasThinkingContent(combined)) {
           const timing = state.timings.get(this);
           const liveSince =
-            timing && thinkingStillLive(streaming, timing)
+            timing && timingLive(streaming, timing)
               ? timing.startedAt
               : undefined;
           restyleHiddenThinkingLabel(this, liveSince);
@@ -561,7 +609,7 @@ function installThinkingGroupingPatch():
       try {
         if (
           hasThinkingContent(combined) &&
-          !thinkingStillLive(streaming, state.timings.get(this))
+          !timingLive(streaming, state.timings.get(this))
         ) {
           unitalicizeSettledThinking(this);
         }

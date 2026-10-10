@@ -28,7 +28,9 @@ import {
   renderSubmittedUserLines,
 } from "../../pi-content-layout/src/render.ts";
 import toolCallMarkers from "../src/index.ts";
-import registerThinkingMarkers from "../src/thinking-block-merger.ts";
+import registerThinkingMarkers, {
+  refreshThinkingVisibility,
+} from "../src/thinking-block-merger.ts";
 
 const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const sessionHandlers: Array<(event: unknown, ctx: unknown) => void> = [];
@@ -386,6 +388,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
   });
 
   test("never swaps answer prose that mentions the thought label", () => {
+    // The answer arrives with the thinking, so the row settles untimed and
+    // the quoted text equals its real label.
     const render = (content: unknown[]) => {
       const message = { role: "assistant", content, stopReason: "stop" };
       const assistant = new AssistantMessageComponent(undefined, true);
@@ -407,16 +411,107 @@ describe("tool-call-markers with Pi's real renderer", () => {
     // Prose quoting the settled label on a row that also thought.
     const withThinking = render([
       { type: "thinking", thinking: "ponder" },
-      { type: "text", text: "It now reads `│ * Thought · 3.7s` instead." },
+      { type: "text", text: "It now reads `│ * Thought` instead." },
     ]);
     expect(withThinking).toContain("It now reads");
-    expect(withThinking).toContain("│ * Thought · ");
+    expect(withThinking).toMatch(/^ *│ \* Thought *$/m);
 
     // Prose quoting Pi's native label on a row with no thinking at all.
     const proseOnly = render([
       { type: "text", text: "Pi's `Thinking...` label becomes a spinner." },
     ]);
     expect(proseOnly).toContain("label becomes a spinner");
+  });
+
+  test("settles the thought when the answer starts streaming", () => {
+    vi.useFakeTimers();
+    try {
+      const assistant = new AssistantMessageComponent(undefined, true);
+      const update = assistant.updateContent as unknown as (
+        m: unknown,
+        streaming?: boolean,
+      ) => void;
+      const thinking = { type: "thinking", thinking: "ponder" };
+      vi.setSystemTime(10_000);
+      update.call(assistant, { role: "assistant", content: [thinking] }, true);
+
+      vi.setSystemTime(12_000);
+      const answering = {
+        role: "assistant",
+        content: [thinking, { type: "text", text: "Here is the answer." }],
+      };
+      update.call(assistant, answering, true);
+      const settled = /│ \* Thought · 2\.0s/;
+      expect(renderPlain(assistant as unknown as Container)).toMatch(settled);
+
+      // Later redraws and deltas leave the settled label alone, so a label
+      // scrolled above the viewport never changes.
+      vi.setSystemTime(13_000);
+      expect(renderPlain(assistant as unknown as Container)).toMatch(settled);
+      update.call(assistant, answering, true);
+      vi.setSystemTime(15_000);
+      update.call(assistant, { ...answering, stopReason: "stop" }, false);
+      expect(renderPlain(assistant as unknown as Container)).toMatch(settled);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("never animates a revealed trace that reads like the live label", () => {
+    vi.useFakeTimers();
+    try {
+      const assistant = new AssistantMessageComponent(undefined, true);
+      const update = assistant.updateContent as unknown as (
+        m: unknown,
+        streaming?: boolean,
+      ) => void;
+      const message = {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "│ ⠋ Thinking…" }],
+      };
+      vi.setSystemTime(10_000);
+      update.call(assistant, message, true);
+      // A click reveals this run while global hiding stays on.
+      (
+        assistant as unknown as {
+          thinkingVisibilityOverrides: Map<number, boolean>;
+        }
+      ).thinkingVisibilityOverrides.set(0, false);
+      update.call(assistant, message, true);
+
+      vi.setSystemTime(10_080);
+      const output = renderPlain(assistant as unknown as Container);
+      expect(output).toContain("│ ⠋ Thinking…");
+      expect(output).not.toContain("⠙");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("replay never resurrects thinking a final update dropped", () => {
+    const assistant = new AssistantMessageComponent(undefined, true);
+    const update = assistant.updateContent as unknown as (
+      m: unknown,
+      streaming?: boolean,
+    ) => void;
+    update.call(
+      assistant,
+      { role: "assistant", content: [{ type: "thinking", thinking: "work" }] },
+      true,
+    );
+    update.call(
+      assistant,
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "All done here." }],
+        stopReason: "stop",
+      },
+      false,
+    );
+    refreshThinkingVisibility();
+    const output = renderPlain(assistant as unknown as Container);
+    expect(output).toContain("All done here.");
+    expect(output).not.toContain("Thinking");
   });
 
   test("drops italics from a visible thinking trace once it settles", () => {
