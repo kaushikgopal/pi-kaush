@@ -24,8 +24,7 @@ import { isQuestionToolCall, renderQuestionBlock } from "./question-block.ts";
 import { sanitizeInline } from "./sanitize.ts";
 
 const OUTER_INSET = 2;
-const SUBAGENT_MARKER = "│";
-const GROUP_CALL_MARKER = "│";
+const TOOL_RAIL_MARKER = "│";
 // Collapsed rows anchor with a glyph instead of repeating the tool name;
 // tools that read as one family share a glyph, and unmapped tools fall back
 // to `*`. A single space separates the glyph from the call content: the
@@ -898,11 +897,23 @@ function codemodeCallLabel(row: ToolExecutionRow): string | undefined {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
+// One anchor builder for every collapsed row: the faint rail, then the
+// row's bold glyph when it has one — `│ ● src/a.ts`, `│ $ npm test`. A
+// subagent row anchors on the rail alone and keeps its `│ subagent …`
+// reading instead of a glyph.
+function collapsedAnchor(
+  theme: ThemeLike,
+  color: string,
+  glyph: string | undefined,
+): string {
+  const rail = `${fgCollapsedRail(theme, TOOL_RAIL_MARKER)} `;
+  return glyph === undefined
+    ? rail
+    : `${rail}${fgCollapsed(theme, color, glyph, true)} `;
+}
+
 // The collapsed-row seam lives here and nowhere else: which anchor a row
-// takes, how that anchor is styled, and the call text that follows it.
-// Anchors always render bold and take no joining colon — `│ ● src/a.ts`,
-// `│ $ npm test` — and subagent fallbacks keep their `│ subagent …`
-// reading instead of a glyph. Callers append the outcome tail.
+// takes, and the call text that follows it. Callers append the outcome tail.
 function collapsedSeam(
   row: ToolExecutionRow,
   width: number,
@@ -911,17 +922,12 @@ function collapsedSeam(
 ): { anchor: string; content: string } {
   const isBash = row.toolName === "bash";
   const isSubagent = row.toolName === "subagent";
-  const glyph = isBash
-    ? "$"
-    : (TOOL_CALL_GLYPHS.get(row.toolName ?? "") ?? "*");
-  const anchor = isSubagent
-    ? `${fgCollapsed(theme, color, SUBAGENT_MARKER, true)} `
-    : `${fgCollapsedRail(theme, GROUP_CALL_MARKER)} ${fgCollapsed(
-        theme,
-        color,
-        glyph,
-        true,
-      )} `;
+  const glyph = isSubagent
+    ? undefined
+    : isBash
+      ? "$"
+      : (TOOL_CALL_GLYPHS.get(row.toolName ?? "") ?? "*");
+  const anchor = collapsedAnchor(theme, color, glyph);
   const budget = Math.max(1, width - visibleWidth(anchor));
   // Self-rendered rows build their own `tool {args}` label — Pi's call title
   // is gone once settled — while ordinary rows scrape the rendered call
@@ -1209,7 +1215,7 @@ function renderSubagentPlan(
   const previewOf = (step: SubagentStep) =>
     fgCollapsed(theme, detailColor, ` ${subagentStepPreview(step.task)}`);
 
-  const marker = `${fgCollapsed(theme, color, SUBAGENT_MARKER, true)} `;
+  const marker = collapsedAnchor(theme, color, undefined);
   const budget = Math.max(1, width - visibleWidth(marker));
   const progress = subagentProgressText(row);
   const outcome = failed

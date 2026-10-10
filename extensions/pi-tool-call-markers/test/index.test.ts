@@ -1474,7 +1474,7 @@ describe("tool-call-markers grouping", () => {
     expect(expanded).toContain("FULL child failed badly");
   });
 
-  test("renders a failed subagent plan entirely in error", () => {
+  test("renders a failed subagent plan's text in error under a muted rail", () => {
     const taggingTheme = {
       bold: (text: string) => text,
       fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
@@ -1497,7 +1497,15 @@ describe("tool-call-markers grouping", () => {
 
       const lines = chat.render(100).filter((line) => line.trim().length > 0);
       expect(lines.length).toBeGreaterThan(1);
-      for (const line of lines) {
+      // The rail keeps its muted weight on failed rows, like every other
+      // tool-call rail; the plan text turns error.
+      const [headline, ...steps] = lines;
+      expect(headline).toContain("<muted>│</muted>");
+      const headlineColors = new Set(
+        [...headline!.matchAll(/<(\w+)>/g)].map((match) => match[1]),
+      );
+      expect([...headlineColors]).toEqual(["muted", "error"]);
+      for (const line of steps) {
         const colors = new Set(
           [...line.matchAll(/<(\w+)>/g)].map((match) => match[1]),
         );
