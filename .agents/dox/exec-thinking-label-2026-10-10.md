@@ -67,7 +67,7 @@ that causes it, not the terminal output itself.
 
 ## Next
 
-1. `make publish PACKAGE=pi-tool-call-markers` (0.3.16), then `pi update`.
+Nothing pending. 0.3.16 is on npm and Pi loads it from there.
 
 ## Not ours
 
