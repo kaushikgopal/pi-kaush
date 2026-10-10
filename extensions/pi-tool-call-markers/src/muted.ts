@@ -1,6 +1,6 @@
 // Collapsed-row color policy.
 //
-// Collapsed blocks (tool calls, settled "+ Thought" labels, subagent rows)
+// Collapsed blocks (tool calls, settled "│ * Thought" labels, subagent rows)
 // default to the theme's `dim` token — it ships with every Pi theme and sits
 // below `muted` — instead of the louder muted/toolTitle/toolOutput split.
 // Pi's generated `system` theme solves `syntaxComment` to the same contrast

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Anchor the settled thinking label like a collapsed tool call:
+  `│ * Thought · 2.5s` instead of `+ Thought · 2.5s`. The faint rail and
+  bold glyph match the tool rows around it, so a turn that alternates
+  thinking and calls reads as one column. The live `⠋ Thinking…` spinner is
+  unchanged.
+
 - Paint collapsed rows with the theme's `dim` token instead of
   `syntaxComment`. Pi's generated `system` theme solves `syntaxComment` to
   the same contrast as `muted` and `toolOutput`, so collapsed tool calls

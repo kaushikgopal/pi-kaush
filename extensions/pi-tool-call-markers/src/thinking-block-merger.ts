@@ -10,7 +10,7 @@ const SPINNER_INTERVAL_MS = 80;
 // Visual treatment for the collapsed thinking label. The live "Thinking…"
 // spinner tints with the session's active thinking-level color
 // (thinkingOff…thinkingMax), so progress reads as activity; the settled
-// "+ Thought" row drops to the muted token collapsed tool calls use, so
+// "│ * Thought" row drops to the muted token collapsed tool calls use, so
 // finished reasoning stops advertising the level. "inherit" keeps Pi's
 // native styling (italic + thinkingText) for both states, and "mdheading"
 // rides the theme's mdHeading token for both. The env var overrides the
@@ -105,21 +105,34 @@ function labelStyle(
   return styledWith(token, theme);
 }
 
-// The settled label is the finalized "+ Thought" row; every other label is
-// the live spinner.
+// The settled label wears the collapsed tool-row anchor — faint rail, bold
+// glyph — so finished reasoning reads like the tool calls around it. Every
+// other label is the live spinner.
+const THOUGHT_RAIL = "│";
+const THOUGHT_GLYPH = "*";
+const THOUGHT_ANCHOR = `${THOUGHT_RAIL} ${THOUGHT_GLYPH}`;
+const SETTLED_THOUGHT = `${THOUGHT_ANCHOR} Thought`;
+
 function isSettledThoughtLabel(label: string): boolean {
-  return label.startsWith("+ Thought");
+  return label.startsWith(SETTLED_THOUGHT);
+}
+
+function styledSettledThought(raw: string, style: LabelStyle): string {
+  const rest = raw.slice(THOUGHT_ANCHOR.length);
+  return `${style.prefix}\x1b[2m${THOUGHT_RAIL}\x1b[22m \x1b[1m${THOUGHT_GLYPH}\x1b[22m${rest}${style.suffix}`;
 }
 
 export function visibleThoughtLabel(label: string): string {
   if (!stylesThinkingLabels()) return label;
   const raw = label.replace(/\x1b\[[0-9;]*m/g, "");
   const theme = themeProvider?.();
-  const style = theme
-    ? labelStyle(isSettledThoughtLabel(label), theme)
-    : undefined;
+  const settled = isSettledThoughtLabel(raw);
+  const style = theme ? labelStyle(settled, theme) : undefined;
   // A theme that cannot resolve a color still drops Pi's italics.
-  return style ? `${style.prefix}${raw}${style.suffix}` : `${ITALIC_OFF}${raw}`;
+  if (!style) return `${ITALIC_OFF}${raw}`;
+  return settled
+    ? styledSettledThought(raw, style)
+    : `${style.prefix}${raw}${style.suffix}`;
 }
 
 type AssistantMessageLike = {
@@ -351,9 +364,9 @@ function lifecycleLabel(
 
   const settled = timings.get(row);
   if (settled?.finishedAt !== undefined) {
-    return `+ Thought · ${formatThoughtDuration(settled.startedAt, settled.finishedAt)}`;
+    return `${SETTLED_THOUGHT} · ${formatThoughtDuration(settled.startedAt, settled.finishedAt)}`;
   }
-  return "+ Thought";
+  return SETTLED_THOUGHT;
 }
 
 function stripThinkingBlocks(

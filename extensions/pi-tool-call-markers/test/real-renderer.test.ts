@@ -342,7 +342,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(line).toBeDefined();
     // The label Text node is swapped for a self-styled one: italic-off plus
     // the muted tool-row color, with no italic-on anywhere on the line.
-    expect(line).toContain("\x1b[23m\x1b[38;2;110;118;129m+ Thought");
+    expect(line).toContain(
+      "\x1b[23m\x1b[38;2;110;118;129m\x1b[2m│\x1b[22m \x1b[1m*\x1b[22m Thought",
+    );
     expect(line).not.toContain("\x1b[3m");
   });
 
