@@ -17,7 +17,7 @@ import { PROMPT_RAIL } from "../src/bash-block.ts";
 
 // Captured at module load, before any beforeEach install patches it.
 const NATIVE_BASH_RENDER = BashExecutionComponent.prototype.render;
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   type ChatContainerHook,
   chatContainerHooks,
@@ -346,6 +346,77 @@ describe("tool-call-markers with Pi's real renderer", () => {
       "\x1b[23m\x1b[38;2;110;118;129m\x1b[2m│\x1b[22m \x1b[1m*\x1b[22m Thought",
     );
     expect(line).not.toContain("\x1b[3m");
+  });
+
+  test("steps the live spinner on redraws between thinking deltas", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(10_000);
+      const message = {
+        role: "assistant",
+        content: [{ type: "thinking", thinking: "ponder" }],
+      };
+      const assistant = new AssistantMessageComponent(undefined, true);
+      const update = assistant.updateContent as unknown as (
+        m: unknown,
+        streaming?: boolean,
+      ) => void;
+      update.call(assistant, message, true);
+      const frame = () =>
+        renderPlain(assistant as unknown as Container).match(
+          /│ (\S) Thinking…/,
+        )?.[1];
+      expect(frame()).toBe("⠋");
+
+      // No new delta: only the working indicator's redraws.
+      vi.setSystemTime(10_080);
+      expect(frame()).toBe("⠙");
+      vi.setSystemTime(10_160);
+      expect(frame()).toBe("⠹");
+
+      vi.setSystemTime(12_500);
+      update.call(assistant, { ...message, stopReason: "stop" }, false);
+      vi.setSystemTime(13_000);
+      expect(renderPlain(assistant as unknown as Container)).toMatch(
+        /│ \* Thought · 2\.5s/,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("never swaps answer prose that mentions the thought label", () => {
+    const render = (content: unknown[]) => {
+      const message = { role: "assistant", content, stopReason: "stop" };
+      const assistant = new AssistantMessageComponent(undefined, true);
+      (
+        assistant.updateContent as unknown as (
+          m: unknown,
+          streaming?: boolean,
+        ) => void
+      ).call(assistant, message, true);
+      (
+        assistant.updateContent as unknown as (
+          m: unknown,
+          streaming?: boolean,
+        ) => void
+      ).call(assistant, message, false);
+      return renderPlain(assistant as unknown as Container);
+    };
+
+    // Prose quoting the settled label on a row that also thought.
+    const withThinking = render([
+      { type: "thinking", thinking: "ponder" },
+      { type: "text", text: "It now reads `│ * Thought · 3.7s` instead." },
+    ]);
+    expect(withThinking).toContain("It now reads");
+    expect(withThinking).toContain("│ * Thought · ");
+
+    // Prose quoting Pi's native label on a row with no thinking at all.
+    const proseOnly = render([
+      { type: "text", text: "Pi's `Thinking...` label becomes a spinner." },
+    ]);
+    expect(proseOnly).toContain("label becomes a spinner");
   });
 
   test("drops italics from a visible thinking trace once it settles", () => {

@@ -183,15 +183,15 @@ describe("thinking block merger", () => {
     const message = thinkingMessage();
 
     assistant.updateContent(message, true);
-    expect(assistant.hiddenThinkingLabel).toBe("⠋ Thinking…");
+    expect(assistant.hiddenThinkingLabel).toBe("│ ⠋ Thinking…");
 
     vi.setSystemTime(1_080);
     assistant.updateContent(message, true);
-    expect(assistant.hiddenThinkingLabel).toBe("⠙ Thinking…");
+    expect(assistant.hiddenThinkingLabel).toBe("│ ⠙ Thinking…");
 
     // Resize/theme rebuilds can omit the optional flag while still live.
     assistant.updateContent(message);
-    expect(assistant.hiddenThinkingLabel).toBe("⠙ Thinking…");
+    expect(assistant.hiddenThinkingLabel).toBe("│ ⠙ Thinking…");
 
     vi.setSystemTime(3_460);
     assistant.updateContent(message, false);
@@ -324,9 +324,12 @@ describe("thinking block merger", () => {
     assistant.updateContent(thinkingMessage(), true);
     // The field stays plain; styling happens on the rendered Text node so
     // the TUI diff renderer cannot skip the italic reset.
-    expect(assistant.hiddenThinkingLabel).toBe("⠋ Thinking…");
+    expect(assistant.hiddenThinkingLabel).toBe("│ ⠋ Thinking…");
+    // The rail keeps the settled tone while the spinner takes the level
+    // tint, so settling repaints only the glyph slot and the words.
     expect(assistant.labelChild?.text).toBe(
-      "\x1b[23m\x1b[38;2;255;184;108m⠋ Thinking…\x1b[39m",
+      "\x1b[23m\x1b[38;2;110;118;129m\x1b[2m│\x1b[22m\x1b[39m" +
+        "\x1b[23m\x1b[38;2;255;184;108m \x1b[1m⠋\x1b[22m Thinking…\x1b[39m",
     );
 
     vi.setSystemTime(3_500);
@@ -427,6 +430,10 @@ describe("thinking block merger", () => {
     });
     expect(visibleThoughtLabel("⠋ Thinking…")).toBe(
       "\x1b[23m\x1b[38;5;67m⠋ Thinking…\x1b[39m",
+    );
+    expect(visibleThoughtLabel("│ ⠋ Thinking…")).toBe(
+      "\x1b[23m\x1b[38;5;244m\x1b[2m│\x1b[22m\x1b[39m" +
+        "\x1b[23m\x1b[38;5;67m \x1b[1m⠋\x1b[22m Thinking…\x1b[39m",
     );
     expect(visibleThoughtLabel("│ * Thought")).toBe(
       "\x1b[23m\x1b[38;5;244m\x1b[2m│\x1b[22m \x1b[1m*\x1b[22m Thought\x1b[39m",

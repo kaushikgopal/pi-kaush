@@ -2,11 +2,22 @@
 
 ## Unreleased
 
+- Fix assistant replies vanishing behind the thinking label. The label
+  restyle matched any text node containing the label, so a reply that quoted
+  `Thinking...` or `│ * Thought` was replaced by the label until Ctrl+T. Only
+  Pi's thinking-run label nodes are restyled now, on an exact match, and only
+  on rows that carry thinking.
+- Keep the live thinking spinner moving between thinking deltas. The frame is
+  read from the clock on each redraw that Pi's working indicator already
+  drives, instead of only when new thinking text arrives.
+
 - Anchor the settled thinking label like a collapsed tool call:
   `│ * Thought · 2.5s` instead of `+ Thought · 2.5s`. The faint rail and
   bold glyph match the tool rows around it, so a turn that alternates
-  thinking and calls reads as one column. The live `⠋ Thinking…` spinner is
-  unchanged.
+  thinking and calls reads as one column. The live label takes the same
+  anchor, `│ ⠋ Thinking…`, with the spinner in the glyph slot, so settling
+  swaps only the glyph, the words, and the tint instead of shifting the text
+  two columns and drawing a rail in.
 
 - Paint collapsed rows with the theme's `dim` token instead of
   `syntaxComment`. Pi's generated `system` theme solves `syntaxComment` to

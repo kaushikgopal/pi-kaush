@@ -105,21 +105,34 @@ function labelStyle(
   return styledWith(token, theme);
 }
 
-// The settled label wears the collapsed tool-row anchor — faint rail, bold
-// glyph — so finished reasoning reads like the tool calls around it. Every
-// other label is the live spinner.
+// Both labels wear the collapsed tool-row anchor — faint rail, bold glyph —
+// so reasoning reads like the tool calls around it. The live spinner holds
+// the glyph slot and settles into `*` in place: the rail and the label text
+// keep their columns, and only the glyph, the words, and the tint change.
 const THOUGHT_RAIL = "│";
 const THOUGHT_GLYPH = "*";
-const THOUGHT_ANCHOR = `${THOUGHT_RAIL} ${THOUGHT_GLYPH}`;
-const SETTLED_THOUGHT = `${THOUGHT_ANCHOR} Thought`;
+const SETTLED_THOUGHT = `${THOUGHT_RAIL} ${THOUGHT_GLYPH} Thought`;
+const ANCHORED_LABEL_RE = /^│ (\S) (.*)$/su;
 
 function isSettledThoughtLabel(label: string): boolean {
   return label.startsWith(SETTLED_THOUGHT);
 }
 
-function styledSettledThought(raw: string, style: LabelStyle): string {
-  const rest = raw.slice(THOUGHT_ANCHOR.length);
-  return `${style.prefix}\x1b[2m${THOUGHT_RAIL}\x1b[22m \x1b[1m${THOUGHT_GLYPH}\x1b[22m${rest}${style.suffix}`;
+// The rail keeps the settled collapsed tone in both states, like a pending
+// tool row's rail, so settling never repaints it.
+function styledAnchoredLabel(
+  raw: string,
+  style: LabelStyle,
+  theme: ThemeDetail,
+): string {
+  const match = ANCHORED_LABEL_RE.exec(raw);
+  if (!match) return `${style.prefix}${raw}${style.suffix}`;
+  const rail = settledMutedStyle(theme) ?? style;
+  const railText = `\x1b[2m${THOUGHT_RAIL}\x1b[22m`;
+  const body = ` \x1b[1m${match[1]}\x1b[22m ${match[2]}${style.suffix}`;
+  return rail.prefix === style.prefix
+    ? `${style.prefix}${railText}${body}`
+    : `${rail.prefix}${railText}${rail.suffix}${style.prefix}${body}`;
 }
 
 export function visibleThoughtLabel(label: string): string {
@@ -129,10 +142,8 @@ export function visibleThoughtLabel(label: string): string {
   const settled = isSettledThoughtLabel(raw);
   const style = theme ? labelStyle(settled, theme) : undefined;
   // A theme that cannot resolve a color still drops Pi's italics.
-  if (!style) return `${ITALIC_OFF}${raw}`;
-  return settled
-    ? styledSettledThought(raw, style)
-    : `${style.prefix}${raw}${style.suffix}`;
+  if (!style || !theme) return `${ITALIC_OFF}${raw}`;
+  return styledAnchoredLabel(raw, style, theme);
 }
 
 type AssistantMessageLike = {
@@ -149,6 +160,7 @@ type AssistantMessageRow = {
 type TextLikeChild = {
   text?: unknown;
   setText?(text: string): void;
+  render?(width: number): string[];
 };
 
 type MarkdownLikeChild = {
@@ -192,7 +204,53 @@ function unitalicizeSettledThinking(row: AssistantMessageRow): void {
 // previous (italic) frame, so an in-line italic reset may never reach the
 // terminal. Swap the node's text for a self-contained styled version after
 // each native render pass instead.
-function restyleHiddenThinkingLabel(row: AssistantMessageRow): void {
+//
+// Only label nodes qualify. Answer prose is a Markdown node that also carries
+// `text` and `setText`, so a reply that merely mentions the label must never
+// match: Pi 1.0 wraps each thinking run in a MouseRegion and leaves prose
+// unwrapped, so wrapped inners are the only candidates when wrappers exist,
+// and a candidate's plain text must equal the label exactly.
+function hiddenLabelNodes(row: AssistantMessageRow): unknown[] {
+  const children = row.contentContainer?.children;
+  if (!Array.isArray(children)) return [];
+  const wrapped = children
+    .map((child) => (child as { child?: unknown } | undefined)?.child)
+    .filter((inner) => inner !== undefined && inner !== null);
+  return wrapped.length > 0 ? wrapped : children;
+}
+
+function plainText(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+// A live label re-reads the clock whenever the TUI draws it, so the spinner
+// steps with the redraws Pi's working indicator already drives instead of
+// freezing between bursty thinking deltas. Pi rebuilds the label node on
+// every content update, so the override dies with the node; no timer is
+// added, and with no redraws the spinner still advances on each delta.
+function animateLiveLabel(node: TextLikeChild, startedAt: number): void {
+  const render = node.render;
+  if (typeof render !== "function") return;
+  node.render = function renderLiveThinkingLabel(
+    this: TextLikeChild,
+    width: number,
+  ): string[] {
+    try {
+      const styled = visibleThoughtLabel(
+        liveThinkingLabel(startedAt, Date.now()),
+      );
+      if (this.text !== styled) this.setText?.(styled);
+    } catch {
+      // Keep the last frame if styling fails mid-render.
+    }
+    return Reflect.apply(render, this, [width]) as string[];
+  };
+}
+
+function restyleHiddenThinkingLabel(
+  row: AssistantMessageRow,
+  liveSince?: number,
+): void {
   if (
     row.hideThinkingBlock !== true ||
     typeof row.hiddenThinkingLabel !== "string"
@@ -202,16 +260,18 @@ function restyleHiddenThinkingLabel(row: AssistantMessageRow): void {
   const label = row.hiddenThinkingLabel;
   if (!stylesThinkingLabels()) return;
   const styled = visibleThoughtLabel(label);
-  for (const child of contentNodes(row)) {
+  const plainLabel = plainText(label);
+  for (const child of hiddenLabelNodes(row)) {
     const textChild = child as TextLikeChild | undefined;
     if (
       typeof textChild?.text !== "string" ||
       typeof textChild.setText !== "function" ||
-      !textChild.text.includes(label)
+      plainText(textChild.text) !== plainLabel
     ) {
       continue;
     }
     textChild.setText(styled);
+    if (liveSince !== undefined) animateLiveLabel(textChild, liveSince);
   }
 }
 
@@ -321,6 +381,10 @@ function formatThoughtDuration(startedAt: number, finishedAt: number): string {
   return `${(Math.max(0, finishedAt - startedAt) / 1000).toFixed(1)}s`;
 }
 
+function liveThinkingLabel(startedAt: number, now: number): string {
+  return `${THOUGHT_RAIL} ${thinkingSpinner(startedAt, now)} Thinking…`;
+}
+
 function thinkingSpinner(startedAt: number, now: number): string {
   const frame = Math.floor(Math.max(0, now - startedAt) / SPINNER_INTERVAL_MS);
   return PI_SPINNER_FRAMES[frame % PI_SPINNER_FRAMES.length]!;
@@ -355,7 +419,7 @@ function lifecycleLabel(
         ? previous
         : { startedAt: now };
     timings.set(row, current);
-    return `${thinkingSpinner(current.startedAt, now)} Thinking…`;
+    return liveThinkingLabel(current.startedAt, now);
   }
 
   if (streaming === false && previous && previous.finishedAt === undefined) {
@@ -483,7 +547,14 @@ function installThinkingGroupingPatch():
       }
       Reflect.apply(state.originalUpdateContent, this, [combined, ...args]);
       try {
-        restyleHiddenThinkingLabel(this);
+        if (hasThinkingContent(combined)) {
+          const timing = state.timings.get(this);
+          const liveSince =
+            timing && thinkingStillLive(streaming, timing)
+              ? timing.startedAt
+              : undefined;
+          restyleHiddenThinkingLabel(this, liveSince);
+        }
       } catch {
         // Keep Pi's native label styling if the row shape changes.
       }

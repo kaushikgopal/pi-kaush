@@ -267,7 +267,7 @@ describe.each(["inline-first", "layout-first"] as const)(
       const thinkingLine = assistant
         .render(50)
         .find((line) => stripControls(line).includes("Thinking"));
-      expect(stripControls(thinkingLine ?? "")).toContain("  ⠋ Thinking…");
+      expect(stripControls(thinkingLine ?? "")).toContain("  │ ⠋ Thinking…");
 
       const chat = new Container();
       chat.addChild(createSettledReadRow());

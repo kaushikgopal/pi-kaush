@@ -97,11 +97,11 @@ The second package entrypoint, `src/thinking-block-merger.ts`, combines only dir
 When Pi exposes its per-row hidden-thinking and streaming fields, hidden reasoning uses these native-themed labels:
 
 ```text
-⠋ Thinking…  →  ⠙ Thinking…  →  …
+│ ⠋ Thinking…  →  │ ⠙ Thinking…  →  …
 │ * Thought · 2.5s
 ```
 
-The live label samples Pi's native braille spinner sequence from the content updates Pi already renders; it does not add a timer. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `│ * Thought`. The settled label borrows the collapsed tool-row anchor — a faint `│` rail and a bold `*` — so finished reasoning reads like the tool calls around it. There is no interval, timeout, render request, model call, or network work.
+The live label samples Pi's native braille spinner sequence from the clock each time the TUI draws it, so it steps with the redraws Pi's working indicator already drives instead of freezing between bursty thinking deltas. It does not add a timer; with the working indicator hidden, the spinner advances on each content update. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `│ * Thought`. Both labels borrow the collapsed tool-row anchor — a faint `│` rail and a bold glyph — so reasoning reads like the tool calls around it. The spinner holds the glyph slot and settles into `*` in place: the rail and the label text keep their columns, and the rail keeps the settled tone throughout. There is no interval, timeout, render request, model call, or network work.
 
 Pi renders thinking labels and traces italic. This package drops those italics: both labels read as plain collapsed rows (the live spinner keeps its thinking-level tint, the settled row the muted tone, and a theme that resolves no color still loses the italics), and a visible trace stays italic only while it streams, then settles into ordinary transcript text. `PI_TOOL_CALL_MARKERS_THOUGHT_COLOR=inherit` is the opt-out that keeps Pi's native italic `thinkingText` styling.
 
