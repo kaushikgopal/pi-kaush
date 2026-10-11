@@ -352,7 +352,7 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      '│ ¢ read ×2, fffind · "max_output_tokens": 2500, "timeout_ms": 120000',
+      '│ ¢ read ×2, fffind ×1 · "max_output_tokens": 2500, "timeout_ms": 120000',
     );
   });
 
@@ -373,7 +373,153 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain("│ ¢ bash …");
+    expect(output).toContain("│ ¢ bash ×1 …");
+  });
+
+  test("codemode rows show the total bash count once with distinct command previews", () => {
+    const chat = new MockContainer();
+    const row = succeeded("codemode", "");
+    row.updateResult({
+      isError: false,
+      output: "result:script",
+      details: {
+        calls: [
+          {
+            name: "bash",
+            args: JSON.stringify({ command: "npm test", timeout: 10 }),
+          },
+          {
+            name: "bash",
+            args: JSON.stringify({ command: "git status --short" }),
+          },
+          {
+            name: "bash",
+            args: JSON.stringify({ command: "npm test", timeout: 10 }),
+          },
+          { name: "read" },
+        ],
+      },
+    });
+    chat.addChild(row);
+    expect(renderPlain(chat)).toContain(
+      "│ ¢ bash ×3 npm test, bash git status --short, read ×1",
+    );
+  });
+
+  test("codemode pairs the total bash count with each distinct command", () => {
+    const chat = new MockContainer();
+    const row = succeeded("codemode", "");
+    row.updateResult({
+      isError: false,
+      output: "result:script",
+      details: {
+        calls: [
+          {
+            name: "bash",
+            args: JSON.stringify({ command: "git status --short" }),
+          },
+          { name: "read" },
+          { name: "bash", args: JSON.stringify({ command: "npm test" }) },
+          { name: "read" },
+        ],
+      },
+    });
+    chat.addChild(row);
+    expect(renderPlain(chat)).toContain(
+      "│ ¢ bash ×2 git status --short, read ×2, bash npm test",
+    );
+  });
+
+  test.each([
+    [
+      JSON.stringify({ timeout: 10, command: 'printf "hello"\nls' }),
+      'printf "hello" ls',
+    ],
+    [
+      '{"command":"cat README.md; printf \\"hello\\"; cat long...',
+      'cat README.md; printf "hello"; cat long…',
+    ],
+    ['{"command":"ls\\...', "ls…"],
+    ['{"command":"ls\\u00...', "ls…"],
+    ['{"command":"ls","other":"long...', "ls"],
+    [
+      JSON.stringify({ command: "echo \u001b[31mred\u001b[0m\r\nls" }),
+      "echo red  ls",
+    ],
+  ])(
+    "codemode decodes complete and truncated command previews: %s",
+    (args, command) => {
+      const chat = new MockContainer();
+      const row = succeeded("codemode", "");
+      row.updateResult({
+        isError: false,
+        output: "result:script",
+        details: { calls: [{ name: "bash", args }] },
+      });
+      chat.addChild(row);
+      expect(renderPlain(chat)).toContain("│ ¢ bash ×1 " + command);
+    },
+  );
+
+  test.each([
+    undefined,
+    null,
+    {},
+    "not JSON",
+    '{"command":',
+    '{"command":42}',
+    "{}",
+  ])(
+    "codemode keeps the tool-name fallback for unavailable commands: %s",
+    (args) => {
+      const chat = new MockContainer();
+      const row = succeeded("codemode", "");
+      row.updateResult({
+        isError: false,
+        output: "result:script",
+        details: { calls: [{ name: "bash", args }] },
+      });
+      chat.addChild(row);
+      expect(renderPlain(chat)).toContain("│ ¢ bash ×1");
+      expect(renderPlain(chat)).not.toContain("│ ¢ bash ×1 {");
+    },
+  );
+
+  test("codemode command previews update live and stay width-safe", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("codemode", "");
+    const args = JSON.stringify({ command: "npm test" });
+    row.updateResult(
+      {
+        isError: false,
+        output: "",
+        details: { calls: [{ name: "bash", args, status: "running" }] },
+      },
+      true,
+    );
+    chat.addChild(row);
+    expect(renderPlain(chat)).toContain("│ ¢ bash ×1 npm test …");
+    row.updateResult({
+      isError: false,
+      output: "result:script",
+      details: {
+        calls: [
+          { name: "bash", args, status: "ok" },
+          {
+            name: "bash",
+            args: JSON.stringify({ command: "echo 界".repeat(50) }),
+          },
+        ],
+      },
+    });
+    expect(renderPlain(chat)).toContain("│ ¢ bash ×2 npm test, bash echo");
+    for (const width of [8, 20, 40]) {
+      for (const line of chat.render(width))
+        expect(stripAnsi(line).length).toBeLessThanOrEqual(width);
+    }
+    row.setExpanded(true);
+    expect(renderPlain(chat)).toContain("result:script");
+    expect(renderPlain(chat)).not.toContain("│ ¢");
   });
 
   test("omits tool-name headers and separators between tool types", () => {

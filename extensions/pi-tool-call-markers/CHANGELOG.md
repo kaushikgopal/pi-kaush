@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Include bash command previews in collapsed codemode rows, with the total
+  bash call count before the first command preview. Every nested tool shows
+  its count, including ×1, on its first preview. Distinct commands
+  no longer disappear behind a generic bash count. Decode truncated argument
+  previews safely, keep live updates and width limits, and preserve native
+  expansion.
+
 - Draw subagent rows with the same faint rail as every other collapsed
   tool call. They used a bold `│` of their own, and failed subagent plans
   painted the rail in the error color.

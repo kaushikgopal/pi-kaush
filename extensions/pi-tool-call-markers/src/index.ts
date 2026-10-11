@@ -866,28 +866,66 @@ function codemodeOptionsLabel(row: ToolExecutionRow): string | undefined {
   return params.length > 0 ? params.join(", ") : undefined;
 }
 
-// The nested calls a script makes stream through result.details.calls with
-// a status per call — the clearest one-line account of what the script did
-// (or is doing, while partial). Repeats collapse to `name ×N` in first-seen
-// order; anything unshaped returns undefined.
+// Pi stores a JSON argument preview, capped at 200 characters. Long bash
+// commands can therefore end inside a JSON string. Decode only complete
+// escape sequences from a leading command field; never evaluate script text.
+function codemodeBashCommand(args: unknown): string | undefined {
+  if (typeof args !== "string") return undefined;
+  try {
+    const parsed: unknown = JSON.parse(args);
+    return isRecord(parsed) && typeof parsed.command === "string"
+      ? parsed.command
+      : undefined;
+  } catch {
+    if (!args.endsWith("...")) return undefined;
+    const prefix = args.slice(0, -3);
+    const match =
+      /^\{\s*"command"\s*:\s*"((?:[^"\\]|\\(?:["\\/bfnrt]|u[\da-fA-F]{4}))*)/.exec(
+        prefix,
+      );
+    if (!match) return undefined;
+    try {
+      const command: unknown = JSON.parse('"' + match[1] + '"');
+      const suffix = prefix[match[0].length] === '"' ? "" : "…";
+      return typeof command === "string" ? command + suffix : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+// Show each tool's total count, including ×1, on its first preview.
+// Distinct previews remain visible; repeated previews take no extra space.
 function codemodeCallsSummary(row: ToolExecutionRow): string | undefined {
   const calls = row.result?.details?.calls;
   if (!Array.isArray(calls) || calls.length === 0) return undefined;
   const counts = new Map<string, number>();
+  const labels = new Map<string, { name: string; preview: string }>();
   for (const call of calls) {
     if (!isRecord(call)) continue;
     const name = call.name;
     if (typeof name !== "string" || name.length === 0) continue;
+    const command =
+      name === "bash" ? codemodeBashCommand(call.args) : undefined;
+    const preview = command === undefined ? "" : sanitizeInline(command).trim();
+    const label = preview ? name + " " + preview : name;
     counts.set(name, (counts.get(name) ?? 0) + 1);
+    labels.set(label, { name, preview });
   }
   if (counts.size === 0) return undefined;
-  return [...counts]
-    .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+  const shown = new Set<string>();
+  return [...labels.values()]
+    .map(({ name, preview }) => {
+      const count = counts.get(name) ?? 1;
+      const heading = !shown.has(name) ? name + " ×" + count : name;
+      shown.add(name);
+      return preview ? heading + " " + preview : heading;
+    })
     .join(", ");
 }
 
 // Codemode's collapsed label pairs what the script did with how it ran:
-// `read ×2, fffind · "max_output_tokens": 2500`. Without either part the row
+// `read ×2, fffind ×1 · "max_output_tokens": 2500`. Without either part the row
 // falls through to the ordinary summary paths.
 function codemodeCallLabel(row: ToolExecutionRow): string | undefined {
   if (row.toolName !== "codemode") return undefined;

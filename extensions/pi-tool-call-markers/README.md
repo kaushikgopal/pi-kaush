@@ -31,6 +31,25 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 - **User-run `!` bash blocks.** Execution display is owned here: user-typed commands trade Pi's green rules for the railed prompt shell (dark surface, status-colored rail) that submitted prompts use.
 - **Native expansion remains authoritative.** `Ctrl+O` restores Pi's full individual tool rendering, including complete results, custom renderers, and error details.
 
+## Codemode commands
+
+Collapsed codemode rows include bash command previews instead of only tool names:
+
+```text
+  │ ¢ bash ×1 npm test
+  │ ¢ bash ×2 git status --short, bash npm test
+```
+
+The first preview for each tool shows its total call count, including ×1.
+Distinct command previews remain separate. Identical previews appear only once.
+Long commands truncate to the row width. Pi can also truncate the stored
+argument preview; those commands keep an ellipsis. Calls without a usable
+command preview keep their tool name. Other nested tools show their
+name counts, including ×1, and script options follow the call list.
+
+Previews update while scripts run. Click a row or use Ctrl+O to restore Pi's
+native script, nested call status, and result details.
+
 ## Subagent plans
 
 A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic, using the same `│` tool-call rail:

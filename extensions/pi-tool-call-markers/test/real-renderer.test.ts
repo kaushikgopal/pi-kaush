@@ -320,6 +320,76 @@ afterEach(() => {
 });
 
 describe("tool-call-markers with Pi's real renderer", () => {
+  test("codemode commands fit narrow rows and preserve native expansion", () => {
+    const definition = {
+      name: "codemode",
+      label: "codemode",
+      description: "test codemode renderer",
+      parameters: { type: "object", properties: {} },
+      execute() {
+        throw new Error("not executed");
+      },
+      renderCall() {
+        return new Text("codemode FULL SCRIPT", 0, 0);
+      },
+      renderResult() {
+        return new Text("FULL RESULT", 0, 0);
+      },
+    };
+    const row = new ToolExecutionComponent(
+      "codemode",
+      "codemode-preview",
+      { code: "full script" },
+      {},
+      definition as never,
+      { requestRender() {} } as never,
+      process.cwd(),
+    );
+    const command = 'cat CONTRIBUTING.md; printf "界"; cat README.md';
+    row.updateResult(
+      {
+        isError: false,
+        content: [{ type: "text", text: "output" }],
+        details: {
+          calls: [
+            {
+              name: "bash",
+              args: JSON.stringify({ command }),
+              status: "running",
+            },
+          ],
+        },
+      },
+      true,
+    );
+    expect(row.render(100).join("\n").replace(ANSI_RE, "")).toContain(
+      "│ ¢ bash ×1 " + command,
+    );
+    row.updateResult({
+      isError: false,
+      content: [{ type: "text", text: "output" }],
+      details: {
+        calls: [
+          { name: "bash", args: JSON.stringify({ command }), status: "ok" },
+        ],
+      },
+    });
+    const chat = new Container();
+    chat.addChild(row);
+    chat.addChild(createBashRow("npm test"));
+    for (const component of [row, chat]) {
+      for (const width of [8, 20, 40, 100]) {
+        for (const line of component.render(width))
+          expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+      }
+    }
+    row.setExpanded(true);
+    const expanded = row.render(100).join("\n").replace(ANSI_RE, "");
+    expect(expanded).toContain("FULL SCRIPT");
+    expect(expanded).toContain("FULL RESULT");
+    expect(expanded).not.toContain("│ ¢");
+  });
+
   test("renders settled thought labels non-italic in the muted tone", () => {
     const message = (stopReason?: string) =>
       ({
