@@ -188,7 +188,9 @@ describe("managed subagent UI", () => {
     const extension = createExtension(() => runtime);
     const { context, ui } = createContext();
     ui.select
-      .mockResolvedValueOnce("🧪 coder · quick · completed · idle · mw-confirm")
+      .mockResolvedValueOnce(
+        "🧪 coder · quick · completed · idle · $0.0123 · mw-confirm",
+      )
       .mockResolvedValueOnce("Stop");
 
     await runCommand(extension, context);
@@ -200,7 +202,9 @@ describe("managed subagent UI", () => {
     expect(runtime.stop).not.toHaveBeenCalled();
 
     ui.select
-      .mockResolvedValueOnce("🧪 coder · quick · completed · idle · mw-confirm")
+      .mockResolvedValueOnce(
+        "🧪 coder · quick · completed · idle · $0.0123 · mw-confirm",
+      )
       .mockResolvedValueOnce("Stop");
     ui.confirm.mockResolvedValueOnce(true);
     await runCommand(extension, context);
@@ -254,7 +258,7 @@ describe("managed subagent UI", () => {
     const { context, ui } = createContext();
     ui.select
       .mockResolvedValueOnce(
-        "🧪 coder · quick · completed · suspended · mw-headless",
+        "🧪 coder · quick · completed · suspended · $0.0123 · mw-headless",
       )
       .mockResolvedValueOnce("Open child");
 
@@ -280,7 +284,7 @@ describe("managed subagent UI", () => {
     const { context, ui } = createContext();
     ui.select
       .mockResolvedValueOnce(
-        "🧪 coder · quick · completed · suspended · mw-suspended",
+        "🧪 coder · quick · completed · suspended · $0.0123 · mw-suspended",
       )
       .mockResolvedValueOnce("Open child");
 
@@ -300,7 +304,7 @@ describe("managed subagent UI", () => {
     const { context, ui } = createContext();
     ui.select
       .mockResolvedValueOnce(
-        "🧪 coder · quick · completed · idle · mw-existing",
+        "🧪 coder · quick · completed · idle · $0.0123 · mw-existing",
       )
       .mockResolvedValueOnce("Open child");
 
@@ -315,7 +319,9 @@ describe("managed subagent UI", () => {
     const extension = createExtension(() => runtime);
     const { context, ui } = createContext({ mode: "rpc", hasUI: true });
     ui.select
-      .mockResolvedValueOnce("🧪 coder · quick · completed · idle · mw-inspect")
+      .mockResolvedValueOnce(
+        "🧪 coder · quick · completed · idle · $0.0123 · mw-inspect",
+      )
       .mockResolvedValueOnce("Inspect latest assignments");
 
     await runCommand(extension, context);
@@ -338,9 +344,13 @@ describe("managed subagent UI", () => {
     const extension = createExtension(() => runtime);
     const { context, ui } = createContext();
     ui.select
-      .mockResolvedValueOnce("🧪 coder · quick · completed · idle · mw-send")
+      .mockResolvedValueOnce(
+        "🧪 coder · quick · completed · idle · $0.0123 · mw-send",
+      )
       .mockResolvedValueOnce("Send / steer")
-      .mockResolvedValueOnce("🧪 coder · quick · completed · idle · mw-send")
+      .mockResolvedValueOnce(
+        "🧪 coder · quick · completed · idle · $0.0123 · mw-send",
+      )
       .mockResolvedValueOnce("Queue follow-up");
     ui.input
       .mockResolvedValueOnce("  steer this  ")
@@ -385,7 +395,9 @@ describe("managed subagent UI", () => {
     const extension = createExtension(() => runtime);
     const { context, ui } = createContext();
     ui.select
-      .mockResolvedValueOnce("🧪 coder · quick · completed · idle · mw-second")
+      .mockResolvedValueOnce(
+        "🧪 coder · quick · completed · idle · $0.0123 · mw-second",
+      )
       .mockResolvedValueOnce("Open child");
 
     await runCommand(extension, context);
@@ -521,7 +533,7 @@ describe("managed subagent UI", () => {
     expect(ui.setStatus).toHaveBeenCalledWith(
       MANAGED_FOOTER_STATUS_KEY,
       expect.stringContaining(
-        "🧪 quick · completed · idle · coder · mw-live-1",
+        "🧪 quick · completed · idle · $0.0123 · coder · mw-live-1",
       ),
     );
     const rows: string[] = ui.setStatus.mock.calls[0]?.[1]?.split("\n") ?? [];
@@ -541,7 +553,7 @@ describe("managed subagent UI", () => {
     );
     expect(list).toHaveBeenCalledTimes(1);
 
-    const historyLabel = "🧪 coder · quick · stopped · mw-hidden";
+    const historyLabel = "🧪 coder · quick · stopped · $0.0123 · mw-hidden";
     ui.select
       .mockResolvedValueOnce(historyLabel)
       .mockResolvedValueOnce("Inspect latest assignments");

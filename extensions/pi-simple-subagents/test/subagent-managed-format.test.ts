@@ -45,6 +45,24 @@ describe("managed worker formatting", () => {
     ).toBe("🤖 · idle · two lines · mw-aaaaaa");
   });
 
+  test("labels carry settled worker cost when it is positive", () => {
+    const usage = {
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: 0.0123,
+      turns: 1,
+      contextTokens: 0,
+    };
+    expect(workerLabel(worker({ usage }))).toBe(
+      "🤖 coder · idle · $0.0123 · mw-aaaaaa",
+    );
+    expect(footerWorkerLabel(worker({ usage }))).toBe(
+      "🤖 · idle · $0.0123 · coder · mw-aaaaaa",
+    );
+  });
+
   test("state reflects the latest assignment over the worker lifecycle", () => {
     const assignment = {
       handle: "mw-aaaaaa",

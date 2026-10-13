@@ -74,7 +74,13 @@ import {
   SUBAGENT_TRACE_PREVIEW_BYTES,
   type TranscriptArtifact,
 } from "./_transcript.ts";
-import { addTurnUsage, emptyUsage, type UsageStats } from "./_usage.ts";
+
+import {
+  addTurnUsage,
+  emptyUsage,
+  formatUsageCompact,
+  type UsageStats,
+} from "./_usage.ts";
 import {
   applySubagentYield,
   includeSubagentYieldTool,
@@ -982,7 +988,7 @@ async function runSingle(
   if (aborted) return aborted;
   const isError = isFailedResult(result);
   const text = isError
-    ? `Agent ${result.stopReason || "failed"}: ${getResultOutput(result)}${formatYieldArtifacts(result)}${formatTranscriptReference(result)}`
+    ? `Agent ${result.stopReason || "failed"}: ${getResultOutput(result)}${formatYieldArtifacts(result)}${formatUsageSuffix(result)}${formatTranscriptReference(result)}`
     : `${result.output || "(no output)"}${formatYieldArtifacts(result)}`;
   return {
     kind: "completed",
@@ -1036,7 +1042,7 @@ async function runChain(
   return {
     kind: "completed",
     mode: "chain",
-    text: `${finalResult.output || "(no output)"}${formatYieldArtifacts(finalResult)}`,
+    text: `${finalResult.output || "(no output)"}${formatYieldArtifacts(finalResult)}${formatUsageSuffix(finalResult)}`,
     isError: false,
     results,
   };
@@ -1058,6 +1064,13 @@ function parallelPlaceholder(ctx: RunContext, item: BoundedItem): SingleResult {
   };
 }
 
+/** Model-facing usage line; zero-turn children report nothing. */
+function formatUsageSuffix(result: SingleResult): string {
+  return result.usage.turns > 0
+    ? `Usage: ${formatUsageCompact(result.usage)}`
+    : "";
+}
+
 function formatParallelSummary(result: SingleResult): string {
   const failed = isFailedResult(result);
   const output = truncateParallelOutput(
@@ -1070,7 +1083,7 @@ function formatParallelSummary(result: SingleResult): string {
       ? `failed${result.stopReason && result.stopReason !== "end" ? ` (${result.stopReason})` : ""}`
       : "completed";
   const transcript = failed ? formatTranscriptReference(result) : "";
-  return `### [${formatResultAgentName(result)}] ${status}\n\n${output}${formatYieldArtifacts(result)}${transcript}`;
+  return `### [${formatResultAgentName(result)}] ${status}\n\n${output}${formatYieldArtifacts(result)}${formatUsageSuffix(result)}${transcript}`;
 }
 
 async function runParallel(

@@ -43,15 +43,20 @@ export function stateLabel(worker: ManagedWorkerView): string {
   return assignment.state;
 }
 
+/** Settled worker cost; hidden while zero so idle workers stay quiet. */
+function costSuffix(usage: { readonly cost: number } | undefined): string {
+  return usage && usage.cost > 0 ? " · $" + usage.cost.toFixed(4) : "";
+}
+
 /** Picker label; unique per worker because it ends with the handle. */
 export function workerLabel(worker: ManagedWorkerView): string {
-  return `${workerIdentity(worker)} · ${stateLabel(worker)} · ${worker.handle}`;
+  return `${workerIdentity(worker)} · ${stateLabel(worker)}${costSuffix(worker.usage)} · ${worker.handle}`;
 }
 
 /** One single-line footer row, state before name so it survives clipping. */
 export function footerWorkerLabel(worker: ManagedWorkerView): string {
   const profile = worker.profile ? ` ${worker.profile}` : "";
-  return `${workerEmoji(worker.agent)}${profile} · ${stateLabel(worker)} · ${worker.agent.name} · ${worker.handle}`.replace(
+  return `${workerEmoji(worker.agent)}${profile} · ${stateLabel(worker)}${costSuffix(worker.usage)} · ${worker.agent.name} · ${worker.handle}`.replace(
     /[\r\n]+/g,
     " ",
   );
