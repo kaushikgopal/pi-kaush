@@ -572,6 +572,24 @@ function lazyInboxText(
   return (assignmentId) => (index ??= inboxIndex(paths)).get(assignmentId);
 }
 
+/** Folds merged steer assignments into their root result. */
+function foldMergedResults(
+  views: readonly ManagedAssignmentView[],
+): ManagedResultView[] {
+  const merged = new Map<string, string[]>();
+  for (const view of views)
+    if (view.mergedInto)
+      merged.set(view.mergedInto, [
+        ...(merged.get(view.mergedInto) ?? []),
+        view.id,
+      ]);
+  return views.flatMap((view): ManagedResultView[] => {
+    if (view.mergedInto) return [];
+    const mergedUpdates = merged.get(view.id);
+    return [mergedUpdates ? { ...view, mergedUpdates } : view];
+  });
+}
+
 const HOST_KIND: unique symbol = Symbol.for(
   "pi-simple-subagents.managed-host-kind",
 );
@@ -797,18 +815,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       });
       if (view?.terminal) views.push(view);
     }
-    const merged = new Map<string, string[]>();
-    for (const view of views)
-      if (view.mergedInto)
-        merged.set(view.mergedInto, [
-          ...(merged.get(view.mergedInto) ?? []),
-          view.id,
-        ]);
-    const results = views.flatMap((view): ManagedResultView[] => {
-      if (view.mergedInto) return [];
-      const mergedUpdates = merged.get(view.id);
-      return [mergedUpdates ? { ...view, mergedUpdates } : view];
-    });
+    const results = foldMergedResults(views);
     this.resultCache.set(config.handle, { key, results });
     return results;
   }
