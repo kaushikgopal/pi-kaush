@@ -325,14 +325,11 @@ const MCP_MODE_KEYS = [
   "action",
 ] as const;
 
-// A concise one-line label for the adapter's "mcp" proxy from the call's
-// shape alone. The adapter's dispatch order is an implementation detail, so
-// only a single unambiguous selector gets a named operation; conflicting,
-// empty, or unrecognized selectors return undefined so the caller shows the
-// complete compact args instead of claiming which operation executed.
-function mcpProxyCallLabel(
+// Only one valid selector can name an operation. Unknown or conflicting
+// shapes stay raw because the adapter's dispatch order is internal.
+function mcpProxySelectors(
   record: Record<string, unknown>,
-): string | undefined {
+): string[] | undefined {
   const selectors: string[] = [];
   // An empty search still runs a search; every other selector must be a
   // non-empty string to name an operation at all.
@@ -345,6 +342,25 @@ function mcpProxyCallLabel(
     if (typeof value !== "string" || value.length === 0) return undefined;
     selectors.push(key);
   }
+  return selectors;
+}
+
+// Append compact arguments left after the selector to an MCP label.
+function appendMcpRemainder(
+  label: string,
+  rest: Record<string, unknown>,
+): string {
+  const remainder = squashJsonish(rest);
+  return remainder ? `${label} ${remainder}` : label;
+}
+
+// A concise one-line label for the adapter's "mcp" proxy from the call's
+// shape alone. Ambiguous shapes keep their complete compact args.
+function mcpProxyCallLabel(
+  record: Record<string, unknown>,
+): string | undefined {
+  const selectors = mcpProxySelectors(record);
+  if (!selectors) return undefined;
 
   const server =
     typeof record.server === "string" && record.server.length > 0
@@ -357,8 +373,7 @@ function mcpProxyCallLabel(
   if (selectors.length === 0) {
     // No mode selector: the adapter lists a named server or reports status.
     const label = server === undefined ? "mcp status" : `mcp list ${server}`;
-    const restJson = squashJsonish(rest);
-    return restJson ? `${label} ${restJson}` : label;
+    return appendMcpRemainder(label, rest);
   }
   if (selectors.length !== 1) return undefined;
 
@@ -374,8 +389,7 @@ function mcpProxyCallLabel(
   if (key === "search") {
     const label =
       `mcp search ${String(record.search)}`.trimEnd() + serverSuffix;
-    const restJson = squashJsonish(rest);
-    return restJson ? `${label} ${restJson}` : label;
+    return appendMcpRemainder(label, rest);
   }
   if (key === "action") {
     const name = String(record.action);
@@ -386,17 +400,16 @@ function mcpProxyCallLabel(
       const input = squashJsonish(record.args);
       if (input) label += ` ${input}`;
     }
-    const restJson = squashJsonish(rest);
-    return restJson ? `${label} ${restJson}` : label;
+    return appendMcpRemainder(label, rest);
   }
   // connect / describe / instructions: the adapter dispatches these modes
   // without params.server, so a server argument is shown raw rather than as
   // a scope suffix that implies an operation that never ran.
   const label = `mcp ${key} ${String(record[key])}`;
-  const restJson = squashJsonish(
+  return appendMcpRemainder(
+    label,
     server === undefined ? rest : { ...rest, server },
   );
-  return restJson ? `${label} ${restJson}` : label;
 }
 
 // Builds a one-line "tool {args}" label from the call arguments. The
@@ -785,54 +798,55 @@ function renderedCallSummary(
   width: number,
   theme: ThemeLike,
 ): string {
+  const fallback = () => {
+    const args = compactArgs(row.args);
+    return args
+      ? fgCollapsed(theme, "toolOutput", args)
+      : fgCollapsed(theme, "muted", "(no arguments)");
+  };
   let component = row.callRendererComponent;
   if (!component && Array.isArray(row.contentBox?.children)) {
     component = row.contentBox.children[0] as ComponentLike | undefined;
   }
-  if (component && typeof component.render === "function") {
-    const visibleLines = component
-      .render(Math.max(1, width))
-      .filter(hasVisibleContent);
-    const rendered = visibleLines.slice(0, 3);
-    const line = rendered[0];
-    if (line) {
-      const first = trimRenderedLine(line);
-      const plain = stripAnsi(first);
-      const match = /^(\s*)(\S+)(\s*)/.exec(plain);
-      if (match) {
-        const expectedToken = row.toolName === "bash" ? "$" : row.toolName;
-        const hasKnownHeading =
-          match[2] === expectedToken ||
-          (row.toolName === "read" &&
-            (match[2] === "read" || match[2] === "[skill]"));
-        const summaryStart = hasKnownHeading
-          ? visibleWidth((match[1] ?? "") + (match[2] ?? "") + (match[3] ?? ""))
-          : 0;
-        const firstSummary = removeTrailingExpandHint(
-          sliceByColumn(
-            first,
-            summaryStart,
-            Math.max(0, visibleWidth(first) - summaryStart),
-          ),
-        );
-        const continuations = rendered
-          .slice(1)
-          .map(trimRenderedLine)
-          .filter(hasVisibleContent);
-        if (visibleLines.length > rendered.length)
-          continuations.push(fgCollapsed(theme, "muted", "…"));
-        const compact = [firstSummary, ...continuations]
-          .filter(hasVisibleContent)
-          .join(fgCollapsed(theme, "muted", " · "));
-        if (hasVisibleContent(compact)) return compact;
-      }
-    }
-  }
+  if (!component || typeof component.render !== "function") return fallback();
 
-  const fallback = compactArgs(row.args);
-  return fallback
-    ? fgCollapsed(theme, "toolOutput", fallback)
-    : fgCollapsed(theme, "muted", "(no arguments)");
+  const visibleLines = component
+    .render(Math.max(1, width))
+    .filter(hasVisibleContent);
+  const rendered = visibleLines.slice(0, 3);
+  const line = rendered[0];
+  if (!line) return fallback();
+
+  const first = trimRenderedLine(line);
+  const plain = stripAnsi(first);
+  const match = /^(\s*)(\S+)(\s*)/.exec(plain);
+  if (!match) return fallback();
+
+  const expectedToken = row.toolName === "bash" ? "$" : row.toolName;
+  const hasKnownHeading =
+    match[2] === expectedToken ||
+    (row.toolName === "read" &&
+      (match[2] === "read" || match[2] === "[skill]"));
+  const summaryStart = hasKnownHeading
+    ? visibleWidth((match[1] ?? "") + (match[2] ?? "") + (match[3] ?? ""))
+    : 0;
+  const firstSummary = removeTrailingExpandHint(
+    sliceByColumn(
+      first,
+      summaryStart,
+      Math.max(0, visibleWidth(first) - summaryStart),
+    ),
+  );
+  const continuations = rendered
+    .slice(1)
+    .map(trimRenderedLine)
+    .filter(hasVisibleContent);
+  if (visibleLines.length > rendered.length)
+    continuations.push(fgCollapsed(theme, "muted", "…"));
+  const compact = [firstSummary, ...continuations]
+    .filter(hasVisibleContent)
+    .join(fgCollapsed(theme, "muted", " · "));
+  return hasVisibleContent(compact) ? compact : fallback();
 }
 
 // Codemode carries its tunables in the script's first line —
@@ -1217,6 +1231,25 @@ function subagentProgressText(row: ToolExecutionRow): string | undefined {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
+function subagentPlanOutcome(
+  row: ToolExecutionRow,
+  failed: boolean,
+  progress: string | undefined,
+  budget: number,
+  theme: ThemeLike,
+): string | undefined {
+  if (failed) return collapsedOutcome(row, budget, theme);
+  if (isLiveRow(row))
+    return theme.fg("warning", progress ? `→ ${progress}` : "…");
+  if (row.result)
+    return fgCollapsed(
+      theme,
+      "toolOutput",
+      progress ? `→ ${progress}` : "→ done",
+    );
+  return theme.fg("warning", "…");
+}
+
 // Subagents render as an ordinary unboxed tool block: a `│` heading with the
 // plan kind/count/scope, then the numbered chain steps or parallel tasks with
 // agent identities (emoji, profile badge, name badge) in accent. Single calls
@@ -1256,17 +1289,7 @@ function renderSubagentPlan(
   const marker = collapsedAnchor(theme, color, undefined);
   const budget = Math.max(1, width - visibleWidth(marker));
   const progress = subagentProgressText(row);
-  const outcome = failed
-    ? collapsedOutcome(row, budget, theme)
-    : isLiveRow(row)
-      ? theme.fg("warning", progress ? `→ ${progress}` : "…")
-      : row.result
-        ? fgCollapsed(
-            theme,
-            "toolOutput",
-            progress ? `→ ${progress}` : "→ done",
-          )
-        : theme.fg("warning", "…");
+  const outcome = subagentPlanOutcome(row, failed, progress, budget, theme);
   const headline = (label: string) =>
     marker +
     (outcome

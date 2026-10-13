@@ -1509,9 +1509,24 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain("│ [reviewer] Inspect the live result.");
-    expect(output).toContain("…");
+    expect(output).toMatch(/Inspect the live result\. …$/);
+    expect(output).not.toContain("→");
     expect(output).not.toContain("→ done");
     expect(output).not.toContain("partial child output");
+  });
+
+  test("shows a warning for a subagent without a result and with an image component", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "image-only");
+    row.args = { agent: "reviewer", task: "Inspect the image result." };
+    row.isPartial = false;
+    row.imageComponents.push(new MockText("image"));
+    chat.addChild(row);
+
+    const output = renderPlain(chat);
+    expect(output).toContain("│ [reviewer] Inspect the image result.");
+    expect(output).toContain("…");
+    expect(output).not.toContain("→ done");
   });
 
   test("shows live subagent progress from partial result details", () => {
