@@ -118,6 +118,8 @@ class FakeWorker {
   private abortWaiters: (() => void)[] = [];
   private readonly steerQueue: string[] = [];
   private readonly followUps: string[] = [];
+  private readonly runningSignal = deferred();
+  private readonly firstSteer = deferred();
   private readonly exit = deferred();
   private sessionId = "";
   readonly process: ManagedHostProcess;
@@ -146,6 +148,14 @@ class FakeWorker {
 
   get model(): string | undefined {
     return argValue(this.request.args, "--model");
+  }
+
+  waitUntilRunning(): Promise<void> {
+    return this.runningSignal.promise;
+  }
+
+  waitForFirstSteer(): Promise<void> {
+    return this.firstSteer.promise;
   }
 
   start(): void {
@@ -234,6 +244,7 @@ class FakeWorker {
     if (this.running) {
       if (delivery?.deliverAs === "steer") {
         this.steers.push(text);
+        this.firstSteer.resolve();
         this.steerQueue.push(text);
       } else this.followUps.push(text);
       return;
@@ -257,6 +268,7 @@ class FakeWorker {
     }
     this.idle = false;
     bridge.onBeforeAgentStart(text);
+    this.runningSignal.resolve();
     let current: string | undefined = text;
     while (current !== undefined && !this.exited) {
       bridge.onMessageStart(user(current));
@@ -730,11 +742,12 @@ describe("managed runtime lifecycle", () => {
           ]
         : [{ kind: "yield", status: "completed", result: "follow" }];
     const { handle, assignmentId: first } = await runtime.spawn(launch());
-    await waitFor(() => runtime.status(handle).childState === "busy");
+    await host.last.waitUntilRunning();
+    expect(runtime.status(handle).childState).toBe("busy");
 
     const steer = runtime.send(handle, "also check docs");
     const follow = runtime.send(handle, "then summarize", "followUp");
-    await waitFor(() => host.last.steers.length === 1);
+    await host.last.waitForFirstSteer();
     const pending = await runtime.wait(handle, {
       assignmentId: follow.assignmentId,
       timeoutMs: 20,
@@ -747,20 +760,14 @@ describe("managed runtime lifecycle", () => {
 
     release.resolve();
     expect(
-      await runtime.wait(handle, {
-        assignmentId: steer.assignmentId,
-        timeoutMs: 2_000,
-      }),
+      await runtime.wait(handle, { assignmentId: steer.assignmentId }),
     ).toMatchObject({
       state: "completed",
       mergedInto: first,
       outcome: { result: "first" },
     });
     expect(
-      await runtime.wait(handle, {
-        assignmentId: follow.assignmentId,
-        timeoutMs: 2_000,
-      }),
+      await runtime.wait(handle, { assignmentId: follow.assignmentId }),
     ).toMatchObject({
       state: "completed",
       disposition: "followUp",
@@ -1362,16 +1369,10 @@ describe("managed runtime delivery and fallback safety", () => {
     });
     host.behavior = () => [{ kind: "stuck" }];
     const { handle, assignmentId } = await runtime.spawn(launch());
-    await waitFor(() =>
-      runtime
-        .status(handle)
-        .recentAssignments.some(
-          (assignment) =>
-            assignment.id === assignmentId && assignment.state === "running",
-        ),
-    );
-    await waitFor(() => host.last.terminated);
-    await waitFor(() => runtime.status(handle).lifecycle === "exited");
+    await host.last.waitUntilRunning();
+    await host.last.process.exited;
+    expect(host.last.terminated).toBe(true);
+    expect(runtime.status(handle).lifecycle).toBe("exited");
     expect(runtime.status(handle).lastError).toContain("inactivity limit");
     expect(await runtime.wait(handle, { assignmentId })).toMatchObject({
       state: "interrupted",
@@ -1709,14 +1710,12 @@ describe("managed runtime result listing", () => {
           ]
         : [{ kind: "yield", status: "completed", result: "follow" }];
     const { handle, assignmentId: first } = await runtime.spawn(launch());
-    await waitFor(() => runtime.status(handle).childState === "busy");
+    await host.last.waitUntilRunning();
+    expect(runtime.status(handle).childState).toBe("busy");
     const steer = runtime.send(handle, "also check docs");
-    await waitFor(() => host.last.steers.length === 1);
+    await host.last.waitForFirstSteer();
     release.resolve();
-    await runtime.wait(handle, {
-      assignmentId: steer.assignmentId,
-      timeoutMs: 2_000,
-    });
+    await runtime.wait(handle, { assignmentId: steer.assignmentId });
 
     expect(runtime.listResults()).toMatchObject([
       { id: first, mergedUpdates: [steer.assignmentId] },
