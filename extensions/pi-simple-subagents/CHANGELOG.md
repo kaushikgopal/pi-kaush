@@ -8,6 +8,8 @@
   the work stays retained, and the reason reaches the parent without failing the
   run. Interactive assignments settle as paused; a follow-up send resumes the
   same session.
+- Link finished child session files to the parent session so children nest
+  under it in Pi's resume tree.
 
 ## 0.2.0
 

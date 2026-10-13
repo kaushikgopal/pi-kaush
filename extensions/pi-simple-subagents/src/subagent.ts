@@ -500,6 +500,7 @@ async function runCommand(
       availableModels: models.availableModels,
       resolveModel: models.resolveModel,
       trace,
+      sessionFile: ctx.sessionManager.getSessionFile?.(),
       limits,
       concurrency: resources.concurrency,
       processes: resources.processes,
@@ -747,6 +748,7 @@ async function managedCommand(
     runtime = await call.env.resources.enterManaged(
       ctx.sessionManager.getSessionId(),
       (message) => notifyLifecycle(ctx, message),
+      ctx.sessionManager.getSessionFile?.(),
     );
   } catch (error) {
     return managedError(
@@ -880,12 +882,13 @@ export function registerSubagent(
     runtimeFactory: options.managedRuntimeFactory ?? getManagedRuntime,
     processRegistryFactory:
       options.processRegistryFactory ?? (() => new SubagentProcessRegistry()),
-    runtimeOptions: (parentSessionId, gate) => ({
+    runtimeOptions: (parentSessionId, gate, parentSessionFile) => ({
       parentSessionId,
       agentDir: getAgentDir(),
       limits,
       gate,
       env: process.env,
+      ...(parentSessionFile ? { parentSessionFile } : {}),
     }),
   });
 
@@ -894,8 +897,10 @@ export function registerSubagent(
     try {
       if (currentDelegationDepth() > 0) await resources.enter(sessionId);
       else
-        await resources.enterManaged(sessionId, (message) =>
-          notifyLifecycle(ctx, message),
+        await resources.enterManaged(
+          sessionId,
+          (message) => notifyLifecycle(ctx, message),
+          ctx.sessionManager.getSessionFile?.(),
         );
     } catch (error) {
       notifyLifecycle(

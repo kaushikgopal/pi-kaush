@@ -23,6 +23,7 @@ export interface SessionResourcesOptions {
   readonly runtimeOptions: (
     parentSessionId: string,
     gate: SessionConcurrencyGate,
+    parentSessionFile: string | undefined,
   ) => ManagedRuntimeOptions;
 }
 
@@ -93,12 +94,13 @@ export class SessionResources {
   async enterManaged(
     sessionId: string,
     warn: (message: string) => void,
+    parentSessionFile: string | undefined,
   ): Promise<ManagedRuntime> {
     await this.enter(sessionId);
     let runtime = this.runtimes.get(sessionId);
     if (!runtime) {
       runtime = this.options.runtimeFactory(
-        this.options.runtimeOptions(sessionId, this.gate),
+        this.options.runtimeOptions(sessionId, this.gate, parentSessionFile),
       );
       runtime.bind(this.gate, this.options.limits);
       this.runtimes.set(sessionId, runtime);
@@ -131,7 +133,7 @@ export class SessionResources {
     const runtime =
       this.runtimes.get(sessionId) ??
       this.options.runtimeFactory(
-        this.options.runtimeOptions(sessionId, this.gate),
+        this.options.runtimeOptions(sessionId, this.gate, undefined),
       );
     runtime.bind(this.gate, this.options.limits);
     this.runtimes.set(sessionId, runtime);

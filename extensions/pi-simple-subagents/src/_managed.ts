@@ -88,6 +88,7 @@ import {
   processStartIdentity,
   SubagentProcessRegistry,
 } from "./_process-tree.ts";
+import { linkSessionParent } from "./_session-link.ts";
 import { truncateUtf8Head } from "./_text.ts";
 import { emptyUsage, type UsageStats } from "./_usage.ts";
 import { includeSubagentYieldTool } from "./_yield.ts";
@@ -242,6 +243,8 @@ export interface ManagedRuntimePorts {
 
 export interface ManagedRuntimeOptions {
   readonly parentSessionId: string;
+  /** Session file of the owning parent session, for resume-tree links. */
+  readonly parentSessionFile?: string;
   readonly agentDir: string;
   readonly limits: SubagentLimitsConfig;
   readonly gate: SessionConcurrencyGate;
@@ -580,6 +583,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
 
   constructor(
     readonly parentSessionId: string,
+    private readonly parentSessionFile: string | undefined,
     agentDir: string,
     private readonly env: NodeJS.ProcessEnv,
     private readonly ports: ManagedRuntimePorts,
@@ -1077,6 +1081,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
 
       if (proc) await proc.terminate().catch(() => {});
       const status = readChildStatus(paths.status);
+      this.linkDeadWorkerSession(config.handle, status);
       const ran =
         status?.bootId === bootId &&
         (status.ackedSeq > 0 || status.toolActivity);
@@ -1193,6 +1198,23 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     void this.watchWorker(handle, worker);
   }
 
+  /** Links a dead worker's session file to this session for Pi's resume tree. */
+  private linkDeadWorkerSession(
+    handle: string,
+    status?: ChildStatus | null,
+  ): void {
+    if (!this.parentSessionFile) return;
+    try {
+      linkSessionParent(
+        (status ?? readChildStatus(managedPaths(this.dirOf(handle)).status))
+          ?.sessionFile,
+        this.parentSessionFile,
+      );
+    } catch {
+      // Best effort: a missing link only flattens Pi's resume tree.
+    }
+  }
+
   private recordUnplannedExit(handle: string, worker: LiveWorker): void {
     const config = this.readOwned(handle);
     if (!config || config.lifecycle !== "running") return;
@@ -1216,6 +1238,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         ...(lastError !== undefined ? { lastError } : {}),
       }),
     );
+    this.linkDeadWorkerSession(handle);
   }
 
   /**
@@ -1308,6 +1331,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       await worker.process.terminate().catch(() => {});
     await worker.process.exited;
     await worker.exitHandled;
+    this.linkDeadWorkerSession(handle);
     return slot === "keep" ? worker.lease : undefined;
   }
 
@@ -1348,6 +1372,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       const first = status.assignments[0];
       const lease = await this.shutdownKeepingSlot(handle);
       if (!lease) return;
+      this.linkDeadWorkerSession(handle, status);
       const model =
         config.launch.modelCandidates[config.candidateIndex] ?? status.model;
       const next = transition(this.ownedConfig(handle), {
@@ -1581,6 +1606,7 @@ export function getManagedRuntime(
     const env = options.env ?? process.env;
     runtime = new ManagedRuntimeImpl(
       options.parentSessionId,
+      options.parentSessionFile,
       options.agentDir,
       env,
       defaultPorts(env, options.ports ?? {}),

@@ -21,6 +21,7 @@ import {
   parseChildEventLine,
 } from "./_child-events.ts";
 import type { SessionConcurrencyGate } from "./_concurrency.ts";
+import { linkSessionParent } from "./_session-link.ts";
 import type { AgentConfig } from "./_definition.ts";
 import {
   buildChildSessionName,
@@ -388,6 +389,8 @@ export interface RunContext {
   readonly availableModels: ReadonlySet<string>;
   readonly resolveModel: (spec: string) => string | undefined;
   readonly trace: DelegationTrace;
+  /** Session file of the session that spawned the children, for resume-tree links. */
+  readonly sessionFile: string | undefined;
   readonly limits: SubagentLimitsConfig;
   readonly concurrency: SessionConcurrencyGate;
   readonly processes: SubagentProcessRegistry;
@@ -757,7 +760,10 @@ async function runSingleAgent(
         cwd,
         result.sessionId,
       );
-      if (sessionFilePath) result.sessionFilePath = sessionFilePath;
+      if (sessionFilePath) {
+        result.sessionFilePath = sessionFilePath;
+        linkSessionParent(sessionFilePath, ctx.sessionFile);
+      }
     }
     settleResult(result, outcome, limits);
     return result;

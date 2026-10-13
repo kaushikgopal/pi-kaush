@@ -40,7 +40,11 @@ function setup(runtimes: ManagedRuntime[] = []) {
       // SAFETY: SessionResources only calls terminateAll.
       return registry as unknown as SubagentProcessRegistry;
     },
-    runtimeOptions: (parentSessionId, gate: SessionConcurrencyGate) => ({
+    runtimeOptions: (
+      parentSessionId,
+      gate: SessionConcurrencyGate,
+      _parentSessionFile: string | undefined,
+    ) => ({
       parentSessionId,
       agentDir: "/agent",
       limits,
@@ -54,7 +58,7 @@ describe("SessionResources", () => {
   test("re-entering the open session is a no-op; switching sessions tears down the old one", async () => {
     const runtime = fakeRuntime();
     const { resources, registries } = setup([runtime]);
-    await resources.enterManaged("s1", () => {});
+    await resources.enterManaged("s1", () => {}, undefined);
     const firstGate = resources.concurrency;
     await resources.enter("s1");
     expect(resources.concurrency).toBe(firstGate);
@@ -74,8 +78,8 @@ describe("SessionResources", () => {
     ]);
     const { resources, created } = setup([runtime]);
     const warn = vi.fn();
-    expect(await resources.enterManaged("s1", warn)).toBe(runtime);
-    expect(await resources.enterManaged("s1", warn)).toBe(runtime);
+    expect(await resources.enterManaged("s1", warn, undefined)).toBe(runtime);
+    expect(await resources.enterManaged("s1", warn, undefined)).toBe(runtime);
     expect(created).toEqual(["s1"]);
     expect(runtime.restore).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledWith("Could not restore mw-1: gone");
@@ -88,7 +92,7 @@ describe("SessionResources", () => {
     expect(() => resources.runtimeForUi("s1")).toThrow(
       "Managed subagents are not ready until the session starts.",
     );
-    const runtime = await resources.enterManaged("s1", () => {});
+    const runtime = await resources.enterManaged("s1", () => {}, undefined);
     expect(resources.runtimeForUi("s1")).toBe(runtime);
     expect(resources.reportingRuntime("s1")).toBe(runtime);
     expect(resources.reportingRuntime("s2")).toBeUndefined();
@@ -101,7 +105,7 @@ describe("SessionResources", () => {
   test("shutdown suspends managed workers unless Pi is reloading", async () => {
     const runtime = fakeRuntime();
     const { resources, registries } = setup([runtime]);
-    await resources.enterManaged("s1", () => {});
+    await resources.enterManaged("s1", () => {}, undefined);
     await resources.shutdown("reload", () => {});
     expect(registries[1]!.terminateAll).toHaveBeenCalledOnce();
     expect(runtime.suspendAll).not.toHaveBeenCalled();
