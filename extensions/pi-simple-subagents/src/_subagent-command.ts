@@ -369,6 +369,25 @@ function parseInteractive(
   };
 }
 
+function parseSend(
+  handle: string,
+  raw: RawParams,
+  fail: Fail,
+): ParsedSubagentCall {
+  const message = stringValue(raw.message);
+  if (message === undefined || !message.trim())
+    return fail('Action "send" requires a non-empty message.');
+  if (supplied(raw.assignmentId) || supplied(raw.waitTimeoutMs))
+    return fail('Action "send" does not accept assignmentId or waitTimeoutMs.');
+  const delivery = oneOf(raw.delivery, DELIVERIES);
+  if (supplied(raw.delivery) && !delivery)
+    return fail('Action "send" delivery must be "auto" or "followUp".');
+  return {
+    ok: true,
+    command: { kind: "send", handle, message, delivery: delivery ?? "auto" },
+  };
+}
+
 function parseControl(
   action: (typeof CONTROL_ACTIONS)[number],
   raw: RawParams,
@@ -400,19 +419,7 @@ function parseControl(
   if (handle === undefined || !handle.trim())
     return fail(`Action "${action}" requires a non-empty handle.`);
 
-  if (action === "send") {
-    const message = stringValue(raw.message);
-    if (message === undefined || !message.trim())
-      return fail('Action "send" requires a non-empty message.');
-    if (supplied(raw.assignmentId) || supplied(raw.waitTimeoutMs))
-      return fail(
-        'Action "send" does not accept assignmentId or waitTimeoutMs.',
-      );
-    const delivery = oneOf(raw.delivery, DELIVERIES);
-    if (supplied(raw.delivery) && !delivery)
-      return fail('Action "send" delivery must be "auto" or "followUp".');
-    return ok({ kind: "send", handle, message, delivery: delivery ?? "auto" });
-  }
+  if (action === "send") return parseSend(handle, raw, fail);
   if (action === "wait") {
     if (supplied(raw.message) || supplied(raw.delivery))
       return fail('Action "wait" does not accept message or delivery.');

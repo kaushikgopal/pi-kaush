@@ -178,6 +178,38 @@ describe("parseSubagentCall interactive and control actions", () => {
     });
     expect(
       command({
+        action: "send",
+        handle: "mw-1",
+        message: "hi",
+        delivery: "followUp",
+      }),
+    ).toEqual({
+      kind: "send",
+      handle: "mw-1",
+      message: "hi",
+      delivery: "followUp",
+    });
+    for (const params of [
+      { action: "send", handle: "mw-1" },
+      { action: "send", handle: "mw-1", message: " " },
+    ]) {
+      expect(error(params)).toBe('Action "send" requires a non-empty message.');
+    }
+    for (const fields of [{ assignmentId: "as-1" }, { waitTimeoutMs: 0 }]) {
+      expect(
+        error({ action: "send", handle: "mw-1", message: "hi", ...fields }),
+      ).toBe('Action "send" does not accept assignmentId or waitTimeoutMs.');
+    }
+    expect(
+      error({
+        action: "send",
+        handle: "mw-1",
+        message: "hi",
+        delivery: "invalid",
+      }),
+    ).toBe('Action "send" delivery must be "auto" or "followUp".');
+    expect(
+      command({
         action: "wait",
         handle: "mw-1",
         assignmentId: "as-1",
