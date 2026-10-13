@@ -46,7 +46,7 @@ export function prepareManagedLaunch(input: {
   if (!input.request.agent.trim())
     return { ok: false, error: "Agent name must not be empty." };
   if (!input.request.task.trim())
-    return { ok: false, error: "Managed worker task must not be empty." };
+    return { ok: false, error: "Interactive worker task must not be empty." };
   if (!agent) {
     const available =
       input.discovery.agents
@@ -82,7 +82,7 @@ export function prepareManagedLaunch(input: {
     return {
       ok: false,
       error:
-        'Managed workers do not support noMcp isolation yet. Use action "run" for a bounded isolated child.',
+        "Interactive workers do not support noMcp isolation yet. Use action run for an isolated background child.",
     };
   }
 
@@ -151,7 +151,7 @@ export function boundManagedToolOutput(text: string): string {
   return truncateUtf8WithMarker(
     text,
     MANAGED_TOOL_OUTPUT_LIMIT_BYTES,
-    "\n… managed result truncated; inspect the worker or assignment for details.",
+    "\n… interactive result truncated; inspect the worker or assignment for details.",
   );
 }
 

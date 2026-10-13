@@ -31,7 +31,7 @@ export function formatManualManagedOpenHint(worker: ManagedWorkerView): string {
     ? `pi --session ${fishQuote(worker.sessionFile)}`
     : `pi --session-dir ${fishQuote(path.join(worker.dir, "session"))} --session-id ${fishQuote(worker.sessionId)}`;
   return [
-    "Cannot automatically open subagent.",
+    "Interactive pane unavailable.",
     worker.live
       ? `Stop running headless worker ${worker.handle} first to avoid two writers.`
       : `Worker ${worker.handle} is saved; no stop is needed.`,
@@ -145,7 +145,7 @@ async function runAction(
       case "steer": {
         const message = await ctx.ui.input(
           `Send / steer · ${worker.handle}`,
-          "Message to managed worker",
+          "Message to interactive worker",
         );
         if (!message?.trim()) return;
         const assignment = runtime.send(worker.handle, message.trim(), "auto");
@@ -155,7 +155,7 @@ async function runAction(
       case "followUp": {
         const message = await ctx.ui.input(
           `Queue follow-up · ${worker.handle}`,
-          "Follow-up for managed worker",
+          "Follow-up for interactive worker",
         );
         if (!message?.trim()) return;
         const assignment = runtime.send(
@@ -173,7 +173,7 @@ async function runAction(
       }
       case "stop": {
         const confirmed = await ctx.ui.confirm(
-          "Stop managed worker?",
+          "Stop interactive worker?",
           `Stop ${worker.handle}? Its session and transcripts will be retained.`,
         );
         if (!confirmed) return;
@@ -301,7 +301,7 @@ export function registerManagedUi(
   });
 
   pi.registerCommand("subagent", {
-    description: "Inspect and control managed subagents",
+    description: "Inspect and control interactive workers",
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) return;
 
@@ -309,13 +309,13 @@ export function registerManagedUi(
         const runtime = getRuntime(ctx);
         const workers = runtime.list();
         if (workers.length === 0) {
-          notify(ctx, "No managed subagents in this session.");
+          notify(ctx, "No interactive workers in this session.");
           return;
         }
 
         const worker = await selectByLabel(
           ctx,
-          "Managed subagents · choose a worker",
+          "Interactive workers · choose a worker",
           workers,
           workerLabel,
         );

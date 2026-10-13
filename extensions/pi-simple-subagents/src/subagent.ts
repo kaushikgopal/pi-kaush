@@ -184,7 +184,7 @@ function createSubagentParams(
       StringEnum(
         [
           "run",
-          "spawn",
+          "interactive",
           "status",
           "list",
           "send",
@@ -194,14 +194,14 @@ function createSubagentParams(
         ] as const,
         {
           description:
-            "run (default), spawn, status, list, send, wait, stop, or resume.",
+            "run (default background mode), interactive, status, list, send, wait, stop, or resume.",
           default: "run",
         },
       ),
     ),
     handle: Type.Optional(
       Type.String({
-        description: "Managed worker handle for control actions.",
+        description: "Interactive worker handle for control actions.",
       }),
     ),
     assignmentId: Type.Optional(
@@ -212,7 +212,7 @@ function createSubagentParams(
     ),
     message: Type.Optional(
       Type.String({
-        description: "Message to send or steer to a managed worker.",
+        description: "Message to send or steer to an interactive worker.",
       }),
     ),
     delivery: Type.Optional(
@@ -297,12 +297,12 @@ interface ToolCall {
   readonly signal: AbortSignal | undefined;
 }
 
-type ControlCommand = Exclude<SubagentCommand, { kind: "run" | "spawn" }>;
+type ControlCommand = Exclude<SubagentCommand, { kind: "run" | "interactive" }>;
 type RunCommand = Extract<SubagentCommand, { kind: "run" }>;
-type SpawnCommand = Extract<SubagentCommand, { kind: "spawn" }>;
+type InteractiveCommand = Extract<SubagentCommand, { kind: "interactive" }>;
 
 const NESTED_MANAGED_MESSAGE =
-  "Managed spawn and control actions are available only in a top-level Pi session; nested workers may use bounded action run.";
+  "Interactive mode and its controls are available only in a top-level Pi session; nested workers may use the default background mode.";
 const PROJECT_AGENTS_DECLINED = "Canceled: project-local agents not approved.";
 const FAILED_ASSIGNMENT_STATES: readonly string[] = [
   "failed",
@@ -468,7 +468,7 @@ async function runCommand(
     if (liveWorkers.length >= limits.maxConcurrency)
       return managedError(
         call,
-        `All ${limits.maxConcurrency} subagent slots are held by managed workers: ${liveWorkers.map((worker) => worker.handle).join(", ")}. Stop a worker before running bounded work; yielding does not release a managed worker's slot.`,
+        `All ${limits.maxConcurrency} subagent slots are held by interactive workers: ${liveWorkers.map((worker) => worker.handle).join(", ")}. Stop a worker before running bounded work; yielding does not release an interactive worker's slot.`,
       );
   }
 
@@ -522,7 +522,7 @@ async function runCommand(
   return outcome.isError ? { ...result, isError: true } : result;
 }
 
-type SpawnLine =
+type InteractiveLaunchLine =
   | {
       readonly kind: "started";
       readonly text: string;
@@ -535,7 +535,7 @@ async function startWorker(
   label: string,
   preparation: ManagedLaunchPreparation,
   signal: AbortSignal | undefined,
-): Promise<SpawnLine> {
+): Promise<InteractiveLaunchLine> {
   if (!preparation.ok)
     return { kind: "failed", text: `- ${label}: ${preparation.error}` };
   try {
@@ -553,9 +553,9 @@ async function startWorker(
   }
 }
 
-async function spawnCommand(
+async function interactiveCommand(
   call: ToolCall,
-  command: SpawnCommand,
+  command: InteractiveCommand,
   runtime: ManagedRuntime,
 ): Promise<SubagentToolResult> {
   const { ctx, env, trace } = call;
@@ -566,7 +566,7 @@ async function spawnCommand(
   if (trace.depth > limits.maxDepth)
     return managedError(
       call,
-      `Managed spawn blocked at depth ${trace.depth}; hard maximum is ${limits.maxDepth}.`,
+      `Interactive launch blocked at depth ${trace.depth}; hard maximum is ${limits.maxDepth}.`,
     );
   const requests = launch.kind === "batch" ? launch.requests : [launch.request];
   if (launch.kind === "batch" && requests.length > limits.maxChildrenPerCall)
@@ -610,7 +610,7 @@ async function spawnCommand(
     if (ctx.hasUI && warnings.length)
       ctx.ui.notify(warnings.join("\n\n"), "warning");
     const text = [
-      `Managed spawn ${failures === 0 ? "accepted" : `finished with ${failures} failure(s)`}:`,
+      `Interactive worker launch ${failures === 0 ? "accepted" : `finished with ${failures} failure(s)`}:`,
       ...lines.map((line) => line.text),
       ...(failures < lines.length
         ? [
@@ -660,10 +660,10 @@ function formatWorkerStatus(runtime: ManagedRuntime, handle: string): string {
 
 function formatWorkerList(runtime: ManagedRuntime): string {
   const workers = runtime.list();
-  if (workers.length === 0) return "No managed subagents in this session.";
+  if (workers.length === 0) return "No interactive workers in this session.";
   const shown = workers.slice(0, 25).map(formatManagedWorkerSummary);
   return [
-    `Managed subagents (${workers.length}):`,
+    `Interactive workers (${workers.length}):`,
     ...shown,
     ...(workers.length > shown.length
       ? [`… ${workers.length - shown.length} more`]
@@ -739,7 +739,7 @@ async function controlCommand(
 
 async function managedCommand(
   call: ToolCall,
-  command: SpawnCommand | ControlCommand,
+  command: InteractiveCommand | ControlCommand,
 ): Promise<SubagentToolResult> {
   const { ctx } = call;
   let runtime: ManagedRuntime;
@@ -754,8 +754,8 @@ async function managedCommand(
       `Could not initialize subagent runtime: ${errorText(error)}`,
     );
   }
-  return command.kind === "spawn"
-    ? spawnCommand(call, command, runtime)
+  return command.kind === "interactive"
+    ? interactiveCommand(call, command, runtime)
     : controlCommand(call, command, runtime);
 }
 
@@ -786,15 +786,15 @@ function describeTool(
       'Delegate bounded tasks to specialized subagents with isolated context; use agent "bee" (🐝) for general execution.',
       `Agents select behavior and tools; profiles select compute. They compose independently, and their order in the user's wording does not matter.${compositionExample}`,
       `Available user agents: ${agentGuidance}.`,
-      "Default action run preserves bounded single, parallel, and chain execution. Opt in with spawn for persistent managed workers; use status, list, send, wait, stop, and resume to control them by handle.",
-      "Managed spawn accepts one agent/task or tasks[] with optional shared context; it does not support chains. Idle managed workers keep a shared concurrency slot until stopped or suspended.",
+      "The default run action is background and headless. Use interactive for persistent workers; use status, list, send, wait, stop, and resume to control them by handle.",
+      "Interactive mode accepts one agent/task or tasks[] with optional shared context; it does not support chains. Idle interactive workers keep a shared concurrency slot until stopped or suspended.",
       "Parallel tasks may share one immutable context string that is prepended to every task.",
       `Execution profiles: ${profileGuidance}`,
       `Hard delegation limits: depth ${limits.maxDepth}; ${limits.maxConcurrency} active child processes per Pi session; ${limits.maxChildrenPerCall} children per call; ${maxTreeChildren} maximum active descendants across a fully expanded root tree. Completed children release their concurrency slots.`,
       `Child execution limits: ${formatDuration(limits.maxRuntimeMs)} total runtime; ${formatDuration(limits.maxInactivityMs)} without output. These limits do not apply to the orchestrator.`,
       "Full child stdout/stderr transcripts are stored as private JSONL artifacts; session details retain bounded previews and artifact paths.",
-      "Each invocation may choose a profile or an explicit model; an explicit model overrides the profile and agent definition. Managed worker results report automatically to the parent; wait is optional for collecting a specific assignment. Interrupted tasks are never replayed automatically.",
-      "Successful spawn confirmations, worker handles, assignment IDs, and control hints belong in the expanded tool output, not a separate assistant chat acknowledgement. Do not ask the user to wait or poll for automatic results.",
+      "Each invocation may choose a profile or an explicit model; an explicit model overrides the profile and agent definition. Interactive worker results report automatically to the parent; wait is optional for collecting a specific assignment. Interrupted tasks are never replayed automatically.",
+      "Successful interactive launch confirmations, worker handles, assignment IDs, and control hints belong in the expanded tool output, not a separate assistant chat acknowledgement. Do not ask the user to wait or poll for automatic results.",
       "Isolation flags are opt-in; noExtensions still explicitly loads this package's child bridge and yield tool. noMcp is currently available for bounded runs only.",
       `Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
       `To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
@@ -803,11 +803,11 @@ function describeTool(
     promptGuidelines: [
       `For subagent, agent and profile are independent: agent selects behavior and tools; profile selects compute. When the user names both in either order, preserve both.${compositionExample}`,
       `When invoking subagent, select the least expensive profile that safely fits the task: ${profileGuidance}`,
-      `Bounded delegation is capped at depth ${limits.maxDepth}, ${limits.maxConcurrency} active child processes per Pi session, and ${limits.maxChildrenPerCall} children per call. Managed spawn is top-level only and uses the same process gate; idle workers retain slots.`,
-      "Use action run (or omit action) for the existing bounded single/parallel/chain behavior. Use spawn only when the user needs a reusable worker with a stable handle.",
-      "After a successful spawn, do not repeat the launch confirmation, worker handle, assignment ID, or control hints in chat. If spawning is the only request, finish without a prose acknowledgement; the tool output confirms startup and the result will report automatically. Still report launch errors and answer any other questions in the user's request.",
+      `Bounded delegation is capped at depth ${limits.maxDepth}, ${limits.maxConcurrency} active child processes per Pi session, and ${limits.maxChildrenPerCall} children per call. Interactive mode is top-level only and uses the same process gate; idle workers retain slots.`,
+      "Use run (or omit action) for bounded background/headless work. It supports single, parallel, and chain tasks. Use interactive when the user wants a persistent worker with a reusable handle. Herdr opens the worker in a pane when available.",
+      "After an interactive launch, do not repeat the launch confirmation, worker handle, assignment ID, or control hints in chat. If starting an interactive worker is the only request, finish without a prose acknowledgement; the tool output confirms startup and the result will report automatically. Still report launch errors and answer any other questions in the user's request.",
       "Use subagent model only for an exact model override; model takes precedence over profile.",
-      "Use top-level context only for background or constraints shared by every parallel task or managed spawn batch.",
+      "Use top-level context only for constraints shared by every parallel task or interactive worker batch.",
     ],
   };
 }
@@ -822,7 +822,7 @@ function createSubagentTool(
     label: "Subagent",
     description,
     promptSnippet:
-      "Delegate bounded work or manage persistent subagents with optional execution profiles",
+      "Delegate background work or start interactive workers with optional execution profiles",
     promptGuidelines,
     parameters: createSubagentParams(profiles, env.limits),
 
@@ -900,7 +900,7 @@ export function registerSubagent(
     } catch (error) {
       notifyLifecycle(
         ctx,
-        `Could not initialize managed subagents: ${errorText(error)}`,
+        `Could not initialize interactive workers: ${errorText(error)}`,
       );
     }
   });
@@ -908,7 +908,7 @@ export function registerSubagent(
     resources.shutdown(event.reason, (reason) =>
       notifyLifecycle(
         ctx,
-        `Could not suspend managed subagents: ${errorText(reason)}`,
+        `Could not suspend interactive workers: ${errorText(reason)}`,
       ),
     ),
   );
@@ -931,7 +931,7 @@ export function registerSubagent(
       if (currentDelegationDepth() > 0)
         throw new ManagedError(
           "depth",
-          "Managed subagents are only available in a top-level Pi session.",
+          "Interactive workers are only available in a top-level Pi session.",
         );
       return resources.runtimeForUi(ctx.sessionManager.getSessionId());
     },

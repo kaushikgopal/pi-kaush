@@ -240,7 +240,7 @@ describe("managed tool output bounds", () => {
       "x".repeat(MANAGED_TOOL_OUTPUT_LIMIT_BYTES + 1),
     );
     expect(Buffer.byteLength(bounded)).toBe(MANAGED_TOOL_OUTPUT_LIMIT_BYTES);
-    expect(bounded).toContain("managed result truncated");
+    expect(bounded).toContain("interactive result truncated");
     const preview = truncateManagedText("y".repeat(5000), 2048);
     expect(Buffer.byteLength(preview)).toBe(2048);
     expect(preview.endsWith("\n… result preview truncated.")).toBe(true);
@@ -268,9 +268,9 @@ describe("managed action validation and bounded isolation", () => {
       }),
     ).toContain("does not accept assignmentId or waitTimeoutMs");
     expect(
-      parseError({ action: "spawn", chain: [{ agent: "coder" }] }),
+      parseError({ action: "interactive", chain: [{ agent: "coder" }] }),
     ).toContain("does not support chains");
-    expect(parseError({ action: "spawn", tasks: [] })).toContain(
+    expect(parseError({ action: "interactive", tasks: [] })).toContain(
       "non-empty tasks[]",
     );
   });
@@ -508,7 +508,7 @@ function makeFakeRuntime(options: ManagedRuntimeOptions) {
 }
 
 describe("subagent managed integration", () => {
-  test("warns once for a headless spawn and keeps native launch details expanded-only", async () => {
+  test("warns once for a headless interactive launch and keeps native launch details expanded-only", async () => {
     vi.stubEnv("PI_SUBAGENT_DEPTH", "0");
     const { registerSubagent } = await import("../src/subagent.ts");
     const h = makeHarness();
@@ -521,7 +521,7 @@ describe("subagent managed integration", () => {
       h.tool.execute(
         callId,
         {
-          action: "spawn",
+          action: "interactive",
           agent: "coder",
           profile: "quick",
           task: "A read-only task",
@@ -533,7 +533,7 @@ describe("subagent managed integration", () => {
     const headless = await spawn("headless-spawn");
     expect(headless.isError).toBeUndefined();
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("Cannot automatically open subagent."),
+      expect.stringContaining("Interactive pane unavailable."),
       "warning",
     );
     expect(headless.details.managedSpawn.manualOpen).toBe(true);
@@ -556,13 +556,13 @@ describe("subagent managed integration", () => {
       "worker-handle [mw-000002] assignment-id [a-2]",
     );
     expect(native.content[0].text).not.toContain(
-      "Cannot automatically open subagent.",
+      "Interactive pane unavailable.",
     );
     expect(ctx.ui.notify).not.toHaveBeenCalled();
     const theme = { fg: (_color: string, text: string) => text };
     expect(
       h.tool.renderResult(native, { expanded: false }, theme, {}).text,
-    ).toBe("1 background worker started");
+    ).toBe("1 interactive worker started");
     expect(
       h.tool.renderResult(native, { expanded: true }, theme, {}).text,
     ).toContain("worker-handle [mw-000002]");
@@ -595,7 +595,7 @@ describe("subagent managed integration", () => {
     const result = await h.tool.execute(
       "spawn-1",
       {
-        action: "spawn",
+        action: "interactive",
         agent: "coder",
         task: "Implement a parser",
         profile: "quick",
@@ -624,7 +624,7 @@ describe("subagent managed integration", () => {
       {},
     );
     expect(collapsed.text).toBe(
-      "1 background worker started · manual open only",
+      "1 interactive worker started · manual open only",
     );
     expect(collapsed.text).not.toContain("mw-000001");
     expect(collapsed.text).not.toContain("assignment-id");
@@ -633,7 +633,7 @@ describe("subagent managed integration", () => {
       "worker-handle [mw-000001] assignment-id [a-1]",
     );
     expect(expanded.text).toContain("Results report automatically.");
-    expect(expanded.text).toContain("Cannot automatically open subagent.");
+    expect(expanded.text).toContain("Interactive pane unavailable.");
     expect(expanded.text).toContain("Stop running headless worker");
     expect(expanded.text).toContain(
       "pi --session-dir '/managed/session' --session-id 'child-session'",
@@ -644,7 +644,7 @@ describe("subagent managed integration", () => {
     vi.stubEnv("PI_SUBAGENT_DEPTH", "1");
     const nestedSpawn = await h.tool.execute(
       "nested-spawn",
-      { action: "spawn", agent: "coder", task: "must stay top-level" },
+      { action: "interactive", agent: "coder", task: "must stay top-level" },
       undefined,
       undefined,
       h.context,
@@ -725,7 +725,7 @@ describe("subagent managed integration", () => {
     const queuedSpawn = h.tool.execute(
       "spawn-2",
       {
-        action: "spawn",
+        action: "interactive",
         agent: "coder",
         task: "Second task",
       },

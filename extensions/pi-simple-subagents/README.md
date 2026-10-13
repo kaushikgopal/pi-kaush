@@ -1,8 +1,7 @@
 # pi-simple-subagents
 
-Delegate bounded tasks to isolated Pi child processes or opt in to persistent
-managed workers with stable handles. Bounded runs collect structured output;
-managed workers keep their Pi session between assignments.
+The default mode runs bounded tasks in the background and returns structured
+output. Interactive workers keep their Pi session between assignments.
 
 Despite the name, this is the full-featured subagent tool — "simple" refers to
 the bounded default: tasks in, structured results out.
@@ -50,18 +49,19 @@ The tool needs two things on disk before it is useful:
 
 Ask the parent model in plain language; it chooses the `subagent` call.
 
-Bounded runs (the default) return a result inside the current turn:
+Background runs (the default) return a result inside the current turn:
 
 - `Use a quick bee subagent to count the .ts files under src and reply with the number only.`
 - `In parallel, have two quick bee subagents summarize README.md and CHANGELOG.md in one sentence each.`
 - `Chain: a bee subagent lists the exported functions in src/index.ts, then a bee subagent writes one line describing {previous}.`
 - Press Esc during a run to stop every child; partial results are kept.
 
-Managed workers keep their session and report back on their own:
+Interactive workers keep their session and report back on their own:
 
-- `Spawn a managed bee worker: read src/index.ts and tell me in 3 bullets what it does.`
-  In Herdr it opens in an unfocused pane below; elsewhere it
-  runs headless. The answer arrives without calling `wait`.
+- `Start an interactive bee worker: read src/index.ts and tell me in 3 bullets what it does.`
+  In Herdr it opens in an unfocused pane below. Outside Herdr, it uses the
+  headless RPC fallback and warns that no interactive pane is available. The
+  result arrives without a `wait` call.
 - `Send that worker a follow-up: list any timers it creates.` Same session, new
   assignment, second report.
 - `Steer that worker: focus only on error handling.` Folds into the running task.
@@ -69,13 +69,13 @@ Managed workers keep their session and report back on their own:
   interrupted work is never replayed.
 - `/subagent` opens a picker to inspect, focus, message, or stop workers.
 
-Workers survive `/reload`, come back idle after `pi --continue`, and each result
-is reported once. Bounded runs and managed workers share five slots; when idle
-workers hold them all, a bounded run fails immediately and names workers to stop.
+Interactive workers survive `/reload`, come back idle after `pi --continue`, and each result
+is reported once. Background runs and interactive workers share five slots; when idle
+workers hold them all, background runs fail immediately and name workers to stop.
 
 ## What it adds
 
-- `subagent`, an LLM-callable tool with three modes:
+- `subagent`, an LLM-callable tool with three task forms:
   - **single** — one agent, one task
   - **parallel** — a `tasks[]` batch with an optional shared immutable `context`
   - **chain** — sequential steps where `{previous}` placeholders receive the
@@ -92,7 +92,7 @@ workers hold them all, a bounded run fails immediately and names workers to stop
   not matter: `thinker redteam` and `redteam thinker` select the same pair.
 - **Bounded delegation**: depth 2, five children per call, five active children
   per Pi session, at most thirty simultaneously active descendants. Completed
-  bounded children release their slots; idle managed workers do not.
+  bounded children release their slots; idle interactive workers do not.
 - **Subtree-safe lifecycle**: depth-1 children lead POSIX process groups; abort,
   timeout, and session shutdown terminate the whole subtree (graceful then
   forced). Windows uses `taskkill /T`.
@@ -104,7 +104,7 @@ workers hold them all, a bounded run fails immediately and names workers to stop
   session ID with a `pi --session <id>` resume hint and the session file path
   for live `tail -f` viewing. Disable with `persistChildSessions: false`.
 - **Transcript artifacts**: bounded children's complete stdout/stderr streams to a
-  private JSONL artifact under `~/.pi/agent/subagent-runs/`; managed workers retain
+  private JSONL artifact under `~/.pi/agent/subagent-runs/`; interactive workers retain
   Pi session transcripts, bounded status previews, and assignment result archives
   under `~/.pi/agent/managed-subagents/`.
 - **Structured yield**: delegated children finish through a terminating `yield`
@@ -117,15 +117,16 @@ workers hold them all, a bounded run fails immediately and names workers to stop
   frontmatter, then its legacy `model` field. Bare ids resolve family-scoped
   by nearest version; qualified refs pass through to the child for validation.
 
-## Managed workers
+## Interactive mode
 
-The default `action: "run"` keeps the existing bounded single, parallel, and
-chain behavior. Use `action: "spawn"` only when a worker should keep its session
-for later assignments. Spawn accepts one agent/task or a `tasks[]` batch with
-optional shared `context`; managed chains are not supported.
+The default `action: "run"` runs background work. It supports single, parallel, and
+chain tasks. Use `action: "interactive"` for persistent workers.
+An interactive worker keeps its session for later assignments. In Herdr, it
+opens a pane. Interactive mode accepts one agent/task or a `tasks[]` batch
+with optional shared `context`. It does not support chains.
 
 ```json
-{ "action": "spawn", "agent": "coder", "task": "Implement the parser", "profile": "coder" }
+{ "action": "interactive", "agent": "coder", "task": "Implement the parser", "profile": "coder" }
 { "action": "send", "handle": "mw-…", "message": "Also cover empty input" }
 { "action": "wait", "handle": "mw-…", "assignmentId": "a-…" }
 ```
@@ -146,11 +147,11 @@ and restarts neither repeat nor lose them, and results already collected with
 `wait` are not reported again. Receipts follow the active branch: after `/tree`
 navigation, a result reported only on the abandoned branch is reported again.
 Each report is sent at most three times. `wait` remains available for
-deterministic collection inside a turn. The managed-worker status line hides
+deterministic collection inside a turn. The interactive-worker status line hides
 exited or stopped workers once their results are reported or collected; live
 idle workers stay visible.
 
-The status line is published as the extension status
+Interactive worker status is published as the extension status
 `below-footer:managed-subagents`, one worker per line, at most five rows plus a
 `+N more` row. With [pi-footer-minimal](../pi-footer-minimal/README.md)
 installed, each line renders as its own dimmed row below the footer. Without it,
@@ -158,7 +159,7 @@ Pi's native footer joins every extension status into one line, so the worker
 rows appear inline with other statuses, separated by spaces and clipped to the
 terminal width.
 
-Spawn confirmations and controls stay in the expanded tool output. IDs are
+Interactive launch confirmations and controls stay in the expanded tool output. IDs are
 explicitly labeled `worker-handle [mw-…]` and `assignment-id [a-…]`; expand the
 completion message to inspect status, task, usage, and transcript details. The
 collapsed completion message adds no card or metadata above the parent's answer.
@@ -172,20 +173,20 @@ to `wait` alongside the handle to collect that specific result, not whichever
 task finished most recently. Routine use needs neither copied ID: automatic
 reports and `/subagent` provide the normal workflow.
 
-Managed workers share the session's concurrency gate with bounded runs. An idle
+Interactive workers share the session's concurrency gate with background runs. An idle
 worker keeps a slot until it exits, is stopped, or is suspended. `stop` retains
 the worker's Pi session and transcripts; `resume` restarts it. Parent shutdown
-suspends managed workers and releases their slots. They resume idle with their
+suspends interactive workers and releases their slots. They resume idle with their
 saved context when that parent session starts again; interrupted instructions
 and uncertain message deliveries are never replayed automatically. `/reload`
-leaves managed children running. If every slot is held by a managed worker,
-bounded runs fail immediately with handles to stop rather than waiting forever.
-Managed sessions persist even when `persistChildSessions` is disabled for bounded runs.
+leaves interactive workers running. If interactive workers hold every slot,
+background runs fail immediately and list workers to stop.
+Interactive sessions persist even when `persistChildSessions` is disabled for background runs.
 
-In Herdr, each worker runs in an unfocused, extension-owned pane split down from
+In Herdr, each interactive worker runs in an unfocused, extension-owned pane split down from
 the caller; later workers stack below earlier ones. The `/subagent` picker can
-inspect it or focus it for native TUI use. Outside Herdr, workers run through Pi
-RPC and remain headless. Spawn warns when automatic opening is unavailable; the
+inspect it or focus it for native TUI use. Outside Herdr, interactive workers run through Pi
+RPC and remain headless. Interactive mode warns when no pane is available; the
 expanded tool output and picker give a fish-safe command for the saved session
 and tell you to stop a running headless worker before opening it elsewhere. That
 command opens a standalone session, not a live attachment: close it before
@@ -208,11 +209,11 @@ Herdr workers use the Herdr server's provider environment and the shared Pi agen
 directory. Parent-only exported credentials are not copied into launch arguments.
 Blocked trust or permission prompts are never automatically approved.
 
-Managed profiles and model overrides are resolved at spawn time and reused for
+Profiles and model overrides are resolved when an interactive worker starts and reused for
 later assignments. Explicit models override invocation profiles, which override
 agent profiles and legacy agent models. The parent's cycling model scope is not
 inherited. Isolation flags are opt-in; `noMcp` is currently supported only for
-bounded runs (requires Pi 1.0.4 or newer), and `noExtensions` explicitly loads this package's child bridge
+background runs (requires Pi 1.0.4 or newer), and `noExtensions` explicitly loads this package's child bridge
 and `yield` tool.
 
 The offline RPC smoke runs in the ordinary test suite. Native Herdr smoke is

@@ -194,7 +194,7 @@ describe("managed subagent UI", () => {
     await runCommand(extension, context);
 
     expect(ui.confirm).toHaveBeenCalledWith(
-      "Stop managed worker?",
+      "Stop interactive worker?",
       expect.stringContaining("session and transcripts will be retained"),
     );
     expect(runtime.stop).not.toHaveBeenCalled();
@@ -220,7 +220,7 @@ describe("managed subagent UI", () => {
     });
     expect(formatManualManagedOpenHint(worker)).toBe(
       [
-        "Cannot automatically open subagent.",
+        "Interactive pane unavailable.",
         "Stop running headless worker mw-quoted first to avoid two writers.",
         "Open a new terminal tab and run:",
         "  pi --session '/tmp/a user\\'s\\\\session file.jsonl'",
@@ -264,7 +264,7 @@ describe("managed subagent UI", () => {
     expect(runtime.open).not.toHaveBeenCalled();
     expect(runtime.spawn).not.toHaveBeenCalled();
     expect(ui.notify).toHaveBeenCalledWith(
-      expect.stringContaining("Cannot automatically open subagent."),
+      expect.stringContaining("Interactive pane unavailable."),
       "warning",
     );
     expect(ui.notify.mock.calls[0]?.[0]).toContain("no stop is needed");

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Replace the public `spawn` action with `interactive`. The default `run` action
+  remains background and headless.
+
 ## 0.2.0
 
 - Document setup requirements (an agent definition and `profiles.yaml`) and

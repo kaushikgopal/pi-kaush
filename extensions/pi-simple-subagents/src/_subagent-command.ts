@@ -58,7 +58,7 @@ export interface AgentSelection {
   readonly confirmProjectAgents?: boolean;
 }
 
-export type SpawnLaunch =
+export type InteractiveLaunch =
   | { readonly kind: "single"; readonly request: ManagedLaunchRequest }
   | {
       readonly kind: "batch";
@@ -84,9 +84,9 @@ export type SubagentCommand =
   | { readonly kind: "stop"; readonly handle: string }
   | { readonly kind: "resume"; readonly handle: string }
   | {
-      readonly kind: "spawn";
+      readonly kind: "interactive";
       readonly selection: AgentSelection;
-      readonly launch: SpawnLaunch;
+      readonly launch: InteractiveLaunch;
     }
   | {
       readonly kind: "run";
@@ -296,26 +296,26 @@ function managedRequest(
   };
 }
 
-function parseSpawn(
+function parseInteractive(
   raw: RawParams,
   controls: readonly string[],
   fail: Fail,
 ): ParsedSubagentCall {
   if (controls.length > 0)
     return fail(
-      `Action "spawn" does not accept managed control fields: ${controls.join(", ")}.`,
+      `Action "interactive" does not accept control fields: ${controls.join(", ")}.`,
     );
   if (supplied(raw.chain))
     return fail(
-      'Managed spawn does not support chains; use action "run" for bounded chains.',
+      "Interactive mode does not support chains; use action run for bounded chains.",
     );
   const single = supplied(raw.agent) || supplied(raw.task);
   const batch = supplied(raw.tasks);
   if (batch && (!Array.isArray(raw.tasks) || raw.tasks.length === 0))
-    return fail('Action "spawn" requires a non-empty tasks[] batch.');
+    return fail('Action "interactive" requires a non-empty tasks[] batch.');
   if (Number(single) + Number(batch) !== 1)
     return fail(
-      'Action "spawn" requires exactly one agent/task or a tasks[] batch.',
+      'Action "interactive" requires exactly one agent/task or a tasks[] batch.',
     );
 
   const selection = parseSelection(raw);
@@ -323,13 +323,17 @@ function parseSpawn(
     const agent = stringValue(raw.agent);
     const task = stringValue(raw.task);
     if (agent === undefined || task === undefined)
-      return fail('Action "spawn" single mode requires both agent and task.');
+      return fail(
+        'Action "interactive" single mode requires both agent and task.',
+      );
     if (supplied(raw.context))
-      return fail('Action "spawn" context is supported only with tasks[].');
+      return fail(
+        'Action "interactive" context is supported only with tasks[].',
+      );
     return {
       ok: true,
       command: {
-        kind: "spawn",
+        kind: "interactive",
         selection,
         launch: {
           kind: "single",
@@ -340,15 +344,17 @@ function parseSpawn(
   }
   if (supplied(raw.profile) || supplied(raw.model))
     return fail(
-      'Action "spawn" tasks[] takes profile/model on each task, not at the top level.',
+      'Action "interactive" tasks[] takes profile/model on each task, not at the top level.',
     );
   const items = parseItemRecords(raw.tasks);
   if (!items)
-    return fail('Action "spawn" tasks[] items require an agent and task.');
+    return fail(
+      'Action "interactive" tasks[] items require an agent and task.',
+    );
   return {
     ok: true,
     command: {
-      kind: "spawn",
+      kind: "interactive",
       selection,
       launch: {
         kind: "batch",
@@ -444,11 +450,11 @@ export function parseSubagentCall(params: unknown): ParsedSubagentCall {
   if (action === "run") {
     if (controls.length > 0)
       return fail(
-        `Action "run" does not accept managed control fields: ${controls.join(", ")}.`,
+        `Action "run" does not accept control fields: ${controls.join(", ")}.`,
       );
     return parseRun(raw, fail);
   }
-  if (action === "spawn") return parseSpawn(raw, controls, fail);
+  if (action === "interactive") return parseInteractive(raw, controls, fail);
   const control = oneOf(action, CONTROL_ACTIONS);
   if (!control) return fail(`Unknown subagent action "${action}".`);
   return parseControl(control, raw, controls, fail);

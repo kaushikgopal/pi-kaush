@@ -108,7 +108,7 @@ describe("parseSubagentCall run plans", () => {
 
   test("rejects control fields and empty tool overrides before planning", () => {
     expect(error({ agent: "a", task: "t", handle: "mw-1" })).toBe(
-      'Action "run" does not accept managed control fields: handle.',
+      'Action "run" does not accept control fields: handle.',
     );
     expect(
       error({ action: "status", handle: "mw-1", tasks: [{ tools: [] }] }),
@@ -118,17 +118,17 @@ describe("parseSubagentCall run plans", () => {
   });
 });
 
-describe("parseSubagentCall managed actions", () => {
-  test("a spawn batch inherits cwd/tools/isolation and keeps raw context", () => {
+describe("parseSubagentCall interactive and control actions", () => {
+  test("an interactive batch inherits cwd/tools/isolation and keeps raw context", () => {
     expect(
       command({
-        action: "spawn",
+        action: "interactive",
         tasks: [{ agent: "a", task: "one", profile: "quick", model: "" }],
         cwd: "/top",
         context: "ctx",
       }),
     ).toEqual({
-      kind: "spawn",
+      kind: "interactive",
       selection: { scope: "user" },
       launch: {
         kind: "batch",
@@ -138,34 +138,34 @@ describe("parseSubagentCall managed actions", () => {
     });
   });
 
-  test("spawn shape errors keep their precedence and wording", () => {
-    expect(error({ action: "spawn", agent: "a", task: "t", tasks: [] })).toBe(
-      'Action "spawn" requires a non-empty tasks[] batch.',
-    );
+  test("interactive shape errors keep their precedence and wording", () => {
+    expect(
+      error({ action: "interactive", agent: "a", task: "t", tasks: [] }),
+    ).toBe('Action "interactive" requires a non-empty tasks[] batch.');
     expect(
       error({
-        action: "spawn",
+        action: "interactive",
         agent: "a",
         task: "t",
         tasks: [{ agent: "b", task: "u" }],
       }),
     ).toBe(
-      'Action "spawn" requires exactly one agent/task or a tasks[] batch.',
+      'Action "interactive" requires exactly one agent/task or a tasks[] batch.',
     );
-    expect(error({ action: "spawn", agent: "a" })).toBe(
-      'Action "spawn" single mode requires both agent and task.',
+    expect(error({ action: "interactive", agent: "a" })).toBe(
+      'Action "interactive" single mode requires both agent and task.',
     );
     expect(
-      error({ action: "spawn", agent: "a", task: "t", context: "ctx" }),
-    ).toBe('Action "spawn" context is supported only with tasks[].');
+      error({ action: "interactive", agent: "a", task: "t", context: "ctx" }),
+    ).toBe('Action "interactive" context is supported only with tasks[].');
     expect(
       error({
-        action: "spawn",
+        action: "interactive",
         tasks: [{ agent: "a", task: "t" }],
         profile: "quick",
       }),
     ).toBe(
-      'Action "spawn" tasks[] takes profile/model on each task, not at the top level.',
+      'Action "interactive" tasks[] takes profile/model on each task, not at the top level.',
     );
   });
 
@@ -195,6 +195,12 @@ describe("parseSubagentCall managed actions", () => {
     );
     expect(error({ action: "wait", handle: "mw-1", assignmentId: "" })).toBe(
       "assignmentId must be a non-empty string.",
+    );
+  });
+
+  test("spawn is not a public action", () => {
+    expect(error({ action: "spawn", agent: "a", task: "t" })).toBe(
+      'Unknown subagent action "spawn".',
     );
   });
 

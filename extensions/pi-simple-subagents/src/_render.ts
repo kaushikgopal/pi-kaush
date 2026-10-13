@@ -1,6 +1,6 @@
 /**
  * TUI rendering for the `subagent` tool: the call header and the result views
- * for managed spawns and bounded single, chain, and parallel runs.
+ * for interactive launches and bounded single, chain, and parallel runs.
  */
 import type { Message } from "@earendil-works/pi-ai";
 import {
@@ -59,7 +59,7 @@ export interface SubagentDetails {
 const MODES = ["single", "parallel", "chain"] as const;
 
 /**
- * Reads session details. A `managedSpawn` field marks a managed spawn; bounded
+ * Reads session details. A `managedSpawn` field marks an interactive launch; bounded
  * runs carry `results`, which may have been persisted by an older version.
  */
 export function parseSubagentDetails(
@@ -573,7 +573,7 @@ export function renderSubagentResult(
   const details = parseSubagentDetails(result.details);
   if (details?.managedSpawn && !expanded) {
     const { started, failed, manualOpen } = details.managedSpawn;
-    const summary = `${started} background worker${started === 1 ? "" : "s"} started${failed ? ` · ${failed} launch${failed === 1 ? "" : "es"} failed` : ""}${manualOpen ? " · manual open only" : ""}`;
+    const summary = `${started} interactive worker${started === 1 ? "" : "s"} started${failed ? ` · ${failed} launch${failed === 1 ? "" : "es"} failed` : ""}${manualOpen ? " · manual open only" : ""}`;
     return new Text(
       theme.fg(failed || manualOpen ? "warning" : "muted", summary),
       0,
