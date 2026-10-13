@@ -115,6 +115,7 @@ describe("result status", () => {
       isFailedResult(result({ status: { kind: "aborted", cause: "abort" } })),
     ).toBe(true);
     expect(isFailedResult(result({ yieldStatus: "blocked" }))).toBe(true);
+    expect(isFailedResult(result({ yieldStatus: "paused" }))).toBe(false);
     expect(isActiveResult(result({ status: { kind: "pending" } }))).toBe(true);
     expect(isActiveResult(result({ status: { kind: "running" } }))).toBe(true);
     expect(isActiveResult(result())).toBe(false);

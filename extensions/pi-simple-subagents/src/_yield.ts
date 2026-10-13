@@ -6,7 +6,7 @@ import { isPlainRecord } from "./_parse.ts";
 
 export const SUBAGENT_YIELD_TOOL_NAME = "yield";
 
-export type SubagentYieldStatus = "completed" | "blocked" | "failed";
+export type SubagentYieldStatus = "completed" | "paused" | "blocked" | "failed";
 
 export interface SubagentYieldDetails {
   status: SubagentYieldStatus;
@@ -16,6 +16,7 @@ export interface SubagentYieldDetails {
 
 const YIELD_STATUSES = new Set<SubagentYieldStatus>([
   "completed",
+  "paused",
   "blocked",
   "failed",
 ]);
@@ -109,7 +110,7 @@ const YIELD_TOOL_COPY: Record<
       "Yield a final structured delegated-task result and terminate",
     promptGuidelines: [
       "Use yield exactly once as your final action after delegated work is complete or cannot continue.",
-      "Set status to completed only when the requested work is complete; use blocked when external input or access is required, and failed when the work could not be completed.",
+      "Set status to completed only when the requested work is complete; use paused when you must stop without an answer while the work stays retained, and say in result what is needed to continue; use blocked when external input or access is required, and failed when the work could not be completed.",
       "Put the complete concise handoff in result and include only useful artifact paths.",
     ],
     statusDescription: "Outcome of the delegated task",
@@ -122,7 +123,7 @@ const YIELD_TOOL_COPY: Record<
     promptSnippet: "Yield the current managed assignment's structured result",
     promptGuidelines: [
       "Use yield exactly once per managed assignment, as the final action for that assignment.",
-      "Set status to completed only when the assignment is complete; use blocked when external input or access is required, and failed when it could not be completed.",
+      "Set status to completed only when the assignment is complete; use paused when you must stop without an answer while the work stays retained, and say in result what is needed to continue; use blocked when external input or access is required, and failed when it could not be completed.",
       "Put the complete concise handoff in result and include only useful artifact paths.",
     ],
     statusDescription: "Outcome of the current assignment",
@@ -143,9 +144,12 @@ export function registerSubagentYield(
     promptSnippet: copy.promptSnippet,
     promptGuidelines: [...copy.promptGuidelines],
     parameters: Type.Object({
-      status: StringEnum(["completed", "blocked", "failed"] as const, {
-        description: copy.statusDescription,
-      }),
+      status: StringEnum(
+        ["completed", "paused", "blocked", "failed"] as const,
+        {
+          description: copy.statusDescription,
+        },
+      ),
       result: Type.String({
         description: copy.resultDescription,
       }),

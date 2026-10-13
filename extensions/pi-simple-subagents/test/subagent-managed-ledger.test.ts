@@ -172,6 +172,19 @@ describe("settleRunOutcome", () => {
     });
   });
 
+  test("a paused yield settles without model error", () => {
+    expect(
+      settleRunOutcome(
+        { yielded: { status: "paused", result: "waiting on API keys" } },
+        false,
+      ),
+    ).toEqual({
+      state: "paused",
+      outcome: { source: "yield", result: "waiting on API keys" },
+      modelError: false,
+    });
+  });
+
   test("bounds long results and marks them truncated", () => {
     const settled = settleRunOutcome(
       { lastText: "x".repeat(MANAGED_RESULT_PREVIEW_BYTES + 10) },

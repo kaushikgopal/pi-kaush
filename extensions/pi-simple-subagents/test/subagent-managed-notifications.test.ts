@@ -387,6 +387,7 @@ describe("managed result notifications", () => {
     const { parent, results } = setup();
     const states = [
       "completed",
+      "paused",
       "blocked",
       "failed",
       "timedOut",

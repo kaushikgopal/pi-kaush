@@ -31,7 +31,7 @@ function parsed(message: unknown) {
 }
 
 function yieldMessage(
-  status: "completed" | "blocked" | "failed",
+  status: "completed" | "paused" | "blocked" | "failed",
   result = "finished",
   artifacts?: string[],
 ) {
@@ -52,6 +52,7 @@ describe("structured subagent yield", () => {
     expect(tool.name).toBe("yield");
     expect(tool.parameters.properties.status.enum).toEqual([
       "completed",
+      "paused",
       "blocked",
       "failed",
     ]);
@@ -88,7 +89,7 @@ describe("structured subagent yield", () => {
     expect(result.terminate).toBe(true);
   });
 
-  test("applies completed, blocked, and failed outcomes to the parent result", () => {
+  test("applies paused, blocked, and failed outcomes to the parent result", () => {
     const completed = {
       output: "old",
       stopReason: "toolUse",
@@ -108,7 +109,7 @@ describe("structured subagent yield", () => {
       yieldArtifacts: ["result.txt"],
     });
 
-    for (const status of ["blocked", "failed"] as const) {
+    for (const status of ["paused", "blocked", "failed"] as const) {
       const target = { output: "" };
       expect(
         applySubagentYield(target, yieldMessage(status, `${status} result`)),

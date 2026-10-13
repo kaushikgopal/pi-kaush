@@ -265,6 +265,7 @@ export function parseInboxMessage(
 
 export const TERMINAL_ASSIGNMENT_STATES = [
   "completed",
+  "paused",
   "blocked",
   "failed",
   "timedOut",

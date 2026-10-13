@@ -4,6 +4,10 @@
 
 - Replace the public `spawn` action with `interactive`. The default `run` action
   remains background and headless.
+- Add a fourth structured yield status, paused: children stop without an answer,
+  the work stays retained, and the reason reaches the parent without failing the
+  run. Interactive assignments settle as paused; a follow-up send resumes the
+  same session.
 
 ## 0.2.0
 

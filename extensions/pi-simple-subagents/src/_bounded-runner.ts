@@ -187,6 +187,8 @@ function getResultOutput(result: SingleResult): string {
       result.errorMessage || result.stderr || result.output || "(no output)"
     );
   }
+  if (!result.output && result.yieldStatus === "paused")
+    return result.errorMessage || "(paused without output)";
   return result.output || "(no output)";
 }
 
