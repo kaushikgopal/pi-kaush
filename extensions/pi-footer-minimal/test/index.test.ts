@@ -1,5 +1,5 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import registerFooter, { BELOW_FOOTER_PREFIX } from "../src/index.ts";
 
 type Footer = {
@@ -151,10 +151,6 @@ function createHarness(options: HarnessOptions = {}) {
   };
 }
 
-afterEach(() => {
-  vi.useRealTimers();
-});
-
 /** Full width for left + right: 2-column edge pad on both sides + 2-column gap. */
 function widthFor(left: string, right: string): number {
   return 2 + visibleWidth(left) + 2 + visibleWidth(right) + 2;
@@ -200,26 +196,18 @@ describe("edge padding", () => {
     }
   });
 
-  test("drops the inset decoration before clipping content at tiny widths", () => {
-    const harness = createHarness();
-    const footer = harness.start();
-    for (const width of [4, 3, 1]) {
-      const line = mainLine(footer, width);
-      expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-      expect(line.startsWith(" ")).toBe(false);
-    }
-  });
-
-  test("budgets the full width for content below the inset threshold", () => {
-    const harness = createHarness();
-    const footer = harness.start();
+  test("drops the inset and uses the full width below the threshold", () => {
+    const footer = createHarness().start();
     for (const width of [4, 3]) {
       const line = mainLine(footer, width);
       expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-      // With the decoration dropped, more than a single cell of content
-      // remains visible.
+      expect(line.startsWith(" ")).toBe(false);
       expect(visibleWidth(line.trimEnd())).toBeGreaterThan(1);
     }
+
+    const line = mainLine(footer, 1);
+    expect(visibleWidth(line)).toBeLessThanOrEqual(1);
+    expect(line.startsWith(" ")).toBe(false);
   });
 });
 

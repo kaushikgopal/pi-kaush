@@ -313,16 +313,10 @@ function layoutMainLine(
     visibleWidth(l) + 2 + visibleWidth(r) <= contentWidth;
   let usedLeft = leftFull;
   let usedRight = rightLean;
-  if (!fits(usedLeft, usedRight)) {
-    usedLeft = leftFlat;
-    if (!fits(usedLeft, usedRight)) {
-      usedLeft = leftFlatNoCost;
-      if (!fits(usedLeft, usedRight)) {
-        // Active-agent status is optional; the model is not.
-        usedRight = rightCore;
-      }
-    }
-  }
+  if (!fits(usedLeft, usedRight)) usedLeft = leftFlat;
+  if (!fits(usedLeft, usedRight)) usedLeft = leftFlatNoCost;
+  // Active-agent status is optional; the model is not.
+  if (!fits(usedLeft, usedRight)) usedRight = rightCore;
 
   const leftWidth = visibleWidth(usedLeft);
   const rightWidth = visibleWidth(usedRight);
