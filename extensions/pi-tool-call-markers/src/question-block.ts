@@ -79,35 +79,43 @@ function isQuestionToolName(name: string | undefined): boolean {
 // carrying the question text, and each entry's answer arrives as `answer`
 // (option label or typed text) or `selected` (multi-select labels). Any
 // deviation fails the shape check so an unrelated tool is never reshaped.
+function parseAnswerEntry(item: unknown): AnswerEntry | undefined {
+  if (!isRecord(item) || typeof item.question !== "string") return undefined;
+
+  const answer = item.answer;
+  if (answer !== undefined && answer !== null && typeof answer !== "string") {
+    return undefined;
+  }
+
+  const selected = item.selected;
+  if (
+    selected !== undefined &&
+    (!Array.isArray(selected) ||
+      !selected.every((label) => typeof label === "string"))
+  ) {
+    return undefined;
+  }
+
+  return {
+    question: item.question,
+    questionIndex:
+      typeof item.questionIndex === "number" ? item.questionIndex : undefined,
+    kind: typeof item.kind === "string" ? item.kind : undefined,
+    answer,
+    selected: selected as string[] | undefined,
+  };
+}
+
 function parseAnswerEntries(details: unknown): AnswerEntry[] | undefined {
   if (!isRecord(details)) return undefined;
   const raw = details.answers;
   if (!Array.isArray(raw)) return undefined;
+
   const entries: AnswerEntry[] = [];
   for (const item of raw) {
-    if (!isRecord(item) || typeof item.question !== "string") return undefined;
-    const answer = item.answer;
-    if (answer !== undefined && answer !== null && typeof answer !== "string") {
-      return undefined;
-    }
-    const selected = item.selected;
-    if (
-      selected !== undefined &&
-      !(
-        Array.isArray(selected) &&
-        selected.every((label) => typeof label === "string")
-      )
-    ) {
-      return undefined;
-    }
-    entries.push({
-      question: item.question,
-      questionIndex:
-        typeof item.questionIndex === "number" ? item.questionIndex : undefined,
-      kind: typeof item.kind === "string" ? item.kind : undefined,
-      answer,
-      selected: selected as string[] | undefined,
-    });
+    const entry = parseAnswerEntry(item);
+    if (!entry) return undefined;
+    entries.push(entry);
   }
   return entries;
 }

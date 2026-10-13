@@ -2179,6 +2179,34 @@ describe("asked questions", () => {
     });
   });
 
+  test("keeps foreign tools generic when answer details have invalid shapes", () => {
+    const invalidDetails = [
+      null,
+      {},
+      { answers: null },
+      { answers: [null] },
+      { answers: [{ question: 1 }] },
+      { answers: [{ question: "Ship it?", answer: true }] },
+      { answers: [{ question: "Ship it?", selected: "yes" }] },
+      { answers: [{ question: "Ship it?", selected: ["yes", false] }] },
+    ];
+
+    withTheme(() => {
+      invalidDetails.forEach((details, index) => {
+        const chat = new Container();
+        const row = createQuestionRow("ask-invalid-" + index, "vendor_ask", {
+          questions: [{ question: "Ship it?" }],
+        });
+        chat.addChild(row);
+        answer(row, details);
+
+        const plain = renderPlain(chat);
+        expect(plain, "details case " + index).not.toContain(PROMPT_RAIL);
+        expect(plain, "details case " + index).toContain("│ *");
+      });
+    });
+  });
+
   test("italicizes the question and leaves the answer upright", () => {
     withTheme(() => {
       const chat = new Container();
