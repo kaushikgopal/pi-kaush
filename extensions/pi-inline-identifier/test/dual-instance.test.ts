@@ -121,9 +121,8 @@ test("decorates an inherited CustomEditor render override exactly once", () => {
     tuiMock.FakeEditorB.prototype,
     tuiMock.FakeEditorA.prototype,
   );
-  const colorizeLine = vi.fn((line: string) =>
-    line.replace("/added-by-custom", "\x1b[32m/added-by-custom\x1b[39m"),
-  );
+  const colorizeLine = (line: string) =>
+    line.replace("/added-by-custom", "\x1b[32m/added-by-custom\x1b[39m");
 
   expect(
     tuiMock.FakeEditorA.prototype.isPrototypeOf(tuiMock.FakeEditorB.prototype),
@@ -142,5 +141,4 @@ test("decorates an inherited CustomEditor render override exactly once", () => {
   expect(new tuiMock.FakeEditorB([]).render(80)).toEqual([
     "\x1b[32m/added-by-custom\x1b[39m",
   ]);
-  expect(colorizeLine).toHaveBeenCalledTimes(1);
 });

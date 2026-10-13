@@ -101,12 +101,8 @@ type EditorAutocompleteInternals = EditorPrototype & {
   autocompleteDebouncePattern?: RegExp;
 };
 
-function firstLineStartsWithSlash(text: string): boolean {
-  return (text.split("\n", 1)[0] ?? "").trimStart().startsWith("/");
-}
-
 export function isNativeSlashInput(text: string): boolean {
-  return firstLineStartsWithSlash(text);
+  return (text.split("\n", 1)[0] ?? "").trimStart().startsWith("/");
 }
 
 function decorationState(): DecorationState {
