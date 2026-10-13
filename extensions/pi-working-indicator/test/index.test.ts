@@ -26,14 +26,14 @@ describe("waveFrames", () => {
 
   test("each frame has one head and window-1 trailing lit squares", () => {
     for (const frame of waveFrames(colors, 8, 4)) {
-      expect(frame.indexOf("H")).toBeGreaterThanOrEqual(0);
+      expect(frame.match(/H/gu)).toHaveLength(1);
       expect(frame.split("l")).toHaveLength(4); // window - 1 lit cells
     }
   });
 
   test("squares render adjacent, with no separator", () => {
     for (const frame of waveFrames(colors)) {
-      expect(frame).not.toContain(" ");
+      expect(frame).toMatch(/^(?:[Hld]▪){8}$/u);
     }
   });
 
