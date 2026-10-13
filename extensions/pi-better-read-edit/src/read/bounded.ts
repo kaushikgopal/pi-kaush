@@ -72,20 +72,3 @@ export async function readBoundedText(
   const result = await readBoundedFile(path, cap, signal);
   return { ...result, text: result.bytes.toString("utf8") };
 }
-
-export async function assertRegularFile(
-  path: string,
-  cap?: number,
-): Promise<void> {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
-  try {
-    const info = await handle.stat();
-    if (!info.isFile())
-      throw new Error(`Only regular files can be read: ${path}`);
-    if (cap !== undefined && info.size > cap) {
-      throw new Error(`File exceeds the ${cap}-byte safety cap.`);
-    }
-  } finally {
-    await handle.close();
-  }
-}

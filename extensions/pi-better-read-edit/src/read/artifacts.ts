@@ -98,7 +98,6 @@ function result(
     | "totalBytes"
     | "displayedBytes"
   >,
-  _options: { continuable?: boolean } = {},
 ): ReadResult {
   let sourceLines = text.length === 0 ? 0 : text.endsWith("\n") ? 0 : 1;
   for (let index = 0; index < text.length; index++) {
@@ -240,7 +239,6 @@ export async function readNotebook(
       mutableLocalText: false,
       ...(selector ? { selector } : {}),
     },
-    { continuable: !selector || selector.toLowerCase() === "raw" },
   );
 }
 
@@ -263,7 +261,7 @@ async function readPdf(
     signal,
   );
   const text = await withPrivateSnapshot(bounded.bytes, ".pdf", (snapshot) =>
-    runCommand(pi, command, [snapshot, "-"], {
+    runCommand(command, [snapshot, "-"], {
       ...(signal ? { signal } : {}),
       timeout: 60_000,
     }),
@@ -279,7 +277,6 @@ async function readPdf(
       mutableLocalText: false,
       ...(selector ? { selector } : {}),
     },
-    { continuable: !selector || selector.toLowerCase() === "raw" },
   );
 }
 
@@ -360,7 +357,6 @@ async function readArchive(
       let extractionMember = member;
       if (member) {
         const listing = await runCommand(
-          pi,
           command,
           zip ? ["-Z1", snapshotPath] : ["-tf", snapshotPath],
           { ...(signal ? { signal } : {}), timeout: 60_000 },
@@ -403,7 +399,7 @@ async function readArchive(
         : member
           ? ["-xOf", snapshotPath, "--", extractionMember]
           : ["-tf", snapshotPath];
-      return runCommand(pi, command, args, {
+      return runCommand(command, args, {
         ...(signal ? { signal } : {}),
         timeout: 60_000,
       });
@@ -444,7 +440,6 @@ async function sqliteQuery(
     signal,
   );
   const output = await runCommand(
-    pi,
     command,
     [
       "-safe",
@@ -649,7 +644,6 @@ async function readGitHubPr(
     signal,
   );
   const raw = await runCommand(
-    pi,
     command,
     [
       "pr",
@@ -715,12 +709,10 @@ async function defuddleLocalHtml(
   const command = await findCommand(pi, ["defuddle"], signal);
   if (!command) return undefined;
   try {
-    const output = await runCommand(
-      pi,
-      command,
-      ["parse", path, "--markdown"],
-      { ...(signal ? { signal } : {}), timeout: 60_000 },
-    );
+    const output = await runCommand(command, ["parse", path, "--markdown"], {
+      ...(signal ? { signal } : {}),
+      timeout: 60_000,
+    });
     return output.trim() ? output : undefined;
   } catch (error) {
     if (signal?.aborted) throw error;
@@ -771,7 +763,6 @@ async function readUrl(
       mutableLocalText: false,
       ...(selector ? { selector } : {}),
     },
-    { continuable: !selector || selector.toLowerCase() === "raw" },
   );
 }
 
@@ -898,17 +889,13 @@ export async function tryReadProjection(
       throw new Error("Local file exceeds the 4 MiB safety cap.");
     const text = bounded.text;
     return {
-      result: result(
-        text,
-        {
-          sourceKind: "raw-local-text",
-          sourcePath: absolutePath,
-          projection: false,
-          mutableLocalText: true,
-          selector,
-        },
-        { continuable: true },
-      ),
+      result: result(text, {
+        sourceKind: "raw-local-text",
+        sourcePath: absolutePath,
+        projection: false,
+        mutableLocalText: true,
+        selector,
+      }),
       path: readPath,
       selector,
     };
@@ -929,17 +916,13 @@ export async function tryReadProjection(
         ? selectTextRanges(source, selector, { numbered: true })
         : source;
     return {
-      result: result(
-        text,
-        {
-          sourceKind: extracted ? "html-article" : "html-source",
-          sourcePath: absolutePath,
-          projection: true,
-          mutableLocalText: false,
-          ...(selector ? { selector } : {}),
-        },
-        { continuable: !selector || selector.toLowerCase() === "raw" },
-      ),
+      result: result(text, {
+        sourceKind: extracted ? "html-article" : "html-source",
+        sourcePath: absolutePath,
+        projection: true,
+        mutableLocalText: false,
+        ...(selector ? { selector } : {}),
+      }),
       path: readPath,
       ...(selector ? { selector } : {}),
     };

@@ -37,7 +37,6 @@ export async function requireCommand(
 }
 
 export async function runCommand(
-  _runner: CommandRunner,
   command: string,
   args: readonly string[],
   options: { signal?: AbortSignal; timeout?: number; cwd?: string } = {},
