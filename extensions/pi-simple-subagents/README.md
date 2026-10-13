@@ -13,6 +13,7 @@ pi install npm:@pi-kaush/pi-simple-subagents
 ```
 
 The tool needs two things on disk before it is useful:
+Running the tool with { "action": "init" } writes both starter files when they are missing; it never overwrites existing files.
 
 1. **At least one agent definition.** A subagent call names an agent, and an
    unknown name fails with the list of available agents. Create

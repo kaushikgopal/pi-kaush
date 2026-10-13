@@ -68,6 +68,7 @@ export type InteractiveLaunch =
 
 export type SubagentCommand =
   | { readonly kind: "list" }
+  | { readonly kind: "init" }
   | { readonly kind: "status"; readonly handle: string }
   | {
       readonly kind: "send";
@@ -127,6 +128,7 @@ const INVOCATION_FIELDS = [
 const CONTROL_ACTIONS = [
   "status",
   "list",
+  "init",
   "send",
   "wait",
   "stop",
@@ -382,6 +384,11 @@ function parseControl(
     return fail(
       `Action "${action}" does not accept launch fields: ${invocation.join(", ")}.`,
     );
+  if (action === "init") {
+    if (controls.length > 0)
+      return fail('Action "init" does not accept control fields.');
+    return ok({ kind: "init" });
+  }
   if (action === "list") {
     if (controls.length > 0)
       return fail(

@@ -13,6 +13,7 @@
 - Add a non-killing status report for interactive assignments: after
   `statusReportAfterMs` (new limits key, default ten minutes, 0 disables) the
   parent receives one still-running ping while the worker keeps working.
+- Add the init action: writes a starter agents/bee.md and a minimal profiles.yaml when they are missing, never overwriting existing files.
 - Show settled per-worker cost: picker and footer rows carry a trailing
   dollar total when nonzero, and bounded results append a compact usage line.
 

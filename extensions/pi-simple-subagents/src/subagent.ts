@@ -36,8 +36,10 @@ import {
   type ModelProfilesConfig,
   resolveProfilesPath,
 } from "@pi-kaush/pi-model-profiles";
+import { initScaffoldFiles } from "./_init.ts";
 import {
   runBoundedPlan,
+  shortenHomePath,
   type SingleResult,
   toPersistedResult,
 } from "./_bounded-runner.ts";
@@ -187,6 +189,7 @@ function createSubagentParams(
           "interactive",
           "status",
           "list",
+          "init",
           "send",
           "wait",
           "stop",
@@ -194,7 +197,7 @@ function createSubagentParams(
         ] as const,
         {
           description:
-            "run (default background mode), interactive, status, list, send, wait, stop, or resume.",
+            "run (default background mode), interactive, status, list, init, send, wait, stop, or resume.",
           default: "run",
         },
       ),
@@ -681,6 +684,8 @@ async function controlCommand(
     switch (command.kind) {
       case "list":
         return managedText(call, formatWorkerList(runtime));
+      case "init":
+        return initCommand(call);
       case "status":
         return managedText(call, formatWorkerStatus(runtime, command.handle));
       case "send": {
@@ -738,11 +743,31 @@ async function controlCommand(
   }
 }
 
+/** First-run scaffold: starter agent + profiles, never overwriting. */
+function initCommand(call: ToolCall): SubagentToolResult {
+  try {
+    const outcomes = initScaffoldFiles(getAgentDir());
+    const lines = outcomes.map((outcome) => {
+      const state = outcome.created ? "Created" : "Kept existing";
+      const error = outcome.error ? " (error: " + outcome.error + ")" : "";
+      return "- " + state + " " + shortenHomePath(outcome.file) + error;
+    });
+    const failed = outcomes.every((outcome) => outcome.error !== undefined);
+    const next =
+      "Edit the model candidates, then run /reload to load the agent catalog.";
+    return failed
+      ? managedError(call, lines.join("\n") + "\n" + next)
+      : managedText(call, lines.join("\n") + "\n" + next);
+  } catch (error) {
+    return managedError(call, errorText(error));
+  }
+}
 async function managedCommand(
   call: ToolCall,
   command: InteractiveCommand | ControlCommand,
 ): Promise<SubagentToolResult> {
   const { ctx } = call;
+  if (command.kind === "init") return initCommand(call);
   let runtime: ManagedRuntime;
   try {
     runtime = await call.env.resources.enterManaged(
