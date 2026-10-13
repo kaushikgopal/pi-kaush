@@ -206,11 +206,7 @@ function readDeliveryLedger(entries: readonly SessionEntry[]): MutableLedger {
       }
     } else if (entry.type === "custom" && entry.customType === OUTBOX_ENTRY) {
       receiptEra = true;
-      const reports =
-        isPlainRecord(entry.data) && Array.isArray(entry.data.reports)
-          ? entry.data.reports
-          : [];
-      for (const ref of reports.flatMap((value) => parseRef(value) ?? [])) {
+      for (const ref of parseDetails(entry.data)?.reports ?? []) {
         const key = reportKey(ref.handle, ref.assignmentId);
         attempts.set(key, (attempts.get(key) ?? 0) + 1);
       }

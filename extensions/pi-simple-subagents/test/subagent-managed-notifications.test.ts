@@ -614,6 +614,80 @@ describe("managed result notifications", () => {
     expect(retried.reports()).toHaveLength(1);
   });
 
+  test.each([
+    ["non-record data", null],
+    ["missing reports", {}],
+    ["non-array reports", { reports: null }],
+    ["empty reports", { reports: [] }],
+    ["invalid reports", { reports: [null, {}, { handle: "mw-aaaaaa" }] }],
+  ])(
+    "outboxes with %s end legacy receipt handling without recording attempts",
+    async (_name, data) => {
+      const parent = new FakeParent();
+      for (let index = 0; index < 3; index++)
+        parent.push({
+          type: "custom",
+          customType: "managed-subagent-report-intent",
+          data,
+        });
+      parent.push({
+        type: "message",
+        message: {
+          role: "toolResult",
+          toolName: "subagent",
+          content: [
+            { type: "text", text: "mw-aaaaaa · a-1 · completed\ndone" },
+          ],
+        },
+      });
+      const { results, notifications } = setup(parent);
+      results.push(result("mw-aaaaaa", "a-1"));
+      parent.start();
+
+      expect(notifications.isReported(parent.ctx(), "mw-aaaaaa", "a-1")).toBe(
+        false,
+      );
+      await poll();
+      expect(parent.sent).toHaveLength(1);
+      expect(parent.reports()).toMatchObject([{ assignmentId: "a-1" }]);
+    },
+  );
+
+  test("outbox attempts count valid roots, not merged steers or invalid refs", async () => {
+    const parent = new FakeParent();
+    for (let index = 0; index < 3; index++)
+      parent.push({
+        type: "custom",
+        customType: "managed-subagent-report-intent",
+        data: {
+          reports: [
+            null,
+            {},
+            {
+              handle: "mw-aaaaaa",
+              assignmentId: "a-1",
+              mergedUpdates: ["a-steer"],
+            },
+          ],
+        },
+      });
+    const { results, notifications } = setup(parent);
+    results.push(result("mw-aaaaaa", "a-1"), result("mw-aaaaaa", "a-steer"));
+    parent.start();
+
+    expect(notifications.isReported(parent.ctx(), "mw-aaaaaa", "a-1")).toBe(
+      false,
+    );
+    expect(notifications.isReported(parent.ctx(), "mw-aaaaaa", "a-steer")).toBe(
+      false,
+    );
+    await poll();
+    expect(parent.reports()).toMatchObject([{ assignmentId: "a-steer" }]);
+    expect(parent.reports().flatMap((report) => report.reports)).toHaveLength(
+      1,
+    );
+  });
+
   test("an aborted retry appends a second intent for the resend", async () => {
     const { parent, results } = setup();
     parent.start();

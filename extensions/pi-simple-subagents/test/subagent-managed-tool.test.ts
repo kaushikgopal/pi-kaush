@@ -76,7 +76,10 @@ const profiles = parseModelProfiles({
     },
     thinker: {
       description: "Reasoning profile.",
-      candidates: [{ model: "provider/model-b", thinkingLevel: "xhigh" }],
+      candidates: [
+        { model: "provider/model-b", thinkingLevel: "xhigh" },
+        { model: "missing/model-c" },
+      ],
     },
   },
 });
