@@ -240,6 +240,16 @@ renames need `/reload` to refresh that catalog. Project agents remain dynamicall
 discoverable by exact name without being embedded in the global catalog.
 Project-controlled agents prompt for confirmation before first use.
 
+## Example agents
+
+Two worked agent definitions live in
+examples/agents: a read-only `reviewer` and a plan-only
+`architect`. Both show the handback contract this extension
+delegates well: findings or decisions with severities, the checks
+already run, and the checks that remain. Adapt them; they are not
+loaded automatically. Their shape is adapted from the bundled agents in
+championswimmer/pi-subagent-manager (MIT).
+
 ## Configuration
 
 `src/limits.json` bounds delegation (validated against hard ceilings):
