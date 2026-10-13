@@ -169,4 +169,15 @@ describe("double paste expansion", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(editor.text).toBe(content + content);
   });
+
+  test("fails open and warns once when expansion cannot read the editor", () => {
+    const { deliver, handler, editor, warn } = setup();
+    const content = longPaste();
+
+    deliver(content);
+    editor.getError = true;
+
+    expect(handler(envelope(content))).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
 });

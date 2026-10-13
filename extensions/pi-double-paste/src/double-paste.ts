@@ -8,6 +8,7 @@ import {
 export const DEFAULT_DOUBLE_PASTE_WINDOW_MS = 3_000;
 
 type TerminalInputResult = { consume?: boolean; data?: string } | undefined;
+type RepeatPasteResult = "not-a-repeat" | "consumed" | "failed";
 
 type Candidate = {
   pasteFingerprint: string;
@@ -51,6 +52,37 @@ export function createDoublePasteHandler(
     }
   };
 
+  const tryExpandRepeat = (pasteFingerprint: string): RepeatPasteResult => {
+    if (candidate?.pasteFingerprint !== pasteFingerprint) {
+      return "not-a-repeat";
+    }
+
+    let expandedEditorText: string;
+    try {
+      expandedEditorText = editor.getEditorText();
+    } catch {
+      candidate = undefined;
+      warnOnce();
+      return "failed";
+    }
+
+    if (fingerprint(expandedEditorText) !== candidate.editorFingerprint) {
+      return "not-a-repeat";
+    }
+
+    try {
+      editor.setEditorText(expandedEditorText);
+    } catch {
+      candidate = undefined;
+      warnOnce();
+      return "failed";
+    }
+
+    candidate = undefined;
+    armGeneration += 1;
+    return "consumed";
+  };
+
   return (data: string): TerminalInputResult => {
     const rawPaste = extractBracketedPaste(data);
     if (rawPaste === undefined) return undefined;
@@ -65,29 +97,9 @@ export function createDoublePasteHandler(
       candidate = undefined;
     }
 
-    if (candidate?.pasteFingerprint === pasteFingerprint) {
-      let expandedEditorText: string;
-      try {
-        expandedEditorText = editor.getEditorText();
-      } catch {
-        candidate = undefined;
-        warnOnce();
-        return undefined;
-      }
-
-      if (fingerprint(expandedEditorText) === candidate.editorFingerprint) {
-        try {
-          editor.setEditorText(expandedEditorText);
-          candidate = undefined;
-          armGeneration += 1;
-          return { consume: true };
-        } catch {
-          candidate = undefined;
-          warnOnce();
-          return undefined;
-        }
-      }
-    }
+    const repeatResult = tryExpandRepeat(pasteFingerprint);
+    if (repeatResult === "consumed") return { consume: true };
+    if (repeatResult === "failed") return undefined;
 
     let editorTextBeforePaste: string;
     try {
