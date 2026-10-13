@@ -41,12 +41,12 @@ text at this package's message inset, so `pi-tool-call-markers` mirrors
 `contentInset` for its bash blocks (see its `src/bash-block.ts`). Change
 indentation in both packages together.
 
-## Cache-miss notices
+## Warning and error notices
 
-Native cache-miss notices gain a `✗` marker aligned with tool and Thought glyphs:
+Pi's bare `Warning: …` and `Error: …` rows, and native cache-miss notices, swap the label for a glyph on the message edge (the tool-rail column): `!` for warnings, `✗` for errors.
 
 ```text
-    ✗ Cache miss: 32k tokens re-billed ($0.16)
+  ! Cache miss: 32k tokens re-billed ($0.16)
 ```
 
 Pi's model-switch and idle-gap labels, token counts, warning color, and notice

@@ -593,13 +593,13 @@ describe("native transcript adapters", () => {
       activeHarnesses.push(harness);
       harness.fire("session_start");
 
-      const expected = `✗ ${label}: ${tokens} tokens re-billed${cost}`;
+      const expected = `! ${label}: ${tokens} tokens re-billed${cost}`;
       for (const width of [100, 24, 4, 100]) {
         const lines = chat.render(width);
         expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
         if (width === 100) {
-          const line = lines.find((line) => stripControls(line).includes("✗"));
-          expect(stripControls(line ?? "").trimEnd()).toBe(`    ${expected}`);
+          const line = lines.find((line) => stripControls(line).includes("!"));
+          expect(stripControls(line ?? "").trimEnd()).toBe(`  ${expected}`);
           expect(line).toContain(nativeLines[0]?.match(CSI_RE)?.[0]);
         }
         expect(row.render).toBe(originalRender);
@@ -611,14 +611,14 @@ describe("native transcript adapters", () => {
       const recoloredNative = row.render(100);
       const recolored = chat
         .render(100)
-        .find((line) => stripControls(line).includes("✗"));
+        .find((line) => stripControls(line).includes("!"));
       expect(recolored).toContain(recoloredNative[0]?.match(CSI_RE)?.[0]);
-      expect(stripControls(recolored ?? "").trimEnd()).toBe(`    ${expected}`);
+      expect(stripControls(recolored ?? "").trimEnd()).toBe(`  ${expected}`);
 
       harness.fire("session_shutdown");
       activeHarnesses.pop();
       expect(
-        chat.render(100).some((line) => stripControls(line).includes("✗")),
+        chat.render(100).some((line) => stripControls(line).includes("!")),
       ).toBe(false);
       expect(row.render(100)).toEqual(recoloredNative);
     },
@@ -649,8 +649,34 @@ describe("native transcript adapters", () => {
     const lines = chat.render(100).map(stripControls);
     expect(lines).toContain("  Reloaded keybindings".padEnd(100));
     expect(lines).toContain("  Cache miss: details unavailable".padEnd(100));
-    expect(lines.some((line) => line.includes("✗"))).toBe(false);
+    expect(lines.some((line) => line.includes("!"))).toBe(false);
     expect(lines.some((line) => line.includes("(~$0.16)"))).toBe(true);
+  });
+
+  test.each([
+    ["Warning: fff is disabled", "  ! fff is disabled"],
+    ["Error: request failed", "  ✗ request failed"],
+  ])("renders %s with a glyph on the content edge", (source, expected) => {
+    const harness = createHarness();
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+    const HostContainer = Object.getPrototypeOf(
+      AssistantMessageComponent.prototype,
+    ).constructor as typeof Container;
+    const chat = new HostContainer();
+    chat.addChild(
+      new AssistantMessageComponent({
+        role: "assistant",
+        content: [{ type: "text", text: "neighbor" }],
+        stopReason: "stop",
+      } as never),
+    );
+    chat.addChild(new Text(theme.fg("warning", source), 1, 0));
+    const line = chat
+      .render(80)
+      .map(stripControls)
+      .find((l) => l.includes(expected.trim()));
+    expect(line?.trimEnd()).toBe(expected);
   });
 
   test("keeps system rows inset when an outer grouping wrapper composes through hooks", () => {
@@ -700,7 +726,7 @@ describe("native transcript adapters", () => {
         .render(80)
         .find((line) => stripControls(line).includes("Cache miss"));
       expect(stripControls(missLine ?? "").trimEnd()).toBe(
-        "    ✗ Cache miss: 32k tokens re-billed ($0.16)",
+        "  ! Cache miss: 32k tokens re-billed ($0.16)",
       );
       const statusLine = chat
         .render(40)

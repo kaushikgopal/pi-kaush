@@ -255,10 +255,56 @@ function isSystemTextChild(child: unknown): child is NativeTextRow {
 const knownChatContainers = new WeakSet<object>();
 const systemTextPresentations = new WeakMap<
   object,
-  { text: string; presentation: Text | undefined }
+  { text: string; presentation: NoticePresentation | undefined }
 >();
 const CACHE_MISS_TEXT =
   /^Cache miss(?: after model switch| after \d+m idle)?: \d+(?:\.\d+)?[kM]? tokens re-billed(?: \(~\$\d+\.\d{2}\))?$/;
+
+// Pi emits warnings and errors as bare "Warning: …" / "Error: …" rows. They
+// render as a glyph on the content edge (the column tool rails use) with the
+// message hanging after it: `!` for warnings, `✗` for errors.
+const WARNING_GLYPH = "!";
+const ERROR_GLYPH = "✗";
+
+type NoticePresentation = { glyph: string; color: string; body: Text };
+
+function noticePresentation(
+  text: string,
+  paddingX: number,
+  paddingY: number,
+): NoticePresentation | undefined {
+  const plain = stripTerminalSequences(text);
+  let glyph: string;
+  let body: string;
+  if (CACHE_MISS_TEXT.test(plain)) {
+    glyph = WARNING_GLYPH;
+    body = text.replace("(~$", "($");
+  } else if (plain.startsWith("Warning: ")) {
+    glyph = WARNING_GLYPH;
+    body = text.replace("Warning: ", "");
+  } else if (plain.startsWith("Error: ")) {
+    glyph = ERROR_GLYPH;
+    body = text.replace("Error: ", "");
+  } else {
+    return undefined;
+  }
+  const color = /^(?:\x1b\[[0-9;]*m)*/.exec(text)?.[0] ?? "";
+  return { glyph, color, body: new Text(body, paddingX + 2, paddingY) };
+}
+
+function renderNotice(notice: NoticePresentation, width: number): string[] {
+  const lines = notice.body.render(width);
+  const first = lines.findIndex((line) => stripTerminalSequences(line).trim());
+  if (first < 0) return lines;
+  const line = lines[first]!;
+  const lead = line.length - line.trimStart().length;
+  // Swap the two hanging-indent columns before the message for the glyph.
+  lines[first] =
+    line.slice(0, Math.max(0, lead - 2)) +
+    `${notice.color}${notice.glyph}\x1b[39m ` +
+    line.slice(lead);
+  return lines;
+}
 
 let systemTextHookActive = 0;
 
@@ -302,18 +348,18 @@ function systemTextHook(
       if (!cached || cached.text !== text) {
         cached = {
           text,
-          presentation: CACHE_MISS_TEXT.test(stripTerminalSequences(text))
-            ? new Text(
-                text.replace("Cache miss", "✗ Cache miss").replace("(~$", "($"),
-                (child.paddingX ?? 0) + 2,
-                child.paddingY,
-              )
-            : undefined,
+          presentation: noticePresentation(
+            text,
+            child.paddingX ?? 0,
+            child.paddingY ?? 0,
+          ),
         };
         systemTextPresentations.set(child, cached);
       }
       return insetLines(
-        cached.presentation?.render(innerWidth) ?? lines,
+        cached.presentation
+          ? renderNotice(cached.presentation, innerWidth)
+          : lines,
         childWidth,
         extraInset,
       );

@@ -326,7 +326,7 @@ test.each([true, false])(
     );
     const lines = chat.render(100).map(stripControls);
     expect(lines.find((line) => line.includes("Cache miss"))?.trimEnd()).toBe(
-      "    ✗ Cache miss: 32k tokens re-billed ($0.16)",
+      "  ! Cache miss: 32k tokens re-billed ($0.16)",
     );
     expect(lines.find((line) => line.includes("│"))).toMatch(/^  │/);
   },
