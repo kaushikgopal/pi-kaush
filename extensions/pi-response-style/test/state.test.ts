@@ -104,6 +104,10 @@ describe("persistence", () => {
   it("round-trips default and last-used, preserving other keys", () => {
     const dir = mkdtempSync(join(tmpdir(), "pi-response-style-"));
     const stateFile = join(dir, "state.json");
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({ unrelated: "preserved" }),
+    );
 
     writeDefaultName(dir, "terse");
     expect(readDefaultName(dir)).toBe("terse");
@@ -113,6 +117,10 @@ describe("persistence", () => {
 
     writeDefaultName(dir, "verbose");
     expect(readDefaultName(dir)).toBe("verbose");
+    expect(JSON.parse(readFileSync(join(dir, "config.json"), "utf8"))).toEqual({
+      unrelated: "preserved",
+      default: "verbose",
+    });
   });
 
   it("reads missing or corrupt files as unset", () => {

@@ -146,10 +146,12 @@ describe("loadStyles", () => {
 
   it("tolerates a missing user dir and reports malformed files", () => {
     const root = mkdtempSync(join(tmpdir(), "pi-response-style-"));
-    writeFileSync(join(root, "good.md"), VALID);
-    writeFileSync(join(root, "bad.md"), "---\ntitle: Bad\n---\n\n");
+    const bundled = join(root, "bundled");
+    mkdirSync(bundled);
+    writeFileSync(join(bundled, "good.md"), VALID);
+    writeFileSync(join(bundled, "bad.md"), "---\ntitle: Bad\n---\n\n");
 
-    const { styles, warnings } = loadStyles(join(root, "missing"), root);
+    const { styles, warnings } = loadStyles(bundled, join(root, "missing"));
     expect(styles.map((s) => s.name)).toEqual(["good"]);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatch(/bad/);

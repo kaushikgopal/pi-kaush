@@ -33,11 +33,12 @@ async function createHarness(opts: HarnessOptions = {}) {
     writeFileSync(join(userDir, file), content);
   }
 
-  process.env.PI_RESPONSE_STYLE_BUNDLED_DIR = bundledDir;
-  process.env.PI_RESPONSE_STYLE_DIR = userDir;
-  process.env.PI_RESPONSE_STYLE_STATE_FILE = opts.stateFileMissingParent
+  const stateFile = opts.stateFileMissingParent
     ? join(root, "missing", "state.json")
     : join(root, "state.json");
+  process.env.PI_RESPONSE_STYLE_BUNDLED_DIR = bundledDir;
+  process.env.PI_RESPONSE_STYLE_DIR = userDir;
+  process.env.PI_RESPONSE_STYLE_STATE_FILE = stateFile;
 
   const cwd = join(root, "proj");
   if (opts.projectStyles) {
@@ -103,6 +104,7 @@ async function createHarness(opts: HarnessOptions = {}) {
 
   return {
     userDir,
+    stateFile,
     appended,
     emitted,
     notifications,
@@ -135,6 +137,8 @@ describe("/response-style picker", () => {
       confirmAnswer: false,
     });
     await h.runCommand("");
+    const { readLastUsed } = await import("../src/state.ts");
+    expect(readLastUsed(h.stateFile)).toBe("terse");
     expect(h.appended).toEqual([{ type: STATE_TYPE, data: { name: "terse" } }]);
     expect(h.statuses["response-style"]).toBe("Terse");
     expect(h.inject()).toContain("# Communication");
@@ -163,8 +167,14 @@ describe("/response-style picker", () => {
 
   it("picking Off records an explicit off marker and clears the footer", async () => {
     const h = await createHarness({ selectChoice: "Off — No response style" });
+    await h.runCommand("terse");
+    expect(h.statuses["response-style"]).toBe("Terse");
+
     await h.runCommand("");
-    expect(h.appended).toEqual([{ type: STATE_TYPE, data: { name: null } }]);
+    expect(h.appended).toEqual([
+      { type: STATE_TYPE, data: { name: "terse" } },
+      { type: STATE_TYPE, data: { name: null } },
+    ]);
     expect(h.statuses["response-style"]).toBeUndefined();
     expect(h.inject()).toBe("BASE");
   });
@@ -262,6 +272,7 @@ describe("session restore and injection", () => {
     });
     await h.sessionStart();
     expect(h.inject()).toContain("# Communication");
+    expect(h.inject()).toContain("Be chatty.");
   });
 
   it("off marker on the branch stops the cascade even with a default configured", async () => {
