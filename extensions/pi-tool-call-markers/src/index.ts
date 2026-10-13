@@ -1321,6 +1321,7 @@ function imageResultLines(
       .map((line) => sanitizeInline(line))
       .join("\n");
     lines.push(
+      "",
       ...wrapTextWithAnsi(
         fgCollapsed(theme, "toolOutput", sanitized),
         Math.max(1, width),

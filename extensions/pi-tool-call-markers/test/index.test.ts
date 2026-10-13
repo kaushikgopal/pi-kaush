@@ -1232,7 +1232,28 @@ describe("tool-call-markers grouping", () => {
     expect(output).toContain("rendered image");
     expect(output).toContain("[image pixels]");
     expect(lines.find((line) => line.includes("image.png"))).toMatch(/^  │/);
-    expect(lines.find((line) => line.includes("image pixels"))).toMatch(/^  /);
+    const headerIndex = lines.findIndex((line) => line.includes("image.png"));
+    expect(lines.slice(headerIndex + 1, headerIndex + 5)).toEqual([
+      "  ",
+      "  rendered image",
+      "  ",
+      "  [image pixels]",
+    ]);
+  });
+
+  test("preserves the native spacer for image-only results", () => {
+    const image = new MockToolExecutionComponent("read", "image.png");
+    image.updateResult({
+      isError: false,
+      output: "",
+      content: [{ type: "image" }],
+    });
+    image.imageSpacers = [new MockText("")];
+    image.imageComponents = [new MockText("[image pixels]")];
+
+    const lines = image.render(80).map(stripAnsi);
+    expect(lines[1]).toContain("│ ● image.png");
+    expect(lines.slice(2)).toEqual(["  ", "  [image pixels]"]);
   });
 
   test("groups failed calls with successes and keeps failures collapsed until expanded", () => {

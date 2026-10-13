@@ -390,6 +390,44 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(expanded).not.toContain("│ ¢");
   });
 
+  test("separates codemode image result text from the collapsed call header", () => {
+    const row = new ToolExecutionComponent(
+      "codemode",
+      "codemode-image",
+      { code: "image(...)" },
+      { showImages: false },
+      undefined,
+      // SAFETY: rendering only needs the UI's requestRender callback.
+      { requestRender() {} } as TUI,
+      process.cwd(),
+    );
+    row.updateResult({
+      isError: false,
+      content: [
+        {
+          type: "text",
+          text: "Script completed\nWall time 0.1 seconds\nOutput:",
+        },
+        { type: "image", data: "", mimeType: "image/png" },
+      ],
+      details: {
+        calls: [
+          { name: "bash", args: '{"command":"render image"}', status: "ok" },
+        ],
+      },
+    });
+
+    for (const width of [24, 80]) {
+      const rendered = row.render(width);
+      const lines = rendered.map((line) => line.replace(ANSI_RE, "").trimEnd());
+      expect(lines[1]).toContain("│ ¢ bash ×1");
+      expect(lines[2]).toBe("");
+      expect(lines[3]).toBe("  Script completed");
+      for (const line of rendered)
+        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    }
+  });
+
   test("renders settled thought labels non-italic in the muted tone", () => {
     const message = (stopReason?: string) =>
       ({

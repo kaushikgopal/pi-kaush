@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a blank line between a collapsed tool-call header and image-result
+  text, including codemode’s “Script completed” status. Keep image-only
+  spacing, the two-column inset, and native expanded rendering unchanged.
+
 - Include bash command previews in collapsed codemode rows, with the total
   bash call count before the first command preview. Every nested tool shows
   its count, including ×1, on its first preview. Distinct commands
