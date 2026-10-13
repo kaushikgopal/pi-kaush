@@ -12,6 +12,7 @@
 import type {
   CustomEntry,
   ExtensionAPI,
+  ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -108,6 +109,36 @@ function isModuleUnavailable(error: unknown): boolean {
     code === "ERR_MODULE_NOT_FOUND" ||
     (error instanceof Error && error.message.includes("Cannot find module"))
   );
+}
+
+async function pickAgent(
+  ctx: ExtensionCommandContext,
+  agents: AgentConfig[],
+  activeName: string | undefined,
+): Promise<string | null> {
+  const items = buildAgentPickerItems(agents, activeName);
+  if (ctx.mode === "tui") return showAgentPicker(ctx, items);
+
+  const baseLabels = items.map((item) => `${item.label} — ${item.description}`);
+  const labelCounts = new Map<string, number>();
+  for (const label of baseLabels) {
+    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+  }
+  const labels = baseLabels.map((label, index) =>
+    labelCounts.get(label)! > 1 ? `${label} [${items[index]!.value}]` : label,
+  );
+  const choice = await ctx.ui.select("Activate agent:", labels);
+  if (choice === undefined) return null;
+
+  const firstMatch = labels.indexOf(choice);
+  if (firstMatch !== -1 && labels.lastIndexOf(choice) !== firstMatch) {
+    ctx.ui.notify(
+      "That selection matches more than one agent; rename one of the duplicates.",
+      "warning",
+    );
+    return null;
+  }
+  return firstMatch === -1 ? null : (items[firstMatch]?.value ?? null);
 }
 
 export function registerAgentMode(pi: ExtensionAPI) {
@@ -297,12 +328,8 @@ export function registerAgentMode(pi: ExtensionAPI) {
     agent: AgentConfig,
     ctx: ExtensionContext,
     baseline = activeAgent?.baseline ?? getBaseline(ctx),
-    persist = true,
+    options: { persist: boolean } = { persist: true },
   ): Promise<boolean> {
-    baseline = {
-      ...baseline,
-      thinkingLevel: baseline.thinkingLevel ?? pi.getThinkingLevel(),
-    };
     let thinkingLevel = baseline.thinkingLevel;
     if (agent.profile && agent.model) {
       ctx.ui.notify(
@@ -347,7 +374,7 @@ export function registerAgentMode(pi: ExtensionAPI) {
     applyAgentTools(agent, baseline, ctx);
     activeAgent = { agent, baseline };
     updateAgentStatus(ctx);
-    if (persist) persistActiveAgent();
+    if (options.persist) persistActiveAgent();
     return true;
   }
 
@@ -421,46 +448,7 @@ export function registerAgentMode(pi: ExtensionAPI) {
           );
           return;
         }
-        let picked: string | null;
-        if (ctx.mode === "tui") {
-          picked = await showAgentPicker(
-            ctx,
-            buildAgentPickerItems(agents, activeAgent?.agent.name),
-          );
-        } else {
-          const items = buildAgentPickerItems(agents, activeAgent?.agent.name);
-          const baseLabels = items.map(
-            (item) => `${item.label} — ${item.description}`,
-          );
-          const labelCounts = new Map<string, number>();
-          for (const label of baseLabels) {
-            labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
-          }
-          const labels = baseLabels.map((label, index) =>
-            labelCounts.get(label)! > 1
-              ? `${label} [${items[index]!.value}]`
-              : label,
-          );
-          const choice = await ctx.ui.select("Activate agent:", labels);
-          if (choice === undefined) {
-            picked = null;
-          } else {
-            const firstMatch = labels.indexOf(choice);
-            if (
-              firstMatch !== -1 &&
-              labels.lastIndexOf(choice) !== firstMatch
-            ) {
-              ctx.ui.notify(
-                "That selection matches more than one agent; rename one of the duplicates.",
-                "warning",
-              );
-              picked = null;
-            } else {
-              picked =
-                firstMatch === -1 ? null : (items[firstMatch]?.value ?? null);
-            }
-          }
-        }
+        const picked = await pickAgent(ctx, agents, activeAgent?.agent.name);
         if (!picked) return;
         if (picked === NONE_VALUE) {
           await clearActiveAgent(ctx);
@@ -512,7 +500,9 @@ export function registerAgentMode(pi: ExtensionAPI) {
       return;
     }
 
-    await activateAgent(agent, ctx, state.baseline ?? getBaseline(ctx), false);
+    await activateAgent(agent, ctx, state.baseline ?? getBaseline(ctx), {
+      persist: false,
+    });
   });
 
   pi.on("session_shutdown", (_event, ctx) => {

@@ -55,15 +55,63 @@ export function formatAgentDisplayName(agent: AgentIdentity): string {
   return emoji ? `${emoji} ${agent.name}` : agent.name;
 }
 
+function parseAgentFile(
+  content: string,
+  source: AgentConfig["source"],
+  filePath: string,
+): AgentConfig | undefined {
+  try {
+    const { frontmatter, body } = parseFrontmatter<AgentFrontmatter>(content);
+    const name =
+      typeof frontmatter.name === "string" ? frontmatter.name : undefined;
+    const description =
+      typeof frontmatter.description === "string"
+        ? frontmatter.description
+        : undefined;
+    if (!name || !description) return undefined;
+
+    const tools =
+      typeof frontmatter.tools === "string"
+        ? frontmatter.tools
+            .split(",")
+            .map((tool) => tool.trim())
+            .filter(Boolean)
+        : undefined;
+    const emoji =
+      typeof frontmatter.emoji === "string"
+        ? frontmatter.emoji.trim()
+        : undefined;
+    const model =
+      typeof frontmatter.model === "string" ? frontmatter.model : undefined;
+    const profile =
+      typeof frontmatter.profile === "string"
+        ? frontmatter.profile.trim()
+        : undefined;
+
+    return {
+      name,
+      description,
+      ...(emoji ? { emoji } : {}),
+      ...(tools && tools.length > 0 ? { tools } : {}),
+      ...(model ? { model } : {}),
+      ...(profile ? { profile } : {}),
+      ...(typeof frontmatter.confirmProjectAgents === "boolean"
+        ? { confirmProjectAgents: frontmatter.confirmProjectAgents }
+        : {}),
+      systemPrompt: body,
+      source,
+      filePath,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function loadAgentsFromDir(
   dir: string,
   source: "user" | "project",
 ): AgentConfig[] {
   const agents: AgentConfig[] = [];
-
-  if (!fs.existsSync(dir)) {
-    return agents;
-  }
 
   let entries: fs.Dirent[];
   try {
@@ -84,51 +132,8 @@ function loadAgentsFromDir(
       continue;
     }
 
-    try {
-      const { frontmatter, body } = parseFrontmatter<AgentFrontmatter>(content);
-      const name =
-        typeof frontmatter.name === "string" ? frontmatter.name : undefined;
-      const description =
-        typeof frontmatter.description === "string"
-          ? frontmatter.description
-          : undefined;
-      if (!name || !description) continue;
-
-      const tools =
-        typeof frontmatter.tools === "string"
-          ? frontmatter.tools
-              .split(",")
-              .map((tool) => tool.trim())
-              .filter(Boolean)
-          : undefined;
-      const emoji =
-        typeof frontmatter.emoji === "string"
-          ? frontmatter.emoji.trim()
-          : undefined;
-      const model =
-        typeof frontmatter.model === "string" ? frontmatter.model : undefined;
-      const profile =
-        typeof frontmatter.profile === "string"
-          ? frontmatter.profile.trim()
-          : undefined;
-
-      agents.push({
-        name,
-        description,
-        ...(emoji ? { emoji } : {}),
-        ...(tools && tools.length > 0 ? { tools } : {}),
-        ...(model ? { model } : {}),
-        ...(profile ? { profile } : {}),
-        ...(typeof frontmatter.confirmProjectAgents === "boolean"
-          ? { confirmProjectAgents: frontmatter.confirmProjectAgents }
-          : {}),
-        systemPrompt: body,
-        source,
-        filePath,
-      });
-    } catch {
-      continue;
-    }
+    const agent = parseAgentFile(content, source, filePath);
+    if (agent) agents.push(agent);
   }
 
   return agents;
