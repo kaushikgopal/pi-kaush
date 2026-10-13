@@ -671,12 +671,27 @@ describe("native transcript adapters", () => {
         stopReason: "stop",
       } as never),
     );
-    chat.addChild(new Text(theme.fg("warning", source), 1, 0));
+    const color = source.startsWith("Error") ? "error" : "warning";
+    chat.addChild(new Text(theme.fg(color, source), 1, 0));
+    // Glyph and message keep the color Pi chose: red errors, bronze warnings.
+    const rawLine = chat
+      .render(80)
+      .find((l) => stripControls(l).includes(expected.trim()));
+    const code = `[${FG_CODES[color]}m`;
+    expect(rawLine).toContain(`${code}${expected.trim()[0]}`);
+    expect(rawLine).toContain(`${code}${expected.trim().slice(2)}`);
     const line = chat
       .render(80)
       .map(stripControls)
       .find((l) => l.includes(expected.trim()));
     expect(line?.trimEnd()).toBe(expected);
+    // Repeated renders reuse Text's cached lines and must not stack glyphs.
+    for (let i = 0; i < 3; i++) chat.render(80);
+    const again = chat
+      .render(80)
+      .map(stripControls)
+      .find((l) => l.includes(expected.trim()));
+    expect(again?.trimEnd()).toBe(expected);
   });
 
   test("keeps system rows inset when an outer grouping wrapper composes through hooks", () => {

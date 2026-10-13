@@ -7,7 +7,8 @@
   Pi's leading `Spacer(1)`, so the frame butted against the entry above
   (most visibly a collapsed tool-call group) whenever `pi-intercom` loads
   before this package.
-- Align native `ThemedText` system notices with the transcript inset. Cache-miss notices gain a `✗` marker and omit `~` before the estimated cost, preserving Pi's cause labels, token counts, warning color, and detection logic.
+- Show Pi's bare `Warning: …` and `Error: …` rows, and native cache-miss notices, as a glyph on the message edge (the tool-rail column) with a hanging indent: `!` for warnings, `✗` for errors. The label is dropped, the estimated cost loses its `~`, and Pi's text and theme color (bronze warnings, red errors) are preserved. Cache-miss notices now use `!` and sit on the edge instead of indented with `✗`.
+- Fix a stacking glyph: Pi's `Text` returns the same cached line array on every render, and the notice rewrite edited that array in place, so each repaint prepended another `!` or `✗` and shoved the row out of its inset. The rewrite now edits a copy, with a regression test that renders repeatedly.
 
 - Restyle the `intercom_message` box even when `pi-intercom` wins Pi's first-registration-wins renderer lookup: a chat-container hook replaces the box Pi built with this package's frame, so the surface no longer depends on `packages` order. The renderer registration stays as the cheaper path when this package loads first.
 

@@ -293,7 +293,8 @@ function noticePresentation(
 }
 
 function renderNotice(notice: NoticePresentation, width: number): string[] {
-  const lines = notice.body.render(width);
+  // Text caches and returns its own array; copy before editing a line.
+  const lines = [...notice.body.render(width)];
   const first = lines.findIndex((line) => stripTerminalSequences(line).trim());
   if (first < 0) return lines;
   const line = lines[first]!;
