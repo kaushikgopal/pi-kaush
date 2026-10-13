@@ -25,6 +25,7 @@ const limits: SubagentLimitsConfig = {
   maxConcurrency: 5,
   maxRuntimeMs: 7_200_000,
   maxInactivityMs: 900_000,
+  statusReportAfterMs: 0,
   persistChildSessions: true,
 };
 

@@ -510,6 +510,8 @@ export interface ManagedConfig {
   nextSeq: number;
   lastAssignmentId: string;
   placement?: ManagedPlacement;
+  /** Last non-killing status report sent for an assignment. */
+  statusReport?: { assignmentId: string; atMs: number };
   lastError?: string;
   updatedAt: number;
 }
@@ -638,5 +640,15 @@ export function parseManagedConfig(value: unknown): ManagedConfig | undefined {
     updatedAt,
     ...opt("placement", parsePlacement(value.placement)),
     ...opt("lastError", stringValue(value.lastError)),
+    ...(isPlainRecord(value.statusReport) &&
+    stringValue(value.statusReport.assignmentId) &&
+    finiteNumber(value.statusReport.atMs) !== undefined
+      ? {
+          statusReport: {
+            assignmentId: stringValue(value.statusReport.assignmentId)!,
+            atMs: finiteNumber(value.statusReport.atMs)!,
+          },
+        }
+      : {}),
   };
 }

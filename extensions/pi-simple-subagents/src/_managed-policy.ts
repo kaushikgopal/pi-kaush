@@ -51,7 +51,13 @@ export type LifecycleEvent =
       readonly lifecycle: "stopped" | "suspended" | "starting";
     }
   /** The live process exited without a parent request. */
-  | { readonly kind: "exitedUnplanned"; readonly lastError?: string };
+  | { readonly kind: "exitedUnplanned"; readonly lastError?: string }
+  /** A non-killing status report went out for an assignment. */
+  | {
+      readonly kind: "statusReported";
+      readonly assignmentId: string;
+      readonly atMs: number;
+    };
 
 /**
  * The single writer of `lifecycle`, `lastError`, `placement`,
@@ -98,7 +104,43 @@ export function transition(
         ? { ...rest, lifecycle: "exited" }
         : { ...rest, lifecycle: "exited", lastError: event.lastError };
     }
+    case "statusReported": {
+      const { statusReport: _previous, ...rest } = config;
+      return {
+        ...rest,
+        statusReport: { assignmentId: event.assignmentId, atMs: event.atMs },
+      };
+    }
   }
+}
+
+// ------------------------------------------------------------- status reports
+
+/** Pure decision for one non-killing interactive-assignment status report. */
+export type StatusReportVerdict =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "report";
+      readonly assignmentId: string;
+      readonly atMs: number;
+    };
+
+export function statusReportVerdict(input: {
+  readonly assignmentId: string | undefined;
+  readonly startedAtMs: number | undefined;
+  readonly now: number;
+  readonly reportAfterMs: number;
+  readonly reported: { readonly assignmentId: string } | undefined;
+}): StatusReportVerdict {
+  if (
+    input.reportAfterMs <= 0 ||
+    !input.assignmentId ||
+    input.startedAtMs === undefined ||
+    input.reported?.assignmentId === input.assignmentId ||
+    input.now - input.startedAtMs < input.reportAfterMs
+  )
+    return { kind: "none" };
+  return { kind: "report", assignmentId: input.assignmentId, atMs: input.now };
 }
 
 // ---------------------------------------------------------------- candidates

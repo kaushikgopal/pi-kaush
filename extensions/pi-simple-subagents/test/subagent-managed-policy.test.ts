@@ -4,6 +4,7 @@ import {
   classifyUnplannedExit,
   holdsForFallback,
   nextCandidateStep,
+  statusReportVerdict,
   transition,
   watchdogVerdict,
 } from "../src/_managed-policy.ts";
@@ -79,6 +80,35 @@ function status(overrides: Partial<ChildStatus> = {}): ChildStatus {
 
 const placement = { kind: "rpc", pid: 4242 } as const;
 const attempt = { candidateIndex: 0, sessionId: "mw-abc123", error: "bad" };
+
+describe("statusReportVerdict", () => {
+  test("reports once per assignment after the deadline, then never again", () => {
+    const input = {
+      assignmentId: "a-1",
+      startedAtMs: 0,
+      now: 600_000,
+      reportAfterMs: 600_000,
+      reported: undefined,
+    };
+    expect(statusReportVerdict(input)).toEqual({
+      kind: "report",
+      assignmentId: "a-1",
+      atMs: 600_000,
+    });
+    expect(
+      statusReportVerdict({ ...input, reported: { assignmentId: "a-1" } }),
+    ).toEqual({ kind: "none" });
+    expect(statusReportVerdict({ ...input, now: 599_999 })).toEqual({
+      kind: "none",
+    });
+    expect(statusReportVerdict({ ...input, reportAfterMs: 0 })).toEqual({
+      kind: "none",
+    });
+    expect(statusReportVerdict({ ...input, assignmentId: undefined })).toEqual({
+      kind: "none",
+    });
+  });
+});
 
 describe("transition", () => {
   test("started runs the worker at its placement and clears the last error", () => {

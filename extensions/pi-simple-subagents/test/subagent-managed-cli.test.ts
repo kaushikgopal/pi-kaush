@@ -42,6 +42,7 @@ const SMOKE_LIMITS: SubagentLimitsConfig = {
   maxConcurrency: 1,
   maxRuntimeMs: 0,
   maxInactivityMs: 0,
+  statusReportAfterMs: 0,
   persistChildSessions: true,
 };
 

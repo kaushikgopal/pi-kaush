@@ -49,6 +49,7 @@ import {
   nextCandidateStep,
   transition,
   UNEXPECTED_EXIT_MESSAGE,
+  statusReportVerdict,
   watchdogVerdict,
 } from "./_managed-policy.ts";
 import {
@@ -89,6 +90,7 @@ import {
   SubagentProcessRegistry,
 } from "./_process-tree.ts";
 import { linkSessionParent } from "./_session-link.ts";
+import type { ManagedReportRef } from "./_managed-notifications.ts";
 import { truncateUtf8Head } from "./_text.ts";
 import { emptyUsage, type UsageStats } from "./_usage.ts";
 import { includeSubagentYieldTool } from "./_yield.ts";
@@ -198,6 +200,8 @@ export interface ManagedRuntime {
    * workers whose initial assignment awaits a fallback model.
    */
   listResults(): ManagedResultView[];
+  /** Due non-killing assignment status reports; drained once per runtime. */
+  takeStatusReports(): ManagedReportRef[];
   status(handle: string): ManagedWorkerView;
   send(
     handle: string,
@@ -580,6 +584,8 @@ class ManagedRuntimeImpl implements ManagedRuntime {
   >();
   private readonly parentDir: string;
   private readonly withLock: KeyedMutex;
+  /** Due status reports waiting for the notifications tick to drain. */
+  private readonly pendingStatusReports: ManagedReportRef[] = [];
 
   constructor(
     readonly parentSessionId: string,
@@ -711,6 +717,42 @@ class ManagedRuntimeImpl implements ManagedRuntime {
 
   status(handle: string): ManagedWorkerView {
     return this.view(this.snapshot(this.ownedConfig(handle)));
+  }
+
+  takeStatusReports(): ManagedReportRef[] {
+    const drained = [...this.pendingStatusReports];
+    this.pendingStatusReports.length = 0;
+    return drained;
+  }
+
+  /** Reads the live worker, decides once per assignment, queues the report. */
+  private checkStatusReport(handle: string, status: ChildStatus | null): void {
+    const config = this.ownedConfig(handle);
+    if (!config || config.lifecycle !== "running") return;
+    const activeId = status?.activeAssignmentId;
+    const active = status?.assignments.find(
+      (assignment) => assignment.id === activeId,
+    );
+    const verdict = statusReportVerdict({
+      assignmentId: active?.id,
+      startedAtMs: active?.startedAt ?? active?.acceptedAt,
+      now: this.ports.now(),
+      reportAfterMs: this.limits.statusReportAfterMs,
+      reported: config.statusReport,
+    });
+    if (verdict.kind === "none") return;
+    this.writeConfig(
+      transition(config, {
+        kind: "statusReported",
+        assignmentId: verdict.assignmentId,
+        atMs: verdict.atMs,
+      }),
+    );
+    this.pendingStatusReports.push({
+      handle,
+      assignmentId: verdict.assignmentId,
+      state: "running",
+    });
   }
 
   listResults(): ManagedResultView[] {
@@ -1274,6 +1316,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
           return;
         }
         running = verdict.kind === "running";
+        this.checkStatusReport(handle, status);
       }
       // Idle workers are checked rarely; their only job is noticing a self-stop.
       await this.ports.sleep(

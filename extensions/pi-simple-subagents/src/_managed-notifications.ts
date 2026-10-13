@@ -41,6 +41,8 @@ import { formatUsageProse } from "./_usage.ts";
 
 /** Custom message carrying automatic managed-worker reports into the parent session. */
 export const MANAGED_RESULT_MESSAGE = "managed-subagent-result";
+/** Custom message carrying a non-killing still-running status ping. */
+export const MANAGED_STATUS_MESSAGE = "managed-subagent-status";
 /** Durable send intent; never treated as a receipt. */
 const OUTBOX_ENTRY = "managed-subagent-report-intent";
 /** Durable receipt for a result collected by a terminal manual `wait`. */
@@ -77,6 +79,12 @@ export interface ManagedReportDetails {
   readonly reportsOffset?: number;
   /** Set when every report in the message had already been delivered or collected. */
   readonly duplicate?: true;
+}
+
+/** Payload of a still-running status ping. */
+export interface ManagedStatusDetails {
+  readonly v: 1;
+  readonly reports: readonly ManagedReportRef[];
 }
 
 export interface ManagedNotifications {
@@ -426,6 +434,32 @@ export function registerManagedNotifications(
     );
   };
 
+  /** Sends due still-running pings; the host already deduped them. */
+  const sendStatus = (
+    state: SessionState,
+    runtime: ManagedRuntime,
+    reports: readonly ManagedReportRef[],
+  ) => {
+    const lines = reports.map((ref) => {
+      let label = ref.handle;
+      try {
+        label = runtime.status(ref.handle).label ?? ref.handle;
+      } catch {
+        // The ping still carries the handle without worker identity.
+      }
+      return `${label} · ${ref.assignmentId} · still running (scheduled status report, not a result). Use subagent status or wait for details, or send to steer.`;
+    });
+    pi.sendMessage(
+      {
+        customType: MANAGED_STATUS_MESSAGE,
+        content: lines.join("\n\n"),
+        display: true,
+        details: { v: 1, reports },
+      },
+      { triggerTurn: state.ctx.isIdle(), deliverAs: "followUp" },
+    );
+  };
+
   const tick = async (state: SessionState) => {
     if (state.ticking || current !== state) return;
     state.ticking = true;
@@ -456,6 +490,9 @@ export function registerManagedNotifications(
       );
       if (plan._tag === "send" && current === state)
         send(state, runtime, plan.batch, plan.turn);
+      const statuses = runtime.takeStatusReports();
+      if (statuses.length > 0 && current === state)
+        sendStatus(state, runtime, statuses);
     } catch (error) {
       // A captured ctx goes stale on reload or session replacement; the next
       // session retries. Anything else is a defect worth surfacing.
@@ -482,6 +519,21 @@ export function registerManagedNotifications(
           ? details?.reportsOffset
           : undefined;
       return new Text(`${title}\n${visibleReportBody(body, offset)}`, 0, 0);
+    },
+  );
+
+  pi.registerMessageRenderer?.<ManagedStatusDetails>(
+    MANAGED_STATUS_MESSAGE,
+    (message, { expanded }, theme) => {
+      if (!expanded) return new Text("", 0, 0);
+      const body =
+        typeof message.content === "string"
+          ? message.content
+          : message.content
+              .map((part) => (part.type === "text" ? part.text : ""))
+              .join("\n");
+      const title = theme.fg("toolTitle", theme.bold("managed status"));
+      return new Text(`${title}\n${body}`, 0, 0);
     },
   );
 

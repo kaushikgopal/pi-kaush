@@ -303,6 +303,7 @@ async function createSmokeFixture(
       throw new Error("The offline smoke test must not launch a child");
     },
     list: () => [],
+    takeStatusReports: () => [],
     listResults: () => {
       listReads.increment();
       return results;

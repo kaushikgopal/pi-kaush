@@ -22,6 +22,7 @@ describe("subagent limits", () => {
       maxConcurrency: 5,
       maxRuntimeMs: 7_200_000,
       maxInactivityMs: 900_000,
+      statusReportAfterMs: 600_000,
       persistChildSessions: true,
     });
     expect(HARD_MAX_DELEGATION_DEPTH).toBe(2);
@@ -38,6 +39,7 @@ describe("subagent limits", () => {
         maxConcurrency: 2,
         maxRuntimeMs: 0,
         maxInactivityMs: 60_000,
+        statusReportAfterMs: 30_000,
       }),
     ).toEqual({
       version: 1,
@@ -46,6 +48,7 @@ describe("subagent limits", () => {
       maxConcurrency: 2,
       maxRuntimeMs: 0,
       maxInactivityMs: 60_000,
+      statusReportAfterMs: 30_000,
       persistChildSessions: true,
     });
 

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   formatManagedReport,
   MANAGED_RESULT_MESSAGE,
+  MANAGED_STATUS_MESSAGE,
   registerManagedNotifications,
   type ManagedReportDetails,
 } from "../src/_managed-notifications.ts";
@@ -16,6 +17,7 @@ import type {
   ManagedRuntime,
   ManagedWorkerView,
 } from "../src/_managed.ts";
+import type { ManagedReportRef } from "../src/_managed-notifications.ts";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 
@@ -203,9 +205,11 @@ function setup(
   options: Parameters<typeof registerManagedNotifications>[2] = {},
 ) {
   const results: ManagedResultView[] = [];
+  const statusReports: ManagedReportRef[] = [];
   const runtime = {
     listResults: vi.fn(() => [...results]),
     status: vi.fn((handle: string) => worker(handle)),
+    takeStatusReports: vi.fn(() => statusReports.splice(0)),
   } as unknown as ManagedRuntime;
   const getRuntime = vi.fn(async (ctx: ExtensionContext) =>
     ctx.sessionManager.getSessionId() === parent.sessionId
@@ -217,7 +221,7 @@ function setup(
     getRuntime,
     options,
   );
-  return { parent, results, runtime, getRuntime, notifications };
+  return { parent, results, statusReports, runtime, getRuntime, notifications };
 }
 
 const poll = (ms = 1_000) => vi.advanceTimersByTimeAsync(ms);
@@ -380,6 +384,25 @@ describe("managed result notifications", () => {
     parent.emit("session_shutdown", { reason: "quit" });
     results.push(result("mw-aaaaaa", "a-2"));
     await poll(60_000);
+    expect(parent.sent).toHaveLength(1);
+  });
+
+  test("a drained status ping reports still-running work once and starts an idle turn", async () => {
+    const { parent, statusReports } = setup();
+    parent.start();
+    statusReports.push({
+      handle: "mw-aaaaaa",
+      assignmentId: "a-1",
+      state: "running",
+    });
+    await poll();
+
+    expect(parent.sent).toHaveLength(1);
+    expect(parent.sent[0]!.message.customType).toBe(MANAGED_STATUS_MESSAGE);
+    expect(parent.sent[0]!.triggerTurn).toBe(true);
+    expect(parent.sent[0]!.message.content).toContain("still running");
+    expect(parent.sent[0]!.message.display).toBe(true);
+    await poll();
     expect(parent.sent).toHaveLength(1);
   });
 

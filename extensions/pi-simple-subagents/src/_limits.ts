@@ -13,6 +13,8 @@ export interface SubagentLimitsConfig {
   maxConcurrency: number;
   maxRuntimeMs: number;
   maxInactivityMs: number;
+  /** Non-killing interactive-assignment status report after this long; 0 disables. */
+  statusReportAfterMs: number;
   persistChildSessions: boolean;
 }
 
@@ -64,6 +66,15 @@ export function parseSubagentLimits(value: unknown): SubagentLimitsConfig {
     0,
     HARD_MAX_CHILD_EXECUTION_MS,
   );
+  const statusReportAfterMs =
+    value.statusReportAfterMs === undefined
+      ? 600_000
+      : boundedInteger(
+          value.statusReportAfterMs,
+          "statusReportAfterMs",
+          0,
+          HARD_MAX_CHILD_EXECUTION_MS,
+        );
   const maxInactivityMs = boundedInteger(
     value.maxInactivityMs,
     "maxInactivityMs",
@@ -85,6 +96,7 @@ export function parseSubagentLimits(value: unknown): SubagentLimitsConfig {
     maxConcurrency,
     maxRuntimeMs,
     maxInactivityMs,
+    statusReportAfterMs,
     persistChildSessions,
   };
 }

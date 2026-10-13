@@ -10,6 +10,9 @@
   same session.
 - Link finished child session files to the parent session so children nest
   under it in Pi's resume tree.
+- Add a non-killing status report for interactive assignments: after
+  `statusReportAfterMs` (new limits key, default ten minutes, 0 disables) the
+  parent receives one still-running ping while the worker keeps working.
 
 ## 0.2.0
 
