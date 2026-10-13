@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Restore the blank separator line above the `intercom_message` frame when
+  the chat-container hook swaps in this package's box: the swap bypassed
+  Pi's leading `Spacer(1)`, so the frame butted against the entry above
+  (most visibly a collapsed tool-call group) whenever `pi-intercom` loads
+  before this package.
 - Align native `ThemedText` system notices with the transcript inset. Cache-miss notices gain a `✗` marker and omit `~` before the estimated cost, preserving Pi's cause labels, token counts, warning color, and detection logic.
 
 - Restyle the `intercom_message` box even when `pi-intercom` wins Pi's first-registration-wins renderer lookup: a chat-container hook replaces the box Pi built with this package's frame, so the surface no longer depends on `packages` order. The renderer registration stays as the cheaper path when this package loads first.

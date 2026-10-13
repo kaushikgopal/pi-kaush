@@ -206,6 +206,17 @@ describe("intercom message interception", () => {
     expect(lines.every((line) => visibleWidth(line) <= 40)).toBe(true);
     expect(body?.startsWith("  │ Detailed Atomic audit")).toBe(true);
   });
+  test("keeps Pi's leading spacer above the intercepted frame", () => {
+    sessionHarness();
+    const chat = chatWith(new CustomMessageComponent(message, foreignRenderer));
+
+    const lines = render(chat).split("\n");
+    // Pi's CustomMessageComponent renders a Spacer(1) ahead of every custom
+    // box; the swap bypasses the host's own render, so it must reproduce
+    // that blank line of separation from the entry above.
+    expect(lines[0]).toBe("");
+    expect(lines[1]?.startsWith("  ╭")).toBe(true);
+  });
 });
 
 describe("interception contract", () => {

@@ -259,7 +259,11 @@ export function interceptIntercomMessages(
         child._expanded === true,
         theme,
       );
-      return box ? box.render(width) : originalRender.call(child, width);
+      if (!box) return originalRender.call(child, width);
+      // Pi's CustomMessageComponent renders a Spacer(1) ahead of the box.
+      // The swap bypasses the host's own render, so reproduce that blank
+      // line to keep the frame separated from the entry above it.
+      return ["", ...box.render(width)];
     };
     restores.push(() => {
       delete (child as { render?: unknown }).render;
