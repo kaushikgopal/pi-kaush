@@ -85,6 +85,29 @@ describe("parseModelProfiles", () => {
     ).toThrow("canonical provider/model");
   });
 
+  it("rejects non-object profiles and non-array candidate lists", () => {
+    expect(() =>
+      parseModelProfiles({ version: 1, profiles: { quick: null } }),
+    ).toThrow('profile "quick" must be an object');
+    expect(() =>
+      parseModelProfiles({
+        version: 1,
+        profiles: { quick: { description: "x", candidates: "a/b" } },
+      }),
+    ).toThrow("at least one candidate");
+  });
+
+  it("rejects non-object candidates", () => {
+    expect(() =>
+      parseModelProfiles({
+        version: 1,
+        profiles: {
+          quick: { description: "x", candidates: [null] },
+        },
+      }),
+    ).toThrow("candidate 1 must be an object");
+  });
+
   it("rejects duplicate candidates and unsupported thinking levels", () => {
     expect(() =>
       parseModelProfiles({

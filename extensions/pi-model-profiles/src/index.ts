@@ -61,6 +61,60 @@ function fail(message: string): never {
   throw new Error(`Invalid model profiles: ${message}`);
 }
 
+function parseProfile(profileName: string, value: unknown): ModelProfile {
+  if (!isRecord(value)) fail(`profile "${profileName}" must be an object`);
+
+  const description = value.description;
+  if (typeof description !== "string" || !description.trim()) {
+    fail(`profile "${profileName}" must have a non-empty description`);
+  }
+  if (!Array.isArray(value.candidates) || value.candidates.length === 0) {
+    fail(`profile "${profileName}" must have at least one candidate`);
+  }
+
+  return {
+    description: description.trim(),
+    candidates: parseProfileCandidates(profileName, value.candidates),
+  };
+}
+
+function parseProfileCandidates(
+  profileName: string,
+  rawCandidates: unknown[],
+): ModelProfileCandidate[] {
+  const seenModels = new Set<string>();
+  return rawCandidates.map((rawCandidate, index): ModelProfileCandidate => {
+    if (!isRecord(rawCandidate))
+      fail(`profile "${profileName}" candidate ${index + 1} must be an object`);
+    const model = rawCandidate.model;
+    if (typeof model !== "string" || !model.trim() || !model.includes("/")) {
+      fail(
+        `profile "${profileName}" candidate ${index + 1} must use a canonical provider/model reference`,
+      );
+    }
+    const normalizedModel = model.trim();
+    if (seenModels.has(normalizedModel))
+      fail(`profile "${profileName}" repeats model "${normalizedModel}"`);
+    seenModels.add(normalizedModel);
+
+    const thinkingLevel = rawCandidate.thinkingLevel;
+    if (
+      thinkingLevel !== undefined &&
+      !THINKING_LEVELS.has(thinkingLevel as ModelThinkingLevel)
+    ) {
+      fail(
+        `profile "${profileName}" candidate ${index + 1} has unsupported thinking level "${thinkingLevel}"`,
+      );
+    }
+    return {
+      model: normalizedModel,
+      ...(thinkingLevel !== undefined
+        ? { thinkingLevel: thinkingLevel as ModelThinkingLevel }
+        : {}),
+    };
+  });
+}
+
 export function parseModelProfiles(value: unknown): ModelProfilesConfig {
   if (!isRecord(value)) fail("root must be an object");
   if (value.version !== 1) fail('"version" must be 1');
@@ -72,58 +126,7 @@ export function parseModelProfiles(value: unknown): ModelProfilesConfig {
   for (const [name, rawProfile] of Object.entries(value.profiles)) {
     if (!PROFILE_NAME_PATTERN.test(name))
       fail(`profile name "${name}" must use lowercase kebab-case`);
-    if (!isRecord(rawProfile)) fail(`profile "${name}" must be an object`);
-
-    const description = rawProfile.description;
-    if (typeof description !== "string" || !description.trim()) {
-      fail(`profile "${name}" must have a non-empty description`);
-    }
-    if (
-      !Array.isArray(rawProfile.candidates) ||
-      rawProfile.candidates.length === 0
-    ) {
-      fail(`profile "${name}" must have at least one candidate`);
-    }
-
-    const seenModels = new Set<string>();
-    const candidates = rawProfile.candidates.map(
-      (rawCandidate, index): ModelProfileCandidate => {
-        if (!isRecord(rawCandidate))
-          fail(`profile "${name}" candidate ${index + 1} must be an object`);
-        const model = rawCandidate.model;
-        if (
-          typeof model !== "string" ||
-          !model.trim() ||
-          !model.includes("/")
-        ) {
-          fail(
-            `profile "${name}" candidate ${index + 1} must use a canonical provider/model reference`,
-          );
-        }
-        const normalizedModel = model.trim();
-        if (seenModels.has(normalizedModel))
-          fail(`profile "${name}" repeats model "${normalizedModel}"`);
-        seenModels.add(normalizedModel);
-
-        const thinkingLevel = rawCandidate.thinkingLevel;
-        if (
-          thinkingLevel !== undefined &&
-          !THINKING_LEVELS.has(thinkingLevel as ModelThinkingLevel)
-        ) {
-          fail(
-            `profile "${name}" candidate ${index + 1} has unsupported thinking level "${thinkingLevel}"`,
-          );
-        }
-        return {
-          model: normalizedModel,
-          ...(thinkingLevel !== undefined
-            ? { thinkingLevel: thinkingLevel as ModelThinkingLevel }
-            : {}),
-        };
-      },
-    );
-
-    profiles[name] = { description: description.trim(), candidates };
+    profiles[name] = parseProfile(name, rawProfile);
   }
 
   return { version: 1, profiles };
