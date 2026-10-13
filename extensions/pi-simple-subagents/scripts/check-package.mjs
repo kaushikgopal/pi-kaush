@@ -43,6 +43,7 @@ const expected = [
   "src/_profile-attempts.ts",
   "src/_profiles.ts",
   "src/_render.ts",
+  "src/_session-link.ts",
   "src/_session-resources.ts",
   "src/_subagent-command.ts",
   "src/_text.ts",
