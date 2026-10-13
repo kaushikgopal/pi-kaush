@@ -86,6 +86,28 @@ describe("subagent limits", () => {
         maxInactivityMs: 0,
       }),
     ).toThrow("maxRuntimeMs");
+
+    const defaultLimits = {
+      version: 1,
+      maxDepth: 2,
+      maxChildrenPerCall: 5,
+      maxConcurrency: 5,
+      maxRuntimeMs: 0,
+      maxInactivityMs: 0,
+      statusReportAfterMs: 0,
+    };
+    expect(() =>
+      parseSubagentLimits({
+        ...defaultLimits,
+        maxInactivityMs: HARD_MAX_CHILD_EXECUTION_MS + 1,
+      }),
+    ).toThrow("maxInactivityMs");
+    expect(() =>
+      parseSubagentLimits({
+        ...defaultLimits,
+        statusReportAfterMs: HARD_MAX_CHILD_EXECUTION_MS + 1,
+      }),
+    ).toThrow("statusReportAfterMs");
   });
 
   test("persists child sessions by default and validates the override", () => {

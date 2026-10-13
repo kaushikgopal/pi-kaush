@@ -80,6 +80,28 @@ describe("subagent execution watchdog", () => {
     expect(scheduler.tasks.size).toBe(0);
     watchdog.recordActivity();
     expect(scheduler.tasks.size).toBe(0);
+
+    const runtimeDisabledScheduler = new FakeScheduler();
+    const runtimeDisabledReasons: SubagentTimeoutReason[] = [];
+    createSubagentExecutionWatchdog(
+      { maxRuntimeMs: 0, maxInactivityMs: 100 },
+      (reason) => runtimeDisabledReasons.push(reason),
+      runtimeDisabledScheduler,
+    );
+    expect(runtimeDisabledScheduler.tasks.size).toBe(1);
+    runtimeDisabledScheduler.fire(100);
+    expect(runtimeDisabledReasons).toEqual(["inactivity"]);
+
+    const inactivityDisabledScheduler = new FakeScheduler();
+    const inactivityDisabledReasons: SubagentTimeoutReason[] = [];
+    createSubagentExecutionWatchdog(
+      { maxRuntimeMs: 100, maxInactivityMs: 0 },
+      (reason) => inactivityDisabledReasons.push(reason),
+      inactivityDisabledScheduler,
+    );
+    expect(inactivityDisabledScheduler.tasks.size).toBe(1);
+    inactivityDisabledScheduler.fire(100);
+    expect(inactivityDisabledReasons).toEqual(["runtime"]);
   });
 
   test("formats explicit timeout diagnostics", () => {

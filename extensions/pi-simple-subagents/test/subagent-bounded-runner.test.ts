@@ -104,6 +104,9 @@ describe("result status", () => {
       isFailedResult(result({ status: { kind: "exited", code: 2 } })),
     ).toBe(true);
     expect(
+      isFailedResult(result({ status: { kind: "invalid", reason: "bad" } })),
+    ).toBe(true);
+    expect(
       isFailedResult(result({ status: { kind: "rejected", reason: "full" } })),
     ).toBe(true);
     expect(
@@ -114,7 +117,10 @@ describe("result status", () => {
     expect(
       isFailedResult(result({ status: { kind: "aborted", cause: "abort" } })),
     ).toBe(true);
+    expect(isFailedResult(result({ stopReason: "error" }))).toBe(true);
+    expect(isFailedResult(result({ stopReason: "aborted" }))).toBe(true);
     expect(isFailedResult(result({ yieldStatus: "blocked" }))).toBe(true);
+    expect(isFailedResult(result({ yieldStatus: "failed" }))).toBe(true);
     expect(isFailedResult(result({ yieldStatus: "paused" }))).toBe(false);
     expect(isActiveResult(result({ status: { kind: "pending" } }))).toBe(true);
     expect(isActiveResult(result({ status: { kind: "running" } }))).toBe(true);
