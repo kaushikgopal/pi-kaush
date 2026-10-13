@@ -45,8 +45,12 @@ const details: {
   replyCommand: "/intercom reply subagent-chat",
 };
 
+type RenderOverrides = Omit<Partial<typeof details>, "replyCommand"> & {
+  replyCommand?: string | undefined;
+};
+
 function render(
-  overrides: Partial<typeof details> = {},
+  overrides: RenderOverrides = {},
   options: { expanded?: boolean; width?: number } = {},
 ) {
   const component = renderIntercomMessage(
@@ -130,6 +134,85 @@ describe("intercom message frame", () => {
     expect(lines.some((line) => line.includes("To reply:"))).toBe(true);
     expect(lines.some((line) => line.includes("Ctrl+O"))).toBe(false);
     expect(lines.every((line) => visibleWidth(line) === 30)).toBe(true);
+  });
+
+  test("omits reply and attachment metadata when neither is present", () => {
+    for (const expanded of [false, true]) {
+      const lines = render(
+        {
+          replyCommand: undefined,
+          message: { content: { text: "Message body" } },
+        },
+        { expanded, width: 100 },
+      ).join("\n");
+      expect(lines).not.toContain("To reply:");
+      expect(lines).not.toContain("attachment");
+      expect(lines).not.toContain("Attachment:");
+    }
+  });
+
+  test("pluralizes multiple attachments and renders each when expanded", () => {
+    const overrides = {
+      message: {
+        content: {
+          text: "Message body",
+          attachments: [{ name: "one.md" }, { name: "two.md" }],
+        },
+      },
+    };
+    expect(render(overrides, { width: 100 })[2]).toContain("2 attachments");
+
+    const expanded = render(overrides, { expanded: true, width: 100 }).join(
+      "\n",
+    );
+    expect(expanded).toContain("Attachment: one.md");
+    expect(expanded).toContain("Attachment: two.md");
+  });
+
+  test.each([false, true])(
+    "shows a reply target only when expectsReply is false (%s)",
+    (expectsReply) => {
+      const overrides = {
+        message: {
+          replyTo: "12345678-abcd",
+          expectsReply,
+          content: { text: "Message body" },
+        },
+      };
+      for (const expanded of [false, true]) {
+        const output = render(overrides, { expanded, width: 100 }).join("\n");
+        if (expectsReply) {
+          expect(output).not.toContain("Reply to 12345678");
+        } else {
+          expect(output).toContain("Reply to 12345678");
+        }
+      }
+    },
+  );
+
+  test("re-wraps expanded body when rendered width changes", () => {
+    const component = renderIntercomMessage(
+      {
+        ...details,
+        replyCommand: undefined,
+        message: {
+          content: {
+            text: "A long body wraps into several narrow rows and fewer wide rows.",
+          },
+        },
+      },
+      true,
+      theme,
+    );
+    if (!component) throw new Error("expected a component");
+
+    const narrow = component.render(20).map(stripAnsi);
+    const wide = component.render(40).map(stripAnsi);
+    expect(narrow.filter((line) => line.includes("│")).length).toBeGreaterThan(
+      wide.filter((line) => line.includes("│")).length,
+    );
+    expect(narrow.every((line) => visibleWidth(line) === 20)).toBe(true);
+    expect(wide.every((line) => visibleWidth(line) === 40)).toBe(true);
   });
 
   test("truncates an overlong title instead of overflowing", () => {

@@ -94,41 +94,52 @@ class IntercomMessageComponent implements Component {
     );
     const topBorder = `${margin}${border("╭")} ${styledTitle} ${border(dashes + "╮")}${margin}`;
 
-    const lines: string[] = [topBorder];
+    const contentLines = this.expanded
+      ? this.renderExpanded(innerWidth, frameLine, bodyColor)
+      : this.renderCollapsed(frameLine, bodyColor);
+    return [topBorder, ...contentLines, bottomBorder];
+  }
 
-    if (!this.expanded) {
-      this.collapsedPreview ??= this.bodyText.replace(/\s+/g, " ").trim();
-      lines.push(frameLine(bodyColor(this.collapsedPreview)));
+  private renderCollapsed(
+    frameLine: (content: string) => string,
+    bodyColor: (text: string) => string,
+  ): string[] {
+    this.collapsedPreview ??= this.bodyText.replace(/\s+/g, " ").trim();
+    const lines = [frameLine(bodyColor(this.collapsedPreview))];
 
-      const meta: string[] = [];
-      if (this.details.replyCommand) {
-        meta.push(`To reply: ${this.details.replyCommand}`);
-      }
-      const attachments = this.details.message?.content?.attachments;
-      if (attachments?.length) {
-        meta.push(
-          `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}`,
-        );
-      }
-      const replyTo = this.details.message?.replyTo;
-      if (replyTo && !this.details.message?.expectsReply) {
-        meta.push(`Reply to ${replyTo.slice(0, 8)}`);
-      }
-      meta.push("Ctrl+O to expand");
-      lines.push(frameLine(bodyColor(meta.join(" · "))));
-      lines.push(bottomBorder);
-      return lines;
+    const meta: string[] = [];
+    if (this.details.replyCommand) {
+      meta.push(`To reply: ${this.details.replyCommand}`);
     }
+    const attachments = this.details.message?.content?.attachments;
+    if (attachments?.length) {
+      meta.push(
+        `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}`,
+      );
+    }
+    const replyTo = this.details.message?.replyTo;
+    if (replyTo && !this.details.message?.expectsReply) {
+      meta.push(`Reply to ${replyTo.slice(0, 8)}`);
+    }
+    meta.push("Ctrl+O to expand");
+    lines.push(frameLine(bodyColor(meta.join(" · "))));
+    return lines;
+  }
 
+  private renderExpanded(
+    innerWidth: number,
+    frameLine: (content: string) => string,
+    bodyColor: (text: string) => string,
+  ): string[] {
     if (this.wrappedBody?.width !== innerWidth) {
       this.wrappedBody = {
         width: innerWidth,
         lines: wrapTextWithAnsi(this.bodyText, innerWidth),
       };
     }
-    for (const line of this.wrappedBody.lines) {
-      lines.push(frameLine(bodyColor(line)));
-    }
+    const lines = this.wrappedBody.lines.map((line) =>
+      frameLine(bodyColor(line)),
+    );
 
     if (this.details.replyCommand) {
       lines.push(frameLine(""));
@@ -154,8 +165,6 @@ class IntercomMessageComponent implements Component {
       lines.push(frameLine(""));
       lines.push(frameLine(bodyColor(`Reply to ${replyTo.slice(0, 8)}`)));
     }
-
-    lines.push(bottomBorder);
     return lines;
   }
 }
