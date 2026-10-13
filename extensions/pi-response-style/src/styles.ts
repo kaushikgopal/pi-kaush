@@ -21,7 +21,7 @@ export interface Style {
   origin: StyleOrigin;
 }
 
-export interface LoadResult {
+interface LoadResult {
   styles: Style[];
   warnings: string[];
 }

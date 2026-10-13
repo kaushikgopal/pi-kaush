@@ -211,6 +211,15 @@ describe("/response-style picker", () => {
     });
   });
 
+  it("ignores a selection that is not in the offered choices", async () => {
+    const h = await createHarness({ selectChoice: "not offered" });
+
+    await h.runCommand("");
+
+    expect(h.appended).toEqual([]);
+    expect(h.notifications).toContain("Response style unchanged");
+  });
+
   it("refuses an ambiguous non-TUI selection instead of guessing", async () => {
     const duplicateStyle = (body: string) =>
       `---\ntitle: Same\ndescription: Same description\n---\n\n${body}\n`;

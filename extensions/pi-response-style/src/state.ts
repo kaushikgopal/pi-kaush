@@ -37,45 +37,25 @@ export interface ResolveResult {
 
 export function resolveActive(input: ResolveInput): ResolveResult {
   const { pick, defaultName, lastUsed, styleNames } = input;
+  let warning: string | undefined;
+  const result = (active: string | null): ResolveResult =>
+    warning === undefined ? { active } : { active, warning };
+
+  // Later fallbacks replace earlier warnings, so the deepest stale setting is reported.
   if (pick !== undefined) {
-    if (pick.name === null) return { active: null };
-    if (styleNames.includes(pick.name)) return { active: pick.name };
-    const rest = resolveActive({
-      pick: undefined,
-      defaultName,
-      lastUsed,
-      styleNames,
-    });
-    return {
-      active: rest.active,
-      warning:
-        rest.warning ??
-        `Session style "${pick.name}" no longer exists; falling back.`,
-    };
+    if (pick.name === null) return result(null);
+    if (styleNames.includes(pick.name)) return result(pick.name);
+    warning = `Session style "${pick.name}" no longer exists; falling back.`;
   }
   if (defaultName !== undefined) {
-    if (styleNames.includes(defaultName)) return { active: defaultName };
-    const rest = resolveActive({
-      pick: undefined,
-      defaultName: undefined,
-      lastUsed,
-      styleNames,
-    });
-    return {
-      active: rest.active,
-      warning:
-        rest.warning ??
-        `Default style "${defaultName}" no longer exists; falling back.`,
-    };
+    if (styleNames.includes(defaultName)) return result(defaultName);
+    warning = `Default style "${defaultName}" no longer exists; falling back.`;
   }
   if (lastUsed !== undefined) {
-    if (styleNames.includes(lastUsed)) return { active: lastUsed };
-    return {
-      active: null,
-      warning: `Last-used style "${lastUsed}" no longer exists.`,
-    };
+    if (styleNames.includes(lastUsed)) return result(lastUsed);
+    warning = `Last-used style "${lastUsed}" no longer exists.`;
   }
-  return { active: null };
+  return result(null);
 }
 
 export const CONFIG_FILENAME = "config.json";

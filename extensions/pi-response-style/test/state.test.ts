@@ -77,6 +77,17 @@ describe("resolveActive", () => {
     expect(result.warning).toMatch(/gone/);
   });
 
+  it("reports the lowest stale choice when every configured choice is missing", () => {
+    const result = resolveActive({
+      pick: { name: "gone-session" },
+      defaultName: "gone-default",
+      lastUsed: "gone-last",
+      styleNames: NAMES,
+    });
+    expect(result.active).toBeNull();
+    expect(result.warning).toMatch(/Last-used style "gone-last"/);
+  });
+
   it("resolves off with a warning when only a stale last-used remains", () => {
     const result = resolveActive({
       pick: undefined,

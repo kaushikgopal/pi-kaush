@@ -19,7 +19,7 @@ import {
   type ExtensionCommandContext,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import type { AutocompleteItem, SelectItem } from "@earendil-works/pi-tui";
 import { buildInjection, loadStyles, type Style } from "./styles.ts";
 import { buildPickerItems, OFF_VALUE, showStylePicker } from "./picker.ts";
 import {
@@ -39,6 +39,34 @@ const STATUS_KEY = "response-style";
 const BUNDLED_STYLES_DIR =
   process.env.PI_RESPONSE_STYLE_BUNDLED_DIR ??
   fileURLToPath(new URL("../styles", import.meta.url));
+
+async function selectPlainStyle(
+  ctx: ExtensionCommandContext,
+  items: SelectItem[],
+): Promise<string | null> {
+  const baseLabels = items.map((item) => `${item.label} — ${item.description}`);
+  const labelCounts = new Map<string, number>();
+  for (const label of baseLabels) {
+    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+  }
+  const labels = baseLabels.map((label, index) =>
+    labelCounts.get(label)! > 1 ? `${label} [${items[index]!.value}]` : label,
+  );
+  const choice = await ctx.ui.select("Response style:", labels);
+  if (choice === undefined) return null;
+
+  const firstMatch = labels.indexOf(choice);
+  // A disambiguated duplicate label can itself collide with another
+  // style's rendered label; never guess which row was picked.
+  if (firstMatch !== -1 && labels.lastIndexOf(choice) !== firstMatch) {
+    ctx.ui.notify(
+      "That selection matches more than one style; rename one of the duplicates.",
+      "warning",
+    );
+    return null;
+  }
+  return firstMatch === -1 ? null : (items[firstMatch]?.value ?? null);
+}
 
 export default function piResponseStyle(pi: ExtensionAPI) {
   const userStylesDir =
@@ -170,50 +198,15 @@ export default function piResponseStyle(pi: ExtensionAPI) {
         return;
       }
 
-      let pickedName: string | null;
-      if (ctx.mode === "tui") {
-        pickedName = await showStylePicker(
-          ctx,
-          buildPickerItems(styles, active, readDefaultName(userStylesDir)),
-        );
-      } else {
-        // Non-TUI fallback: plain select over the same items.
-        const items = buildPickerItems(
-          styles,
-          active,
-          readDefaultName(userStylesDir),
-        );
-        const baseLabels = items.map(
-          (item) => `${item.label} — ${item.description}`,
-        );
-        const labelCounts = new Map<string, number>();
-        for (const label of baseLabels) {
-          labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
-        }
-        const labels = baseLabels.map((label, index) =>
-          labelCounts.get(label)! > 1
-            ? `${label} [${items[index]!.value}]`
-            : label,
-        );
-        const choice = await ctx.ui.select("Response style:", labels);
-        if (choice === undefined) {
-          pickedName = null;
-        } else {
-          const firstMatch = labels.indexOf(choice);
-          // A disambiguated duplicate label can itself collide with another
-          // style's rendered label; never guess which row was picked.
-          if (firstMatch !== -1 && labels.lastIndexOf(choice) !== firstMatch) {
-            ctx.ui.notify(
-              "That selection matches more than one style; rename one of the duplicates.",
-              "warning",
-            );
-            pickedName = null;
-          } else {
-            pickedName =
-              firstMatch === -1 ? null : (items[firstMatch]?.value ?? null);
-          }
-        }
-      }
+      const items = buildPickerItems(
+        styles,
+        active,
+        readDefaultName(userStylesDir),
+      );
+      const pickedName =
+        ctx.mode === "tui"
+          ? await showStylePicker(ctx, items)
+          : await selectPlainStyle(ctx, items);
       if (pickedName === null) {
         ctx.ui.notify("Response style unchanged", "info");
         return;
