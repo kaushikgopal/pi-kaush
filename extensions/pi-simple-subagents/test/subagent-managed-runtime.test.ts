@@ -385,6 +385,7 @@ function setup(
   options: {
     limits?: Partial<SubagentLimitsConfig>;
     parentSessionId?: string;
+    parentSessionFile?: string;
     env?: NodeJS.ProcessEnv;
     graceMs?: number;
     agentDir?: string;
@@ -413,6 +414,9 @@ function setup(
   };
   const runtime = getManagedRuntime({
     parentSessionId,
+    ...(options.parentSessionFile
+      ? { parentSessionFile: options.parentSessionFile }
+      : {}),
     agentDir,
     limits,
     gate,
@@ -764,6 +768,85 @@ describe("managed runtime lifecycle", () => {
     });
   });
 
+  test("queues one still-running status report per assignment after the deadline", async () => {
+    const { runtime, host, agentDir } = setup({
+      limits: { statusReportAfterMs: 60 },
+    });
+    host.behavior = () => [{ kind: "hang" }];
+    const { handle } = await runtime.spawn(launch());
+
+    let drained: readonly { assignmentId: string }[] = [];
+    await waitFor(() => {
+      drained = runtime.takeStatusReports();
+      return drained.length > 0;
+    });
+    expect(drained).toMatchObject([{ handle, state: "running" }]);
+    const config = readManagedConfig(
+      managedPaths(
+        path.join(managedParentDir(agentDir, "parent-session"), handle),
+      ).config,
+    );
+    expect(config?.statusReport).toMatchObject({
+      assignmentId: drained[0]!.assignmentId,
+    });
+
+    // The marker persists: no second report for the same assignment.
+    await tick(120);
+    expect(runtime.takeStatusReports()).toEqual([]);
+  });
+
+  test("links the session file of a stopped worker to the parent session", async () => {
+    const parentDir = fs.mkdtempSync(path.join(tmpdir(), "parent-link-"));
+    const parentFile = path.join(parentDir, "parent.jsonl");
+    fs.writeFileSync(
+      parentFile,
+      JSON.stringify({ type: "session", id: "parent-session" }) + "\n",
+    );
+    const { runtime, host } = setup({
+      agentDir: parentDir,
+      parentSessionFile: parentFile,
+    });
+    fs.writeFileSync(
+      parentFile,
+      JSON.stringify({ type: "session", id: "parent-session" }) + "\n",
+    );
+    host.behavior = () => [{ kind: "hang" }];
+    const { handle } = await runtime.spawn(launch());
+    await waitFor(() => runtime.status(handle).sessionFile !== undefined);
+    const childFile = runtime.status(handle).sessionFile!;
+
+    await runtime.stop(handle);
+
+    const header = JSON.parse(
+      fs.readFileSync(childFile, "utf-8").split("\n")[0]!,
+    ) as { parentSession?: string };
+    expect(header.parentSession).toBe(path.resolve(parentFile));
+  });
+
+  test("links the session file when a worker crashes without a shutdown hook", async () => {
+    const parentDir = fs.mkdtempSync(path.join(tmpdir(), "parent-link-"));
+    const parentFile = path.join(parentDir, "parent.jsonl");
+    fs.writeFileSync(
+      parentFile,
+      JSON.stringify({ type: "session", id: "parent-session" }) + "\n",
+    );
+    const { runtime, host } = setup({
+      agentDir: parentDir,
+      parentSessionFile: parentFile,
+    });
+    host.behavior = () => [{ kind: "hang" }];
+    const { handle } = await runtime.spawn(launch());
+    await waitFor(() => runtime.status(handle).sessionFile !== undefined);
+    const childFile = runtime.status(handle).sessionFile!;
+
+    host.workers[0]!.crash();
+    await waitFor(() => runtime.status(handle).lifecycle === "exited");
+
+    const header = JSON.parse(
+      fs.readFileSync(childFile, "utf-8").split("\n")[0]!,
+    ) as { parentSession?: string };
+    expect(header.parentSession).toBe(path.resolve(parentFile));
+  });
   test("reports unread messages as queued until the worker acknowledges them", async () => {
     const { runtime, agentDir } = setup();
     const { handle } = await runtime.spawn(launch());
