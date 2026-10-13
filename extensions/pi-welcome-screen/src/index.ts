@@ -519,24 +519,26 @@ function inspectResourcePanel(panel: ResourcePanel): ResourcePanelSnapshot {
     if (text === undefined) continue;
 
     const heading = getSectionHeading(text);
-    if (WELCOME_SECTIONS.some((section) => section === heading)) {
+    if (heading === "Themes") {
       knownChildren.push(child);
-      sections.push(text);
-      const expanded = readExpandedText(child);
-      if (expanded !== undefined) {
-        if (
-          heading === "Extensions" ||
-          /(?:^|\n)\s*\[Extensions\]\s*(?:\n|$)/.test(stripAnsi(text))
-        ) {
-          expandedExtensionsText = expanded;
-        } else if (heading === "Skills") {
-          expandedSkillsText = expanded;
-        } else if (heading === "Prompts") {
-          expandedPromptsText = expanded;
-        }
-      }
-    } else if (heading === "Themes") {
-      knownChildren.push(child);
+      continue;
+    }
+    if (!WELCOME_SECTIONS.some((section) => section === heading)) continue;
+
+    knownChildren.push(child);
+    sections.push(text);
+    const expanded = readExpandedText(child);
+    if (expanded === undefined) continue;
+
+    if (
+      heading === "Extensions" ||
+      /(?:^|\n)\s*\[Extensions\]\s*(?:\n|$)/.test(stripAnsi(text))
+    ) {
+      expandedExtensionsText = expanded;
+    } else if (heading === "Skills") {
+      expandedSkillsText = expanded;
+    } else if (heading === "Prompts") {
+      expandedPromptsText = expanded;
     }
   }
 
@@ -1196,7 +1198,7 @@ function appendSection(
   body: string[],
   theme: Theme,
   columnWidth: number,
-  singleColumn = false,
+  layout: "single" | "columns",
   sharedColumnCount?: 2 | 3,
   itemColor?: ItemColor,
 ): void {
@@ -1208,7 +1210,7 @@ function appendSection(
     return;
   }
 
-  if (singleColumn)
+  if (layout === "single")
     appendSingleColumnRows(lines, body, theme, columnWidth, itemColor);
   else
     appendColumnRows(
@@ -1344,31 +1346,37 @@ function appendResourceSection(
     return;
   }
 
-  const body =
-    title === "Context"
-      ? resources.context
-      : title === "Skills"
-        ? resources.skills
-        : resources.prompts;
-  const projectEntries =
-    title === "Skills"
-      ? new Set(resources.projectSkills ?? [])
-      : title === "Prompts"
-        ? new Set(resources.projectPrompts ?? [])
-        : title === "Context"
-          ? new Set(resources.projectContext ?? [])
-          : undefined;
+  const sectionOptions = {
+    Context: {
+      body: resources.context,
+      projectEntries: new Set(resources.projectContext ?? []),
+      layout: "single" as const,
+      columnCount: undefined,
+    },
+    Skills: {
+      body: resources.skills,
+      projectEntries: new Set(resources.projectSkills ?? []),
+      layout: "columns" as const,
+      columnCount: sharedColumnCount,
+    },
+    Prompts: {
+      body: resources.prompts,
+      projectEntries: new Set(resources.projectPrompts ?? []),
+      layout: "columns" as const,
+      columnCount: undefined,
+    },
+  };
+  const section = sectionOptions[title];
+
   appendSection(
     lines,
     title,
-    body,
+    section.body,
     theme,
     columnWidth,
-    title === "Context",
-    title === "Skills" ? sharedColumnCount : undefined,
-    projectEntries
-      ? (item) => (projectEntries.has(item) ? "muted" : "dim")
-      : undefined,
+    section.layout,
+    section.columnCount,
+    (item) => (section.projectEntries.has(item) ? "muted" : "dim"),
   );
 }
 
