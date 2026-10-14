@@ -72,6 +72,7 @@ describe("paired read and edit tools", () => {
     const right = "/tmp/a\u200B";
     expect(compareCanonicalPaths(left, right)).toBe(-1);
     expect(compareCanonicalPaths(right, left)).toBe(1);
+    expect(compareCanonicalPaths(left, left)).toBe(0);
   });
 
   test("reads, edits, returns a fresh tag, and supports continuation", async () => {
