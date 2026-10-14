@@ -46,6 +46,10 @@ export type HashlineReadResult = {
   };
 };
 
+type HashlineReadAttempt =
+  | { status: "available"; result: HashlineReadResult }
+  | { status: "unavailable"; reason: string };
+
 const MAX_TAGGED_SOURCE_LINES = Math.max(1, DEFAULT_MAX_LINES - 2);
 
 export async function tryHashlineRead(
@@ -54,12 +58,11 @@ export async function tryHashlineRead(
   selection: { offset?: number; limit?: number; selector?: string },
   snapshots: HashlineSnapshotStore,
   signal?: AbortSignal,
-  reportUnavailable?: (reason: string) => void,
-): Promise<HashlineReadResult | undefined> {
-  const unavailable = (reason: string): undefined => {
-    reportUnavailable?.(reason);
-    return undefined;
-  };
+): Promise<HashlineReadAttempt> {
+  const unavailable = (reason: string): HashlineReadAttempt => ({
+    status: "unavailable",
+    reason,
+  });
   if (!displayPath.trim() || /[\u0000-\u001F\u007F]/.test(displayPath)) {
     return unavailable(
       "the path cannot be represented safely in a hashline header",
@@ -192,15 +195,18 @@ export async function tryHashlineRead(
   snapshots.record(record, document);
 
   return {
-    content: [{ type: "text", text }],
-    details: {
-      hashlineAnchor: record,
-      sourceKind: "local-text",
-      sourcePath: canonicalPath,
-      projection: false,
-      mutableLocalText: true,
-      selectedRanges: ranges,
-      ...(nextOffset !== undefined ? { continuation: { nextOffset } } : {}),
+    status: "available",
+    result: {
+      content: [{ type: "text", text }],
+      details: {
+        hashlineAnchor: record,
+        sourceKind: "local-text",
+        sourcePath: canonicalPath,
+        projection: false,
+        mutableLocalText: true,
+        selectedRanges: ranges,
+        ...(nextOffset !== undefined ? { continuation: { nextOffset } } : {}),
+      },
     },
   };
 }

@@ -323,9 +323,7 @@ export default function registerReadTool(
           `Unsupported selector '${selector}' for local text. Use raw or a line range.`,
         );
       }
-      let unavailableReason =
-        "the source is not eligible for a tagged exact-text snapshot";
-      const tagged = await tryHashlineRead(
+      const attempt = await tryHashlineRead(
         ctx.cwd,
         readPath,
         {
@@ -335,11 +333,9 @@ export default function registerReadTool(
         },
         snapshots,
         signal,
-        (reason) => {
-          unavailableReason = reason;
-        },
       );
-      if (tagged) {
+      if (attempt.status === "available") {
+        const tagged = attempt.result;
         return withStructuredContent(
           "tagged",
           tagged.details.hashlineAnchor.displayPath,
@@ -370,7 +366,7 @@ export default function registerReadTool(
           absolutePath,
           withUntaggedFallbackNotice(
             untaggedRangeResult(absolutePath, bounded.text, selector),
-            unavailableReason,
+            attempt.reason,
           ),
         );
       }
@@ -414,7 +410,7 @@ export default function registerReadTool(
       return withStructuredContent(
         "untagged",
         fallbackPath,
-        withUntaggedFallbackNotice(fallback, unavailableReason),
+        withUntaggedFallbackNotice(fallback, attempt.reason),
       );
     },
   });
