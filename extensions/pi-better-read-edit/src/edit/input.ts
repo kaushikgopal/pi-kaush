@@ -1,6 +1,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import { randomUUID } from "node:crypto";
 import { Type } from "typebox";
+import type { FinalNewlineMode } from "../hashline/apply.ts";
 import { HASHLINE_SNAPSHOT_CAP_BYTES } from "../hashline/contract.ts";
 import {
   parseHashlineScript,
@@ -9,7 +10,6 @@ import {
   type TextSplice,
 } from "../hashline/parser.ts";
 
-export type FinalNewlineMode = "preserve" | "present" | "absent";
 type LegacyInsertionAnchor = { kind: "before" | "after"; line: number };
 const legacyOperationAnchors = new WeakMap<object, LegacyInsertionAnchor>();
 const dualTextSplices = new WeakMap<object, TextSplice>();

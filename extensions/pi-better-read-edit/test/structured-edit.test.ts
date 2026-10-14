@@ -186,16 +186,16 @@ describe("structured edit input", () => {
         },
       ]),
     ).rejects.toThrow(/displayed EOF/);
-    await expect(
-      edit([
-        {
-          path: "example.txt",
-          tag,
-          edits: [],
-          finalNewline: "absent",
-        },
-      ]),
-    ).rejects.toThrow(/displayed EOF/);
+    for (const finalNewline of ["present", "absent"]) {
+      await expect(
+        edit([{ path: "example.txt", tag, edits: [], finalNewline }]),
+      ).rejects.toThrow(
+        "Changing the terminal newline for example.txt requires a tagged read that displayed EOF.",
+      );
+    }
+    expect(await readFile(join(root, "example.txt"), "utf8")).toBe(
+      "one\ntwo\nthree\n",
+    );
   });
 
   test("normalizes common strict-provider placeholders", () => {
@@ -346,22 +346,29 @@ describe("structured edit input", () => {
     expect(await readFile(join(root, "blank.txt"), "utf8")).toBe("one\n\n");
   });
 
-  test("rejects terminal-newline changes after any stale content drift", async () => {
-    await writeFile(join(root, "example.txt"), "one");
-    const tag = await taggedRead("example.txt");
-    await writeFile(join(root, "example.txt"), "unrelated");
-    await expect(
-      edit([
-        {
-          path: "example.txt",
-          tag,
-          edits: [],
-          finalNewline: "present",
-        },
-      ]),
-    ).rejects.toThrow(/no longer matches/);
-    expect(await readFile(join(root, "example.txt"), "utf8")).toBe("unrelated");
-  });
+  test.each(["present", "absent"])(
+    "rejects terminal-newline mode %s after any stale content drift",
+    async (finalNewline) => {
+      await writeFile(join(root, "example.txt"), "one");
+      const tag = await taggedRead("example.txt");
+      await writeFile(join(root, "example.txt"), "unrelated");
+      await expect(
+        edit([
+          {
+            path: "example.txt",
+            tag,
+            edits: [],
+            finalNewline,
+          },
+        ]),
+      ).rejects.toThrow(
+        "example.txt no longer matches the tagged read. Reread the file and retry with the fresh tag.",
+      );
+      expect(await readFile(join(root, "example.txt"), "utf8")).toBe(
+        "unrelated",
+      );
+    },
+  );
 
   test("keeps legacy insert-after authorization on its left boundary", async () => {
     await writeFile(join(root, "example.txt"), "one\ntwo\nthree\n");
@@ -381,6 +388,19 @@ describe("structured edit input", () => {
     await expect(
       legacyEdit(`[example.txt#${tag}]\nPUT <4:\n+inserted`),
     ).rejects.toThrow(/out of bounds/);
+    expect(await readFile(join(root, "example.txt"), "utf8")).toBe(
+      "one\ntwo\nthree\n",
+    );
+  });
+
+  test("reports legacy anchor bounds before missing EOF", async () => {
+    await writeFile(join(root, "example.txt"), "one\ntwo\nthree\n");
+    const tag = await taggedRead("example.txt", { ranges: "1-1" });
+    await expect(
+      legacyEdit(`[example.txt#${tag}]\nPUT <4:\n+inserted`),
+    ).rejects.toThrow(
+      "legacy PUT <4 is out of bounds for example.txt (3 line(s)).",
+    );
     expect(await readFile(join(root, "example.txt"), "utf8")).toBe(
       "one\ntwo\nthree\n",
     );

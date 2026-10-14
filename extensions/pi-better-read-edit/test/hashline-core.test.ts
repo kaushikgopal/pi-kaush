@@ -173,6 +173,22 @@ describe("hashline parser and planner", () => {
     expect(applied.logicalText).toBe("ONE\ntwo\nfour\ntail\n");
   });
 
+  test("does not duplicate a newline marker already covered by an appended blank line", () => {
+    expect(
+      applyHashlineOperations({
+        lines: ["one"],
+        finalNewline: false,
+        operations: [{ kind: "append", rows: [""] }],
+      }),
+    ).toEqual({
+      lines: ["one", ""],
+      finalNewline: true,
+      logicalText: "one\n\n",
+      changedSpans: [{ start: 2, end: 2 }],
+      firstChangedLine: 2,
+    });
+  });
+
   test("handles large line and changed-span arrays without argument overflow", () => {
     const lines = Array.from(
       { length: 130_000 },

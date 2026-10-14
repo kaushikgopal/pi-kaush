@@ -1,6 +1,8 @@
 import { joinLogicalLines } from "./contract.ts";
 import type { HashlineOperation } from "./parser.ts";
 
+export type FinalNewlineMode = "preserve" | "present" | "absent";
+
 export type ChangedSpan = {
   start: number;
   end: number;
@@ -32,9 +34,10 @@ export function applyHashlineOperations(input: {
   finalNewline: boolean;
   operations: readonly HashlineOperation[];
   label?: string;
-  finalNewlineOverride?: boolean;
+  finalNewlineMode?: FinalNewlineMode;
 }): AppliedHashline {
   const label = input.label ?? "file";
+  const finalNewlineMode = input.finalNewlineMode ?? "preserve";
   const lineCount = input.lines.length;
   const spans: PlannedSpan[] = [];
   const gaps: PlannedGap[] = [];
@@ -125,9 +128,6 @@ export function applyHashlineOperations(input: {
   const changedSpans: ChangedSpan[] = [];
   let sourceCursor = 0;
 
-  const appendRows = (rows: readonly string[]) => {
-    for (const row of rows) result.push(row);
-  };
   const copyUntil = (position: number) => {
     if (position <= sourceCursor) return;
     for (let index = sourceCursor; index < position; index++) {
@@ -141,24 +141,25 @@ export function applyHashlineOperations(input: {
       change.type === "span" ? change.start - 1 : change.position;
     copyUntil(position);
     const start = result.length + 1;
-    appendRows(change.rows);
+    for (const row of change.rows) result.push(row);
     changedSpans.push({ start, end: start + change.rows.length - 1 });
     if (change.type === "span") sourceCursor = change.end;
   }
   copyUntil(lineCount);
 
-  if (input.finalNewlineOverride === false && result.at(-1) === "") {
+  if (finalNewlineMode === "absent" && result.at(-1) === "") {
     throw new Error(
       `${label} cannot remove the terminal newline while preserving an explicit final blank line. Delete that blank line in the same edit.`,
     );
   }
-  if (input.finalNewlineOverride === true && result.length === 0) {
+  if (finalNewlineMode === "present" && result.length === 0) {
     result.push("");
   }
   const finalNewline =
     result.length > 0 &&
-    (input.finalNewlineOverride ??
-      (input.finalNewline || result.at(-1) === ""));
+    (finalNewlineMode === "preserve"
+      ? input.finalNewline || result.at(-1) === ""
+      : finalNewlineMode === "present");
   if (finalNewline !== input.finalNewline) {
     const line = Math.max(1, result.length);
     if (!changedSpans.some((span) => span.start <= line && line <= span.end)) {

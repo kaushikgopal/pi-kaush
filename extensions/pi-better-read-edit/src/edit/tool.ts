@@ -17,11 +17,11 @@ import {
   normalizeEditArguments,
   toHashlineSection,
   type EditParams,
-  type FinalNewlineMode,
 } from "./input.ts";
 import {
   applyHashlineOperations,
   type ChangedSpan,
+  type FinalNewlineMode,
 } from "../hashline/apply.ts";
 import {
   computeFullDigest,
@@ -68,7 +68,7 @@ type PlannedFile = {
   recoveryWarnings: string[];
   recovered: boolean;
   firstChangedLine?: number;
-  finalNewlineOverride?: boolean;
+  finalNewlineMode: FinalNewlineMode;
   device: number;
   inode: number;
 };
@@ -195,9 +195,6 @@ function formatReadRanges(ranges: readonly LineRange[]): string {
     )
     .join(",");
 }
-function finalNewlineOverride(mode: FinalNewlineMode): boolean | undefined {
-  return mode === "preserve" ? undefined : mode === "present";
-}
 
 /**
  * Validate one base-frame operation against the tagged snapshot: bounds plus
@@ -285,7 +282,7 @@ function prepareEdit(
   baseDocument: LogicalDocument,
   currentDocument: LogicalDocument,
   section: HashlineSection,
-  newlineOverride?: boolean,
+  finalNewlineMode: FinalNewlineMode,
 ): Pick<
   PlannedFile,
   | "operations"
@@ -337,9 +334,7 @@ function prepareEdit(
       finalNewline: baseDocument.finalNewline,
       operations: resolved,
       label,
-      ...(newlineOverride !== undefined
-        ? { finalNewlineOverride: newlineOverride }
-        : {}),
+      finalNewlineMode,
     });
     if (applied.logicalText === baseDocument.logicalText) {
       throw new Error(
@@ -361,7 +356,7 @@ function prepareEdit(
 
   // Stale frame: translate base operations onto the live document, with
   // exact-text fallback for dual splices. Anything unresolvable fails closed.
-  if (newlineOverride !== undefined) throw staleError(displayPath);
+  if (finalNewlineMode !== "preserve") throw staleError(displayPath);
   const translated = translateOperations(
     baseDocument,
     currentDocument,
@@ -529,24 +524,14 @@ async function buildPlan(
       );
     }
     const section = toHashlineSection(fileInput, found.record.lineCount);
-    const newlineOverride = finalNewlineOverride(fileInput.finalNewline);
 
     for (const operation of section.operations) {
       // Dual splices defer validation to prepareEdit, where a failed
       // coordinate path can still fall back to the unique text match.
       if (getDualTextSplice(operation)) continue;
-      if (getLegacyInsertionAnchor(operation)) {
-        // Legacy anchors keep their dedicated bounds check before the
-        // append branch, as they did before the text-fallback rework.
-        validateCoordinateOperation(
-          fileInput.path,
-          operation,
-          found.record.lineCount,
-          found.seenRanges,
-        );
-        continue;
-      }
-      if (operation.kind === "append") {
+      // Legacy anchors still need coordinate validation, even when their
+      // normalized operation appends at EOF.
+      if (operation.kind === "append" && !getLegacyInsertionAnchor(operation)) {
         if (!found.eofSeen) {
           throw new Error(
             `${operationLabel(operation)} requires a tagged read that displayed EOF.`,
@@ -561,7 +546,7 @@ async function buildPlan(
         found.seenRanges,
       );
     }
-    if (newlineOverride !== undefined && !found.eofSeen) {
+    if (fileInput.finalNewline !== "preserve" && !found.eofSeen) {
       throw new Error(
         `Changing the terminal newline for ${fileInput.path} requires a tagged read that displayed EOF.`,
       );
@@ -582,7 +567,7 @@ async function buildPlan(
       baseDocument,
       oldDocument,
       section,
-      newlineOverride,
+      fileInput.finalNewline,
     );
     const physical = encodePhysicalText(
       prepared.newLogicalText,
@@ -610,9 +595,7 @@ async function buildPlan(
       section,
       baseDocument,
       ...prepared,
-      ...(newlineOverride !== undefined
-        ? { finalNewlineOverride: newlineOverride }
-        : {}),
+      finalNewlineMode: fileInput.finalNewline,
       device,
       inode,
     });
@@ -668,7 +651,7 @@ async function applyPlan(
         file.baseDocument,
         document,
         file.section,
-        file.finalNewlineOverride,
+        file.finalNewlineMode,
       );
       file.operations = prepared.operations;
       file.oldDocument = prepared.oldDocument;
