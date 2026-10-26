@@ -22,6 +22,12 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 
 Every package is independently versioned and publishable to npm. Runtime source is readable TypeScript, and packages avoid runtime dependencies where practical.
 
+### Firefox (local development)
+
+[`@pi-kaush/pi-firefox`](./extensions/pi-firefox) currently provides native Firefox status checks only. Its [installation guide](./extensions/pi-firefox/README.md) covers Firefox, firefox-cli, pairing, and local Pi loading.
+
+[`@pi-kaush/firefox-core`](./extensions/firefox-core) is the harness-neutral core. Both packages are unpublished. Browser sessions and navigation are not implemented yet.
+
 ### Retired packages
 
 [`@pi-kaush/pi-openai-text-verbosity`](./extensions/pi-openai-text-verbosity) is retired. Pi 0.84.1 and newer can set OpenAI Responses `text.verbosity` directly through model `samplingParams`.

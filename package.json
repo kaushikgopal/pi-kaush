@@ -13,8 +13,8 @@
     "check": "npm run format:check && npm run typecheck && npm test && npm run package:check --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "test": "npm run build --workspace @pi-kaush/firefox-core && vitest run",
+    "typecheck": "npm run build --workspace @pi-kaush/firefox-core && tsc --noEmit"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.0.0",

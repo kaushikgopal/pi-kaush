@@ -12,3 +12,6 @@ extensions/pi-better-read-edit/bench/published/*/
 
 # Agent working docs (not held to prose formatting rules)
 .agents/
+
+# Generated Firefox core output
+extensions/firefox-core/dist/
