@@ -6,6 +6,7 @@ vi.mock("@earendil-works/pi-coding-agent", async () => {
 
 import type { AgentConfig } from "../src/_definition.ts";
 import {
+  applyChildEvent,
   buildChildArgs,
   isActiveResult,
   isFailedResult,
@@ -14,6 +15,7 @@ import {
   toPersistedResult,
 } from "../src/_bounded-runner.ts";
 import { emptyUsage } from "../src/_usage.ts";
+import { parseChildEvent } from "../src/_child-events.ts";
 
 const agent: AgentConfig = {
   name: "bee",
@@ -98,6 +100,30 @@ describe("buildChildArgs", () => {
 });
 
 describe("result status", () => {
+  test("preserves a nested codemode yield over trailing empty assistant text", () => {
+    const child = result();
+    const yielded = parseChildEvent({
+      type: "tool_execution_end",
+      toolName: "yield",
+      parentToolCallId: "codemode-call",
+      result: {
+        details: { status: "completed", result: "returned from codemode" },
+        terminate: true,
+      },
+    });
+    const emptyAssistant = parseChildEvent({
+      type: "message_end",
+      message: { role: "assistant", content: [{ type: "text", text: "" }] },
+    });
+
+    expect(applyChildEvent(child, yielded)).toBe(true);
+    expect(applyChildEvent(child, emptyAssistant)).toBe(true);
+    expect(child).toMatchObject({
+      output: "returned from codemode",
+      yieldStatus: "completed",
+    });
+  });
+
   test("failure and activity derive from the lifecycle status", () => {
     expect(isFailedResult(result())).toBe(false);
     expect(

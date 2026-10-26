@@ -462,7 +462,10 @@ function reject(result: SingleResult, reason: string): SingleResult {
 }
 
 /** Folds one child event into the streamed result; true when it changed. */
-function applyChildEvent(result: SingleResult, event: ChildEvent): boolean {
+export function applyChildEvent(
+  result: SingleResult,
+  event: ChildEvent,
+): boolean {
   if (event._tag === "session") {
     result.sessionId = event.sessionId;
     return true;
@@ -484,11 +487,14 @@ function applyChildEvent(result: SingleResult, event: ChildEvent): boolean {
   applySubagentYield(result, msg);
   if (event._tag === "messageEnd" && msg.role === "assistant") {
     const output = msg.textParts[0];
-    if (output !== undefined) result.output = output;
+    if (output !== undefined && result.yieldStatus === undefined)
+      result.output = output;
     addTurnUsage(result.usage, msg.usage);
     if (msg.model) result.model = msg.model;
-    if (msg.stopReason) result.stopReason = msg.stopReason;
-    if (msg.errorMessage) result.errorMessage = msg.errorMessage;
+    if (result.yieldStatus === undefined) {
+      if (msg.stopReason) result.stopReason = msg.stopReason;
+      if (msg.errorMessage) result.errorMessage = msg.errorMessage;
+    }
   }
   return true;
 }

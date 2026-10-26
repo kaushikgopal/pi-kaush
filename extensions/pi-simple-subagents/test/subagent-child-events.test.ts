@@ -131,4 +131,43 @@ describe("child message parsing", () => {
       "other",
     );
   });
+
+  test("turns a nested yield tool execution end into a yield result", () => {
+    expect(
+      parseChildEvent({
+        type: "tool_execution_end",
+        toolName: "yield",
+        parentToolCallId: "codemode-call",
+        result: {
+          content: [
+            { type: "text", text: "Yielded delegated task: completed" },
+          ],
+          details: { status: "completed", result: "nested result" },
+          terminate: true,
+        },
+      }),
+    ).toMatchObject({
+      _tag: "toolResultEnd",
+      message: {
+        role: "toolResult",
+        toolName: "yield",
+        details: { status: "completed", result: "nested result" },
+      },
+    });
+    expect(
+      parseChildEvent({
+        type: "tool_execution_end",
+        toolName: "yield",
+        result: { details: { status: "completed", result: "direct yield" } },
+      })._tag,
+    ).toBe("other");
+    expect(
+      parseChildEvent({
+        type: "tool_execution_end",
+        toolName: "bash",
+        parentToolCallId: "codemode-call",
+        result: { details: { status: "completed", result: "not a yield" } },
+      })._tag,
+    ).toBe("other");
+  });
 });
