@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-simple-subagents",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Delegate background tasks or persistent interactive workers to isolated Pi processes, with execution profiles, bounded delegation, and process-tree cleanup.",
   "license": "MIT",
   "author": "Kaushik Gopal",

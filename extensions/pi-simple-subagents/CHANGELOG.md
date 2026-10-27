@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Host interactive workers in Rex: unfocused blocks split below the caller,
+  stacked like Herdr panes, focusable from `/subagent`, and closed on stop.
+  Bounded children no longer inherit `REX_*` variables and are told not to
+  control Rex.
 - Replace the public `spawn` action with `interactive`. The default `run` action
   remains background and headless.
 - Add a fourth structured yield status, paused: children stop without an answer,

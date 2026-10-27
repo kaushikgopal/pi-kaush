@@ -25,7 +25,7 @@ function fishQuote(value: string): string {
   return `'${value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
 }
 
-/** Manual fallback for workers that cannot be attached to a native Herdr pane. */
+/** Manual fallback for workers that cannot be attached to a native Herdr or Rex pane. */
 export function formatManualManagedOpenHint(worker: ManagedWorkerView): string {
   const command = worker.sessionFile
     ? `pi --session ${fishQuote(worker.sessionFile)}`

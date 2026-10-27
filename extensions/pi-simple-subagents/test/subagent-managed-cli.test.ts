@@ -396,6 +396,45 @@ function readHerdrSmokeLayout(parentPaneId: string): {
   };
 }
 
+const rexBin =
+  [process.env.REX_BIN_DIR?.trim(), process.env.PATH ?? ""]
+    .filter((entry): entry is string => !!entry)
+    .flatMap((entry) => entry.split(delimiter))
+    .map((directory) => join(directory, "rex"))
+    .find(isExecutable) ?? "rex";
+const rexSmokeAvailable =
+  process.env.PI_MANAGED_REX_SMOKE === "1" &&
+  !!process.env.REX_SESSION?.trim() &&
+  !!process.env.REX_BLOCK?.trim() &&
+  !process.env.HERDR_ENV &&
+  (!inheritedDepth || inheritedDepth === "0") &&
+  isExecutable(rexBin);
+
+/** Window of a Rex block, or undefined once the block is gone. */
+function readRexBlockWindow(
+  sessionId: string,
+  blockId: string,
+): string | undefined {
+  let stdout: string;
+  try {
+    stdout = execFileSync(
+      rexBin,
+      ["block", "inspect", "-s", sessionId, blockId, "--json"],
+      {
+        encoding: "utf8",
+        timeout: 10_000,
+        maxBuffer: 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+  } catch {
+    return undefined;
+  }
+  const windowId = JSON.parse(stdout).block?.window_id;
+  expect(typeof windowId).toBe("string");
+  return windowId;
+}
+
 describe.sequential("managed worker real Pi CLI smoke", () => {
   test("uses the RPC bridge, yields twice, and resumes the persisted Pi session without replay", async () => {
     expect(await fileExists(PI_CLI_PATH)).toBe(true);
@@ -487,6 +526,77 @@ describe.sequential("managed worker real Pi CLI smoke", () => {
           );
           expect(after.panes.map((pane) => pane.paneId).sort()).toEqual(
             before.panes.map((pane) => pane.paneId).sort(),
+          );
+        } finally {
+          if (handle) await runtime.stop(handle).catch(() => {});
+        }
+      } finally {
+        await rm(sandbox.root, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+
+  test.skipIf(!rexSmokeAvailable)(
+    "manual native Rex smoke creates and closes only an unfocused extension-owned block",
+    async () => {
+      const sessionId = process.env.REX_SESSION?.trim();
+      const parentBlockId = process.env.REX_BLOCK?.trim();
+      if (!sessionId || !parentBlockId)
+        throw new Error("Native smoke requires the caller Rex block");
+      const parentWindow = readRexBlockWindow(sessionId, parentBlockId);
+      const sandbox = await createSandbox("managed-rex-smoke-");
+      try {
+        const env = runtimeEnvironment(sandbox.agentDir);
+        const gate = new SessionConcurrencyGate(SMOKE_LIMITS.maxConcurrency);
+        const runtime = makeRuntime(sandbox, env, gate, undefined);
+        let handle: string | undefined;
+        try {
+          const spawned = await runtime.spawn(
+            smokeLaunch(
+              sandbox.cwd,
+              runtime.parentSessionId,
+              "REX first assignment",
+            ),
+          );
+          handle = spawned.handle;
+          const worker = runtime.status(spawned.handle);
+          expect(worker.hostKind).toBe("rex");
+          const placement = worker.placement;
+          if (placement?.kind !== "rex")
+            throw new Error("Expected a native Rex block");
+          expect(placement.sessionId).toBe(sessionId);
+          expect(placement.blockId).not.toBe(parentBlockId);
+          expect(readRexBlockWindow(sessionId, placement.blockId)).toBe(
+            parentWindow,
+          );
+          const first = await waitForYield(
+            runtime,
+            spawned.handle,
+            spawned.assignmentId,
+          );
+          expect(first.outcome?.result).toContain("REX first assignment");
+
+          const second = runtime.send(spawned.handle, "REX second assignment");
+          const secondResult = await waitForYield(
+            runtime,
+            spawned.handle,
+            second.assignmentId,
+          );
+          expect(secondResult.outcome?.result).toContain(
+            "REX second assignment",
+          );
+          expect(await readCalls(sandbox.callLogPath)).toHaveLength(2);
+
+          const stopped = await runtime.stop(spawned.handle);
+          expect(stopped.lifecycle).toBe("stopped");
+          expect(stopped.live).toBe(false);
+          expect(gate.status.active).toBe(0);
+          expect(
+            readRexBlockWindow(sessionId, placement.blockId),
+          ).toBeUndefined();
+          expect(readRexBlockWindow(sessionId, parentBlockId)).toBe(
+            parentWindow,
           );
         } finally {
           if (handle) await runtime.stop(handle).catch(() => {});

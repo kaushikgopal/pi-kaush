@@ -99,6 +99,24 @@ export function parseChildEvent(event: unknown): ChildEvent {
     const sessionId = nonEmptyString(event.id);
     return sessionId ? { _tag: "session", sessionId } : OTHER;
   }
+  if (event.type === "tool_execution_end") {
+    const toolName = nonEmptyString(event.toolName);
+    // Nested calls lack their own result-message event; direct yields use tool_result_end.
+    if (
+      toolName !== "yield" ||
+      !nonEmptyString(event.parentToolCallId) ||
+      !isPlainRecord(event.result)
+    )
+      return OTHER;
+    const message = parseChildMessage({
+      role: "toolResult",
+      toolCallId: event.toolCallId,
+      toolName,
+      content: event.result.content,
+      details: event.result.details,
+    });
+    return message ? { _tag: "toolResultEnd", message } : OTHER;
+  }
   if (event.type !== "message_end" && event.type !== "tool_result_end")
     return OTHER;
   const message = parseChildMessage(event.message);

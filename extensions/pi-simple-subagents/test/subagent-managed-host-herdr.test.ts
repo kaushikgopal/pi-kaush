@@ -7,12 +7,12 @@ import {
   type ManagedHostLaunch,
   ManagedStartupError,
 } from "../src/_managed-host.ts";
+import { detectManagedHost } from "../src/_managed-host-detect.ts";
 import {
   createHerdrHost,
-  detectManagedHost,
   HerdrCommandError,
   herdrAgentName,
-  herdrForwardEnvironment,
+  managedPaneForwardEnvironment,
   parseHerdrError,
 } from "../src/_managed-host-herdr.ts";
 import {
@@ -604,7 +604,7 @@ describe("herdr host", () => {
 
   test("forwards only non-secret Pi configuration into panes", () => {
     expect(
-      herdrForwardEnvironment({
+      managedPaneForwardEnvironment({
         PI_CODING_AGENT_DIR: "/agent",
         PI_OFFLINE: "1",
         PI_API_KEY: "secret",

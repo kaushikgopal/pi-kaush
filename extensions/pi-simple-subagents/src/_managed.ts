@@ -6,9 +6,10 @@
  * launched, persists parent-side state in `config.json`/inbox files, and reads
  * child-owned `status.json` (see `_managed-store.ts`).
  *
- * Hosting: in Herdr (HERDR_ENV=1 with a caller workspace) each worker is a
- * native interactive Pi in an unfocused extension-owned tab; elsewhere it is a
- * portable `pi --mode rpc` subprocess whose open stdin keeps it alive. Both
+ * Hosting: in Herdr (HERDR_ENV=1 with a caller workspace) or Rex (REX_SESSION
+ * and REX_BLOCK) each worker is a native interactive Pi in an unfocused
+ * extension-owned pane below the caller; elsewhere it is a portable
+ * `pi --mode rpc` subprocess whose open stdin keeps it alive. All hosts
  * load the `_managed-child.ts` bridge, so control never depends on terminal
  * keystrokes or terminal text. Hosts live in `_managed-host*.ts`; lifecycle
  * decisions in `_managed-policy.ts`.
@@ -34,12 +35,13 @@ import type { SubagentLimitsConfig } from "./_limits.ts";
 import {
   defaultSleep,
   ManagedError,
+  type ManagedHostKind,
   type ManagedHostPort,
   type ManagedHostProcess,
   type ManagedProcessIdentity,
   ManagedStartupError,
 } from "./_managed-host.ts";
-import { detectManagedHost } from "./_managed-host-herdr.ts";
+import { detectManagedHost } from "./_managed-host-detect.ts";
 import { encodeManagedBootEnv } from "./_managed-protocol.ts";
 import {
   attemptSessionId,
@@ -159,7 +161,7 @@ export interface ManagedWorkerView {
   readonly lifecycle: ManagedLifecycle;
   readonly live: boolean;
   readonly childState?: ChildWorkerState;
-  readonly hostKind: "herdr" | "rpc";
+  readonly hostKind: ManagedHostKind;
   readonly placement?: ManagedPlacement;
   readonly cwd: string;
   readonly dir: string;
@@ -275,7 +277,7 @@ export function buildManagedSystemPrompt(
   const boundary = [
     "## Managed Pi worker boundary",
     `You are a reusable managed Pi worker at delegation depth ${trace.depth} of the hard maximum ${limits.maxDepth}. The parent chat remains the orchestrator and sends you assignments over time.`,
-    "- Never invoke or control herdr: do not use its skill, CLI, panes, agents, or socket.",
+    "- Never invoke or control herdr or Rex: do not use their skills, CLIs, panes, blocks, agents, or sockets.",
     delegationRule,
     '- Each assignment arrives tagged "[Managed assignment <id>]". Finish each one by calling the "yield" tool exactly once. Yield ends that assignment only; this session stays open for later assignments.',
     '- Messages tagged "[Update for managed assignment <id>]" adjust the assignment in progress.',
@@ -286,7 +288,7 @@ export function buildManagedSystemPrompt(
 }
 
 export function buildManagedChildArgs(input: {
-  readonly hostKind: "herdr" | "rpc";
+  readonly hostKind: ManagedHostKind;
   readonly bridgePath: string;
   readonly paths: ManagedPaths;
   readonly sessionId: string;
@@ -617,7 +619,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     this.withLock = createKeyedMutex(state.locks);
   }
 
-  get [HOST_KIND](): "herdr" | "rpc" {
+  get [HOST_KIND](): ManagedHostKind {
     return this.ports.host.kind;
   }
 
@@ -934,10 +936,14 @@ class ManagedRuntimeImpl implements ManagedRuntime {
 
   async open(handle: string): Promise<void> {
     const config = this.ownedConfig(handle);
-    if (!this.state.live.has(handle) || config.placement?.kind !== "herdr")
+    if (
+      !this.state.live.has(handle) ||
+      !config.placement ||
+      config.placement.kind === "rpc"
+    )
       throw new ManagedError(
         "unsupported",
-        `Managed worker ${handle} has no live Herdr tab to open.`,
+        `Managed worker ${handle} has no live pane to open.`,
       );
     await this.ports.host.focus(config.placement);
   }
@@ -1009,7 +1015,7 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     }
     throw new ManagedError(
       "launch",
-      `The previous boot of ${config.handle} (pid ${pid}) is still running and did not stop within ${this.ports.orphanExitTimeoutMs} ms; not starting a second copy. Close its Herdr tab or stop pid ${pid}, then resume.`,
+      `The previous boot of ${config.handle} (pid ${pid}) is still running and did not stop within ${this.ports.orphanExitTimeoutMs} ms; not starting a second copy. Close its pane or stop pid ${pid}, then resume.`,
     );
   }
 
@@ -1377,7 +1383,8 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       worker.process.exited.then(() => true),
       this.ports.sleep(this.ports.graceMs).then(() => false),
     ]);
-    if (!graceful || worker.process.placement.kind === "herdr")
+    // Pane hosts always close the worker's pane, even after a graceful exit.
+    if (!graceful || worker.process.placement.kind !== "rpc")
       await worker.process.terminate().catch(() => {});
     await worker.process.exited;
     await worker.exitHandled;
@@ -1671,8 +1678,10 @@ export function getManagedRuntime(
 /** Host kind of a runtime from any module revision; undefined for other implementations. */
 export function managedRuntimeHostKind(
   runtime: ManagedRuntime,
-): "herdr" | "rpc" | undefined {
+): ManagedHostKind | undefined {
   // SAFETY: reads one optional symbol-keyed property; any other value is rejected below.
   const kind = (runtime as { readonly [HOST_KIND]?: unknown })[HOST_KIND];
-  return kind === "herdr" || kind === "rpc" ? kind : undefined;
+  return kind === "herdr" || kind === "rex" || kind === "rpc"
+    ? kind
+    : undefined;
 }

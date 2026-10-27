@@ -211,8 +211,8 @@ export function createDelegationTrace(
   };
 }
 
-/** Parent-scoped prefixes a child must never inherit: Herdr pane control and managed-worker wiring. */
-const PARENT_CONTROL_ENV_PREFIXES = ["HERDR_", "PI_MANAGED_SUBAGENT_"];
+/** Parent-scoped prefixes a child must never inherit: Herdr and Rex pane control and managed-worker wiring. */
+const PARENT_CONTROL_ENV_PREFIXES = ["HERDR_", "REX_", "PI_MANAGED_SUBAGENT_"];
 
 /** Copy of `env` without parent control variables (case-insensitive prefix match). */
 export function stripParentControlEnvironment(
@@ -288,7 +288,7 @@ export function buildDelegatedSystemPrompt(
   const boundary = [
     "## Delegated Pi execution boundary",
     `You are a Pi subagent at delegation depth ${trace.depth} of the hard maximum ${limits.maxDepth}. The calling chat remains the orchestrator.`,
-    "- Never invoke or control herdr: do not use its skill, CLI, panes, agents, or socket. Herdr access is intentionally removed from delegated processes.",
+    "- Never invoke or control herdr or Rex: do not use their skills, CLIs, panes, blocks, agents, or sockets. Herdr and Rex access is intentionally removed from delegated processes.",
     "- If work needs a visible long-running pane, report that need to the caller instead of creating one.",
     delegationRule,
     '- Finish by calling the "yield" tool exactly once with status, result, and any useful artifact paths. The tool terminates this child immediately.',

@@ -84,8 +84,11 @@ export class ManagedStartupError extends Error {
  */
 export type ManagedProcessIdentity = ProcessStartIdentity;
 
+/** Pane hosts (Herdr, Rex) run a native TUI; RPC is the headless fallback. */
+export type ManagedHostKind = "herdr" | "rex" | "rpc";
+
 export interface ManagedHostPort {
-  readonly kind: "herdr" | "rpc";
+  readonly kind: ManagedHostKind;
   launch(request: ManagedHostLaunch): Promise<ManagedHostProcess>;
   focus(placement: ManagedPlacement): Promise<void>;
 }

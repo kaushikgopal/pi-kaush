@@ -831,7 +831,7 @@ function describeTool(
       `For subagent, agent and profile are independent: agent selects behavior and tools; profile selects compute. When the user names both in either order, preserve both.${compositionExample}`,
       `When invoking subagent, select the least expensive profile that safely fits the task: ${profileGuidance}`,
       `Bounded delegation is capped at depth ${limits.maxDepth}, ${limits.maxConcurrency} active child processes per Pi session, and ${limits.maxChildrenPerCall} children per call. Interactive mode is top-level only and uses the same process gate; idle workers retain slots.`,
-      "Use run (or omit action) for bounded background/headless work. It supports single, parallel, and chain tasks. Use interactive when the user wants a persistent worker with a reusable handle. Herdr opens the worker in a pane when available.",
+      "Use run (or omit action) for bounded background/headless work. It supports single, parallel, and chain tasks. Use interactive when the user wants a persistent worker with a reusable handle. Herdr or Rex opens the worker in a pane when available.",
       "After an interactive launch, do not repeat the launch confirmation, worker handle, assignment ID, or control hints in chat. If starting an interactive worker is the only request, finish without a prose acknowledgement; the tool output confirms startup and the result will report automatically. Still report launch errors and answer any other questions in the user's request.",
       "Use subagent model only for an exact model override; model takes precedence over profile.",
       "Use top-level context only for constraints shared by every parallel task or interactive worker batch.",
