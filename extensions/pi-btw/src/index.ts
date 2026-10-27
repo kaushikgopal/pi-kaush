@@ -4,19 +4,29 @@ import {
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
+import { delimiter, isAbsolute, join, resolve, sep } from "node:path";
 
 const HERDR_TIMEOUT_MS = 15_000;
 const HERDR_BUSY_RETRIES = 30;
 const HERDR_BUSY_DELAY_MS = 100;
+const REX_TIMEOUT_MS = 15_000;
+const REX_FORWARD_ENV_KEYS = [
+  "PI_CODING_AGENT_DIR",
+  "PI_PACKAGE_DIR",
+  "PI_OFFLINE",
+  "PI_SKIP_VERSION_CHECK",
+  "PI_TELEMETRY",
+  "PI_CACHE_RETENTION",
+] as const;
 
 type ExecResult = Awaited<ReturnType<ExtensionAPI["exec"]>>;
 
-type HerdrLaunchResult =
+type LaunchResult =
   | { ok: true; target: string }
   | { ok: false; reason: string };
 
-type HerdrSessionTarget = {
+type SessionTarget = {
   flag: "--fork" | "--session";
   path: string;
 };
@@ -46,12 +56,136 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function executableAvailable(bin: string): boolean {
+  const candidates =
+    isAbsolute(bin) || bin.includes(sep)
+      ? [bin]
+      : (process.env.PATH ?? "")
+          .split(delimiter)
+          .map((directory) => join(directory, bin));
+  return candidates.some((candidate) => {
+    try {
+      accessSync(candidate, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function rexExecutable(): string | undefined {
+  const binDir = process.env.REX_BIN_DIR?.trim();
+  const candidates = binDir ? [join(binDir, "rex"), "rex"] : ["rex"];
+  return candidates.find(executableAvailable);
+}
+
+function rexSession():
+  | { bin: string; session: string; block: string }
+  | undefined {
+  const session = process.env.REX_SESSION?.trim();
+  const block = process.env.REX_BLOCK?.trim();
+  const bin = session && block ? rexExecutable() : undefined;
+  return session && block && bin ? { bin, session, block } : undefined;
+}
+
+function rexForwardEnvironment(): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const key of REX_FORWARD_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) result[key] = value;
+  }
+  return result;
+}
+
+function getPiInvocation(): { command: string; args: string[] } {
+  const scriptPath = process.argv[1];
+  if (existsSync(process.execPath) && scriptPath && existsSync(scriptPath)) {
+    return { command: process.execPath, args: [resolve(scriptPath)] };
+  }
+  return { command: "pi", args: [] };
+}
+
+function rexPrompt(prompt: string): string {
+  // Pi parses leading @ as a file argument even after --; whitespace keeps it text.
+  return prompt.startsWith("@") ? ` ${prompt}` : prompt;
+}
+
+async function launchRex(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  host: { bin: string; session: string; block: string },
+  sessionTarget: SessionTarget,
+  prompt: string,
+): Promise<LaunchResult> {
+  const forwardEnv = rexForwardEnvironment();
+  const invocation = getPiInvocation();
+  const command = [
+    "env",
+    ...Object.entries(forwardEnv).map(([key, value]) => `${key}=${value}`),
+    invocation.command,
+    ...invocation.args,
+    sessionTarget.flag,
+    sessionTarget.path,
+    "--",
+    rexPrompt(prompt),
+  ];
+
+  let split: ExecResult;
+  try {
+    split = await pi.exec(
+      host.bin,
+      [
+        "split",
+        "-s",
+        host.session,
+        "-b",
+        host.block,
+        "--split=right",
+        "--focus=false",
+        "--label",
+        "btw",
+        "-c",
+        ctx.cwd,
+        "--json",
+        "--",
+        ...command,
+      ],
+      { timeout: REX_TIMEOUT_MS },
+    );
+  } catch (error) {
+    return { ok: false, reason: errorMessage(error) };
+  }
+
+  const failure = execFailure(split, "Rex split failed");
+  if (failure) return { ok: false, reason: failure };
+
+  try {
+    const response = JSON.parse(split.stdout) as {
+      block_ids?: unknown;
+    } | null;
+    const blockIds = response?.block_ids;
+    const blockId = Array.isArray(blockIds) ? blockIds[0] : undefined;
+    if (typeof blockId !== "string" || !blockId) {
+      throw new Error("Rex split did not return a block ID");
+    }
+    return { ok: true, target: blockId };
+  } catch (error) {
+    return {
+      ok: false,
+      reason:
+        error instanceof SyntaxError
+          ? "Rex split returned non-JSON output"
+          : errorMessage(error),
+    };
+  }
+}
+
 async function launchHerdr(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
-  sessionTarget: HerdrSessionTarget,
+  sessionTarget: SessionTarget,
   prompt: string,
-): Promise<HerdrLaunchResult> {
+): Promise<LaunchResult> {
   if (!process.env.HERDR_PANE_ID) {
     return {
       ok: false,
@@ -177,7 +311,7 @@ async function switchToFork(
     position: "at",
     withSession: async (child) => {
       child.ui.notify(
-        "Herdr is unavailable, so /btw switched to a fork. The original session is saved but dormant; use /resume to return.",
+        "Herdr or Rex is unavailable, so /btw switched to a fork. The original session is saved but dormant; use /resume to return.",
         "info",
       );
       await child.sendUserMessage(prompt);
@@ -189,13 +323,59 @@ async function switchToFork(
   }
 }
 
-function snapshotAt(sessionFile: string, leafId: string): HerdrSessionTarget {
+function snapshotAt(sessionFile: string, leafId: string): SessionTarget {
   const snapshot =
     SessionManager.open(sessionFile).createBranchedSession(leafId);
   if (!snapshot) {
     throw new Error("Pi did not create a persisted side-session snapshot.");
   }
   return { flag: "--session", path: snapshot };
+}
+
+function getHostedSessionTarget(
+  ctx: ExtensionCommandContext,
+  activeRunBaseLeafId: string | null | undefined,
+): SessionTarget | undefined {
+  const sessionFile = ctx.sessionManager.getSessionFile();
+  if (
+    !sessionFile ||
+    !existsSync(sessionFile) ||
+    !ctx.sessionManager.getLeafId()
+  ) {
+    ctx.ui.notify(
+      "/btw needs at least one completed response before it can fork context.",
+      "warning",
+    );
+    return undefined;
+  }
+
+  let sessionTarget: SessionTarget = {
+    flag: "--fork",
+    path: sessionFile,
+  };
+  if (!ctx.isIdle()) {
+    const checkpointLeafId =
+      activeRunBaseLeafId === undefined
+        ? ctx.sessionManager.getLeafId()
+        : activeRunBaseLeafId;
+    if (!checkpointLeafId) {
+      ctx.ui.notify(
+        "/btw needs at least one completed response before it can fork context.",
+        "warning",
+      );
+      return undefined;
+    }
+    try {
+      sessionTarget = snapshotAt(sessionFile, checkpointLeafId);
+    } catch (error) {
+      ctx.ui.notify(
+        `Failed to snapshot the last completed response: ${errorMessage(error)}`,
+        "error",
+      );
+      return undefined;
+    }
+  }
+  return sessionTarget;
 }
 
 async function runBtw(
@@ -213,68 +393,35 @@ async function runBtw(
     ctx.ui.notify("/btw requires an interactive Pi session.", "warning");
     return;
   }
-  if (process.env.HERDR_ENV !== "1") {
-    if (!ctx.isIdle()) {
-      ctx.ui.notify(
-        "Wait for the current response to finish before using /btw outside Herdr.",
-        "warning",
-      );
+  const rex = process.env.HERDR_ENV === "1" ? undefined : rexSession();
+  if (process.env.HERDR_ENV === "1" || rex) {
+    const sessionTarget = getHostedSessionTarget(ctx, activeRunBaseLeafId);
+    if (!sessionTarget) return;
+
+    const hostName = rex ? "Rex" : "Herdr";
+    const result = rex
+      ? await launchRex(pi, ctx, rex, sessionTarget, prompt)
+      : await launchHerdr(pi, ctx, sessionTarget, prompt);
+    if (!result.ok) {
+      ctx.ui.notify(`Failed to open side session: ${result.reason}`, "error");
       return;
     }
-    await switchToFork(ctx, prompt);
-    return;
-  }
 
-  const sessionFile = ctx.sessionManager.getSessionFile();
-  if (
-    !sessionFile ||
-    !existsSync(sessionFile) ||
-    !ctx.sessionManager.getLeafId()
-  ) {
     ctx.ui.notify(
-      "/btw needs at least one completed response before it can fork context.",
-      "warning",
+      `Opened a ${hostName} side session (${result.target}) and sent the question.`,
+      "info",
     );
     return;
   }
 
-  let sessionTarget: HerdrSessionTarget = {
-    flag: "--fork",
-    path: sessionFile,
-  };
   if (!ctx.isIdle()) {
-    const checkpointLeafId =
-      activeRunBaseLeafId === undefined
-        ? ctx.sessionManager.getLeafId()
-        : activeRunBaseLeafId;
-    if (!checkpointLeafId) {
-      ctx.ui.notify(
-        "/btw needs at least one completed response before it can fork context.",
-        "warning",
-      );
-      return;
-    }
-    try {
-      sessionTarget = snapshotAt(sessionFile, checkpointLeafId);
-    } catch (error) {
-      ctx.ui.notify(
-        `Failed to snapshot the last completed response: ${errorMessage(error)}`,
-        "error",
-      );
-      return;
-    }
-  }
-
-  const result = await launchHerdr(pi, ctx, sessionTarget, prompt);
-  if (!result.ok) {
-    ctx.ui.notify(`Failed to open side session: ${result.reason}`, "error");
+    ctx.ui.notify(
+      "Wait for the current response to finish before using /btw without Herdr or Rex.",
+      "warning",
+    );
     return;
   }
-
-  ctx.ui.notify(
-    `Opened a Herdr side session (${result.target}) and sent the question.`,
-    "info",
-  );
+  await switchToFork(ctx, prompt);
 }
 
 export default function piBtw(pi: ExtensionAPI) {
