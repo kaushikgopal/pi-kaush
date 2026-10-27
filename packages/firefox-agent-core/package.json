@@ -1,7 +1,7 @@
 {
-  "name": "@pi-kaush/firefox-core",
+  "name": "@pi-kaush/firefox-agent-core",
   "version": "0.1.0",
-  "description": "Harness-neutral, read-only status checks for firefox-cli.",
+  "description": "Harness-neutral Firefox sessions and compact reads through firefox-cli.",
   "license": "MIT",
   "author": "Kaushik Gopal",
   "type": "module",
@@ -30,10 +30,10 @@
     "access": "public"
   },
   "sideEffects": false,
-  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/firefox-core#readme",
+  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/packages/firefox-agent-core#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kaushikgopal/pi-kaush.git",
-    "directory": "extensions/firefox-core"
+    "directory": "packages/firefox-agent-core"
   }
 }

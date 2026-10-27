@@ -23,7 +23,7 @@ Live installed and connected doctor output was verified on the target machine.
 Disconnected, missing-native-host, and not-approved states were also observed
 during setup. Unit tests cover malformed and mismatched responses.
 
-## Browser capability checks for later implementation
+## Verified browser capabilities
 
 The following checks used synthetic local pages, not signed-in accounts:
 
@@ -41,7 +41,7 @@ The following checks used synthetic local pages, not signed-in accounts:
 | Privileged page                                 | `about:config` creation refused with `PERMISSION_DENIED`                 |
 | Private window                                  | Not exposed with current permissions; further access explicitly excluded |
 
-These checks validate the backend, not unimplemented core operations.
+The integrated core also passed 20 synthetic workflow cycles, separate-process restart reuse, network summaries, private-file screenshots, scoped reads, typed extraction, and human-confirmed CTC adoption through the public Pi loader. See the core README for measured output sizes.
 
 ## Known limits
 

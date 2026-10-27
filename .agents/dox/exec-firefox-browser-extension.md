@@ -8,9 +8,11 @@ Pi is the first adapter. A future harness must reuse container, session, snapsho
 
 This plan controls implementation, validation, and handoff. It does not authorize installation, pairing, external issues, commits, publication, or changes to CTC.
 
-**Status:** Phase 0 is complete for the owner-approved scope. Phase 1A core/status adapter is implemented. Session ownership, navigation, and reads remain next. Nothing is committed or published.
+**Status:** The v1 implementation is validated and locally installed. Phase 1A is committed as `4a59a59`. The v1 implementation and core relocation form the requested follow-up commit. Nothing is published. See [final acceptance and limits](report-firefox-v1-acceptance.md).
 
-## Ground truth checked during planning
+Current decisions supersede the initial proposals below: CTC alone owns routing; actual container IDs are mandatory; replacement adoption requires human approval; private access remains disabled. Unsupported backend capabilities remain explicit. The historical work packages do not require a duplicate CTC router or rule import.
+
+## Initial planning checks (historical)
 
 | Item | Finding |
 | --- | --- |
@@ -37,7 +39,7 @@ The pinned source versions and selected contracts are verified in the [Phase 0 r
 3. Import only the public core entrypoint from the Pi adapter.
 4. Keep CTC authoritative for routing.
 5. Verify tab identity and container state before account-sensitive actions.
-6. Mutate or close only provably owned tabs or approved, proven replacements.
+6. Mutate or close only created tabs or replacement candidates explicitly approved by the user.
 7. Never retry a mutation whose outcome is unknown.
 8. Default to bounded text, compact diffs, and screenshot paths.
 9. Keep pairing, cookie access, and arbitrary script execution out of agent tools.
@@ -446,13 +448,13 @@ If scope must shrink, propose workflow/extraction deferral first. Propose networ
 
 | ID | Decision or proposal | Rationale | State |
 | --- | --- | --- | --- |
-| D1 | Plan only; no wrapper code yet | Backend and container capabilities are unverified | Active |
+| D1 | Backend gate cleared for the approved scope | Live synthetic checks passed; private access was explicitly excluded | Complete |
 | D2 | Keep two packages inside pi-kaush | Separate names and dependency boundaries remain visible | Owner approved |
-| D3 | Recommend MIT for both packages | Matches the existing repository license | Awaiting owner |
+| D3 | Inherit the repository MIT license | No new repository or license change | Active |
 | D4 | Pin the version verified in Phase 0 | firefox-cli 0.4.1 is live-verified on Brainiac; Phase 0 remains incomplete | Evidence established; implementation gate pending |
-| D5 | Block unsafe inferred-container actions | Routing predictions do not prove account identity | Awaiting owner |
-| D6 | Require proven CTC replacement ownership | URL/time matching can capture unrelated tabs | Awaiting owner |
-| D7 | Prefer `/firefox-*` commands | Existing `/browser-status` must remain usable | Awaiting owner |
+| D5 | Block actions without actual container evidence | Required by the safety contract | Active |
+| D6 | Require explicit human approval for replacement candidates | No automatic URL-only adoption | Owner approved |
+| D7 | Use `/firefox-*` commands | Existing `/browser-status` remains usable | Active |
 | D8 | No silent upstream issues or publication | External actions require explicit authorization | Active |
 | D9 | Preserve `package-lock.json` changes | They predate this task | Active |
 | D10 | Add no custom Firefox add-on | firefox-cli supplies the browser integration | Active |
@@ -460,7 +462,7 @@ If scope must shrink, propose workflow/extraction deferral first. Propose networ
 
 ## Immediate next action
 
-Continue with Phase 1B: explicit owned sessions, safe navigation, summary reads, and candidate-specific CTC replacement confirmation. Use the validated backend contracts. Keep private-window access disabled.
+Continue with Phase 2: durable session identity, cross-process coordination, and safe recovery. Keep CTC authoritative and private-window access disabled.
 
 ## Planning validation
 
@@ -562,3 +564,46 @@ Installation instructions now exist in `extensions/pi-firefox/README.md`, linked
 Test tabs and the fixture server are cleaned up. The four manually added CTC rules and two test containers remain for later integration tests. Do not remove or alter normal CTC rules. Private-window access remains disabled.
 
 Final Phase 1A validation: `npm run check` passes with 1,212 Vitest tests passed and two skipped; package checks and 57 Bun tests pass. The Firefox packages contribute 18 focused tests. No commit, release, or persistent Pi configuration change was made.
+
+## Phase 1B started
+
+The owner requested committing the completed chunk and proceeding. Commit `4a59a59` includes only Firefox task changes; preexisting lockfile version updates remain unstaged. Phase 1B scope and disjoint worker responsibilities are in `spec-firefox-phase1b-contract.md`. Session state is intentionally in-memory until the later persistence/concurrency phase.
+
+## Phase 1B implementation and validation
+
+Core now exposes in-memory ensure, go, summary read, close, and human-confirmed replacement adoption through a public browser factory. Pi adds `ff_session_ensure`, `ff_go`, `ff_read`, and `ff_session_close`. No model-callable approval tool exists. Headless and declined confirmations remain failures. CTC alone routes URLs; expected destinations are distinct from the blank seed's actual container.
+
+Parent integration resolved destination-versus-seed confusion, unverified snapshot targets, ignored explicit expectations while confirmation was pending, and nonzero mutation exits that could leave a binding usable. Regression tests cover those cases. Private pending evidence is copied before returning it. Expiry is checked before and after asynchronous adoption checks. Unknown JSON boundary data stays unknown until parsed. Import-boundary tests enforce the public core split. Requested URL queries no longer escape through mismatch recovery data.
+
+Live test `test-firefox-phase1b-live.mjs` passed against paired Firefox: new owned tabs, idempotent ensure, verified default container, bounded ref-free summary (118 serialized bytes in this fixture), targeted navigation, query-free URL projection, close, closed-session refusal, concurrent independent sessions, real Pi loader tool execution, and preservation of original tabs. Test tabs closed and the fixture process stopped. This smoke does not claim CTC dialog UI, restart recovery, Node 20 execution, or v1 acceptance passed. See `report-firefox-phase1b-live.md` and `review-firefox-phase1b.md`.
+
+The earlier full check reproduced the unrelated RPC-host test's empty-file race. Its focused rerun passed; no unrelated source was changed. The subsequent full check passed with 1,255 Vitest tests passed, two skipped, both Firefox package checks, and 57 Bun tests. The Firefox packages currently have 61 focused tests. Final validation after small privacy/documentation edits remains required.
+
+Next chunk: durable session identity, cross-process coordination, and fuller CTC/error recovery under the existing safety policy. Do not add automated replacement provenance or private-window access.
+
+Final Phase 1B validation after privacy and documentation edits: `npm run check` passes with 1,255 Vitest tests passed, two skipped, both Firefox package checks, and 57 Bun tests. All 61 focused Firefox tests pass. Public Node and real Pi-loader live smoke checks passed before the final error-output-only edits. No further commit or publish occurred. Temporary CTC test rules and containers remain for future integration checks; all program-created test tabs and fixture processes are closed.
+
+## Authorization to complete the system
+
+The owner requested continuing through the remaining phases until the browser-use system is usable. Continue through persistence, bounded actions/reads, workflows/extraction, Pi integration, live checks and local installation. Do not pause after intermediate chunks. Ask only for necessary owner decisions or browser intervention. No new commits or publication are implied. The completion contract is in `spec-firefox-v1-completion.md`.
+
+
+## V1 completion
+
+Persistence, cross-process coordination, bounded views, unique refs, actions, waits, network metadata, private-file screenshots, deterministic workflows, typed extraction, configuration, logging, Pi integration, and the usage skill are complete within the supported backend scope. Local installation used `pi install ./extensions/pi-firefox`.
+
+Final repository validation passed: 1,319 Vitest tests, two skipped, 57 Bun tests, and all package checks. The live suite passed 20 workflow cycles, separate-process restart reuse, independent sessions, screenshot resizing, network observation, and owned cleanup. A fresh owner-approved CTC candidate passed through the public Pi tool callback. Public-loader measurements verified compact model-facing text.
+
+The implementation does not claim unsupported backend parity. Native terminal-dialog rendering was not visually exercised. Node 20 execution and Linux live integration remain unverified. Pending approvals remain process-local and fail closed after restart. Private-window access remains disabled. These limits appear in the final acceptance report and package documentation.
+
+Decision log: preserve CLI/CTC unchanged; use same-user process-start metadata for browser epochs; use private atomic state and journal markers; coordinate browser-wide work at one fixed OS-user gate; publish screenshots exclusively; keep opaque refs unique across clients; require explicit workflow writes; reject ambiguous extraction instead of guessing.
+
+No additional commit or publication occurred. Unrelated lockfile changes remain intact. All adopted test tabs and fixture processes are closed. Temporary synthetic CTC containers/rules remain manually installed.
+
+## Core package relocation
+
+Move core to `packages/firefox-agent-core` and rename its npm package to `@pi-kaush/firefox-agent-core`. Keep `extensions/pi-firefox` unchanged as the Pi adapter location. This makes the library boundary explicit without a separate repository.
+
+Update workspace discovery, TypeScript coverage, imports, package metadata, documentation links, and runnable validation scripts. Preserve historical reports. The migration changes no browser behavior or Firefox CLI dependency policy.
+
+Validation: full `npm run check` passed with 1,321 Vitest tests passed and one skipped, 57 Bun tests, and both Firefox package checks. Public Node import and real read-only health passed. The old package name no longer resolves. Only the six expected lockfile entries changed relative to the migration baseline. No commit or publication occurred.

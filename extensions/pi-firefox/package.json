@@ -1,7 +1,7 @@
 {
   "name": "@pi-kaush/pi-firefox",
   "version": "0.1.0",
-  "description": "Thin Pi-native status adapter for Firefox CLI and its native host.",
+  "description": "Native Pi tools and safety guidance for owned Firefox sessions.",
   "license": "MIT",
   "author": "Kaushik Gopal",
   "type": "module",
@@ -10,9 +10,10 @@
   "keywords": [
     "pi-package",
     "pi-extension",
+    "pi-skill",
     "firefox",
     "browser",
-    "status"
+    "automation"
   ],
   "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-firefox#readme",
   "bugs": {
@@ -25,6 +26,7 @@
   },
   "files": [
     "src",
+    "skills/pi-firefox",
     "CHANGELOG.md",
     "LICENSE",
     "README.md"
@@ -32,10 +34,13 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
+    ],
+    "skills": [
+      "./skills/pi-firefox"
     ]
   },
   "dependencies": {
-    "@pi-kaush/firefox-core": "^0.1.0"
+    "@pi-kaush/firefox-agent-core": "^0.1.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

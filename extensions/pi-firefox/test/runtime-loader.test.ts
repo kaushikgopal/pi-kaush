@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
 import { expect, test } from "vitest";
+import { FIREFOX_TOOLS } from "@pi-kaush/firefox-agent-core";
 
-test("Pi loads Firefox and pi-browser together without connecting to either browser", async () => {
+test("Pi loads Firefox and pi-browser together without connecting to a browser", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pi-firefox-loader-"));
   try {
     const result = await discoverAndLoadExtensions(
@@ -27,9 +28,14 @@ test("Pi loads Firefox and pi-browser together without connecting to either brow
     const commands = result.extensions.flatMap((extension) => [
       ...extension.commands.keys(),
     ]);
-    expect(tools.filter((name) => name === "ff_status")).toHaveLength(1);
-    expect(tools).toContain("browser_snapshot");
+
+    for (const descriptor of FIREFOX_TOOLS) {
+      expect(tools.filter((name) => name === descriptor.name)).toHaveLength(1);
+    }
     expect(commands).toContain("firefox-status");
+    expect(commands).toContain("firefox-session");
+    expect(commands).toContain("firefox-container");
+    expect(tools).toContain("browser_snapshot");
     expect(commands).toContain("browser-status");
     expect(new Set(tools).size).toBe(tools.length);
     expect(new Set(commands).size).toBe(commands.length);

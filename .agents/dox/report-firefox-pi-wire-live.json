@@ -1,0 +1,49 @@
+{
+  "ok": true,
+  "tools": 16,
+  "measurements": [
+    {
+      "tool": "ff_status",
+      "mode": null,
+      "modelTextBytes": 156,
+      "coreResultBytes": 156,
+      "nativeEnvelopeBytes": 579
+    },
+    {
+      "tool": "ff_session_ensure",
+      "mode": null,
+      "modelTextBytes": 222,
+      "coreResultBytes": 222,
+      "nativeEnvelopeBytes": 787
+    },
+    {
+      "tool": "ff_read",
+      "mode": null,
+      "modelTextBytes": 327,
+      "coreResultBytes": 327,
+      "nativeEnvelopeBytes": 1116
+    },
+    {
+      "tool": "ff_read",
+      "mode": "full",
+      "modelTextBytes": 1186,
+      "coreResultBytes": 1186,
+      "nativeEnvelopeBytes": 3749
+    },
+    {
+      "tool": "ff_extract",
+      "mode": null,
+      "modelTextBytes": 326,
+      "coreResultBytes": 326,
+      "nativeEnvelopeBytes": 1117
+    },
+    {
+      "tool": "ff_session_close",
+      "mode": null,
+      "modelTextBytes": 223,
+      "coreResultBytes": 223,
+      "nativeEnvelopeBytes": 790
+    }
+  ],
+  "cleanup": true
+}

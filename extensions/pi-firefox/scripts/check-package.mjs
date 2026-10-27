@@ -15,6 +15,7 @@ const expected = [
   "LICENSE",
   "README.md",
   "package.json",
+  "skills/pi-firefox/SKILL.md",
   "src/index.ts",
   "src/register.ts",
 ].sort();

@@ -15,6 +15,6 @@
     "target": "ES2022",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["extensions/**/*.ts"],
+  "include": ["extensions/**/*.ts", "packages/**/*.ts"],
   "exclude": ["extensions/pi-verbatim-compaction/**"]
 }

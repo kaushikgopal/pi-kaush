@@ -24,9 +24,9 @@ Every package is independently versioned and publishable to npm. Runtime source 
 
 ### Firefox (local development)
 
-[`@pi-kaush/pi-firefox`](./extensions/pi-firefox) currently provides native Firefox status checks only. Its [installation guide](./extensions/pi-firefox/README.md) covers Firefox, firefox-cli, pairing, and local Pi loading.
+[`@pi-kaush/pi-firefox`](./extensions/pi-firefox) provides 16 native Firefox tools, durable owned sessions, bounded reads, actions, workflows, typed extraction, and safety guidance. Its [installation guide](./extensions/pi-firefox/README.md) covers Firefox, firefox-cli, pairing, configuration, and local Pi loading.
 
-[`@pi-kaush/firefox-core`](./extensions/firefox-core) is the harness-neutral core. Both packages are unpublished. Browser sessions and navigation are not implemented yet.
+[`@pi-kaush/firefox-agent-core`](./packages/firefox-agent-core) is the harness-neutral core with no runtime dependencies. CTC alone controls routing; replacement adoption requires human approval. Both packages are unpublished. See [validation and limits](./.agents/dox/report-firefox-v1-acceptance.md).
 
 ### Retired packages
 

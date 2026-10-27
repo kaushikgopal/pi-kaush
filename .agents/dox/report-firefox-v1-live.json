@@ -1,0 +1,246 @@
+{
+  "ok": true,
+  "cycles": 20,
+  "records": [
+    {
+      "name": "ff_session_ensure",
+      "ok": true,
+      "code": null,
+      "bytes": 224,
+      "ms": 2045
+    },
+    {
+      "name": "ff_read",
+      "ok": true,
+      "code": null,
+      "bytes": 370,
+      "ms": 944
+    },
+    {
+      "name": "ff_read",
+      "ok": true,
+      "code": null,
+      "bytes": 1002,
+      "ms": 932
+    },
+    {
+      "name": "ff_locate",
+      "ok": true,
+      "code": null,
+      "bytes": 295,
+      "ms": 932
+    },
+    {
+      "name": "ff_read",
+      "ok": true,
+      "code": null,
+      "bytes": 457,
+      "ms": 558
+    },
+    {
+      "name": "ff_extract",
+      "ok": true,
+      "code": null,
+      "bytes": 487,
+      "ms": 2604
+    },
+    {
+      "name": "ff_network",
+      "ok": true,
+      "code": null,
+      "bytes": 276,
+      "ms": 790
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9712
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9691
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9743
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9754
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9807
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9889
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9791
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9808
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9917
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 10159
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9969
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 10022
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9917
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9867
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9910
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 10116
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 10071
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 10332
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 10026
+    },
+    {
+      "name": "ff_do",
+      "ok": true,
+      "code": null,
+      "bytes": 402,
+      "ms": 9913
+    },
+    {
+      "name": "ff_network",
+      "ok": true,
+      "code": null,
+      "bytes": 1275,
+      "ms": 820
+    },
+    {
+      "name": "ff_screenshot",
+      "ok": true,
+      "code": null,
+      "bytes": 398,
+      "ms": 1047
+    },
+    {
+      "name": "ff_session_ensure",
+      "ok": true,
+      "code": null,
+      "bytes": 233,
+      "ms": 1860
+    },
+    {
+      "name": "ff_read",
+      "ok": true,
+      "code": null,
+      "bytes": 370,
+      "ms": 1016
+    },
+    {
+      "name": "ff_read",
+      "ok": true,
+      "code": null,
+      "bytes": 379,
+      "ms": 1064
+    },
+    {
+      "name": "ff_session_cleanup",
+      "ok": true,
+      "code": null,
+      "bytes": 302,
+      "ms": 979
+    }
+  ],
+  "cleanup": true,
+  "screenshot": {
+    "bytes": 58031,
+    "width": 1200,
+    "height": 1040,
+    "resized": true
+  },
+  "restartReuse": true,
+  "syntheticRequests": 20
+}

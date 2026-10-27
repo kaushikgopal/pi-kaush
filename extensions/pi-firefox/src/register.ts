@@ -1,137 +1,199 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import type {
-  createFirefoxClient,
-  FirefoxStatusResult,
-} from "@pi-kaush/firefox-core";
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import {
+  createFirefoxAutomation,
+  FIREFOX_TOOLS,
+  type FirefoxAutomationContext,
+  type FirefoxAutomationResult,
+  type FirefoxReplacementConfirmation,
+} from "@pi-kaush/firefox-agent-core";
 
-type FirefoxClientFactory = typeof createFirefoxClient;
+type Automation = ReturnType<typeof createFirefoxAutomation>;
+type AutomationFactory = typeof createFirefoxAutomation;
+type PiIdentityContext = Pick<ExtensionToolContext, "cwd" | "sessionManager">;
 
-const outputSchema = Type.Union([
-  Type.Object(
+const OUTPUT_SCHEMA = Type.Unsafe({
+  oneOf: [
     {
-      ok: Type.Literal(true),
-      result: Type.Object(
-        {
-          cliVersion: Type.String(),
-          supportedVersion: Type.String(),
-          versionMatches: Type.Boolean(),
-          nativeHost: Type.Union([
-            Type.Literal("installed"),
-            Type.Literal("missing"),
-            Type.Literal("stale"),
-            Type.Literal("invalid"),
-          ]),
-          connection: Type.Union([
-            Type.Literal("connected"),
-            Type.Literal("not-approved"),
-            Type.Literal("version-mismatch"),
-            Type.Literal("pairing-mismatch"),
-            Type.Literal("disconnected"),
-          ]),
-          warnings: Type.Array(Type.String()),
-        },
-        { additionalProperties: false },
-      ),
+      type: "object",
+      properties: {
+        ok: { const: true },
+        result: {},
+        session: { type: "string" },
+        tab: {},
+        container: {},
+        warnings: { type: "array", items: { type: "string" } },
+      },
+      required: ["ok", "result"],
+      additionalProperties: false,
     },
-    { additionalProperties: false },
-  ),
-  Type.Object(
     {
-      ok: Type.Literal(false),
-      code: Type.String(),
-      message: Type.String(),
-      recovery: Type.Union([
-        Type.Object(
-          {
-            command: Type.String(),
-            args: Type.Array(Type.String()),
-          },
-          { additionalProperties: false },
-        ),
-        Type.Null(),
-      ]),
+      type: "object",
+      properties: {
+        ok: { const: false },
+        code: { type: "string" },
+        message: { type: "string" },
+        recovery: {},
+        confirmation: {},
+        result: {},
+        session: { type: "string" },
+        tab: {},
+        container: {},
+        warnings: { type: "array", items: { type: "string" } },
+      },
+      required: ["ok", "code", "message"],
+      additionalProperties: false,
     },
-    { additionalProperties: false },
-  ),
-]);
+  ],
+});
 
-const MAX_SUMMARY_LENGTH = 1800;
-const MAX_WARNING_COUNT = 4;
+const MAX_MODEL_TEXT_BYTES = 8_000;
+const TRUNCATION_NOTE =
+  "Model-facing JSON is truncated. The details and structuredContent fields retain the complete core result.";
 
-function clip(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
-}
-
-function summarizeStatus(status: FirefoxStatusResult): string {
-  if (!status.ok) {
-    const recovery = status.recovery
-      ? `\nRecovery command: ${JSON.stringify([status.recovery.command, ...status.recovery.args])}`
-      : "";
-    return clip(
-      `Firefox status error: ${status.code}\n${status.message}${recovery}`,
-      MAX_SUMMARY_LENGTH,
-    );
+function modelFacingJson(result: FirefoxAutomationResult): string {
+  const serialized = JSON.stringify(result);
+  if (Buffer.byteLength(serialized, "utf8") <= MAX_MODEL_TEXT_BYTES) {
+    return serialized;
   }
 
-  const lines = [
-    `Firefox CLI: ${clip(status.result.cliVersion, 100)} (supported: ${clip(status.result.supportedVersion, 100)})`,
-    `Version matches: ${status.result.versionMatches}`,
-    `Native host: ${status.result.nativeHost}`,
-    `Connection: ${status.result.connection}`,
+  const base = {
+    truncated: true,
+    note: TRUNCATION_NOTE,
+    originalBytes: Buffer.byteLength(serialized, "utf8"),
+    preview: "",
+  };
+  let preview = Array.from(serialized).slice(0, 2048);
+  while (true) {
+    const text = JSON.stringify({ ...base, preview: preview.join("") });
+    if (Buffer.byteLength(text, "utf8") <= MAX_MODEL_TEXT_BYTES) return text;
+    if (preview.length === 0) return JSON.stringify(base);
+    preview = preview.slice(0, Math.floor(preview.length / 2));
+  }
+}
+
+function replacementPrompt(candidate: FirefoxReplacementConfirmation): string {
+  return [
+    "Firefox reported a possible replacement for an owned tab.",
+    "Approve this exact candidate? The core will revalidate it before adoption.",
+    "",
+    JSON.stringify(candidate, null, 2),
+  ].join("\n");
+}
+
+export function registerFirefoxAutomation(
+  pi: ExtensionAPI,
+  createAutomation: AutomationFactory = createFirefoxAutomation,
+): void {
+  const automations = new Map<string, Automation>();
+
+  function getAutomation(context: PiIdentityContext): Automation {
+    const sessionId = context.sessionManager.getSessionId();
+    const key = JSON.stringify([context.cwd, sessionId]);
+    let automation = automations.get(key);
+    if (!automation) {
+      automation = createAutomation({ cwd: context.cwd, agentId: sessionId });
+      automations.set(key, automation);
+    }
+    return automation;
+  }
+
+  async function execute(
+    name: string,
+    input: Record<string, unknown>,
+    context: ExtensionToolContext,
+    signal?: AbortSignal,
+  ): Promise<FirefoxAutomationResult> {
+    const automation = getAutomation(context);
+    const operationSignal = signal ?? context.signal;
+    const automationContext: FirefoxAutomationContext = {
+      ...(operationSignal ? { signal: operationSignal } : {}),
+      ...(context.hasUI
+        ? {
+            approveReplacement: (candidate) =>
+              context.ui.confirm(
+                "Confirm Firefox tab replacement",
+                replacementPrompt(candidate),
+                operationSignal ? { signal: operationSignal } : undefined,
+              ),
+          }
+        : {}),
+    };
+    return automation.execute(name, input, automationContext);
+  }
+
+  for (const descriptor of FIREFOX_TOOLS) {
+    pi.registerTool({
+      name: descriptor.name,
+      label: descriptor.name,
+      description: descriptor.description,
+      exposure: "direct",
+      annotations: {
+        readOnlyHint: descriptor.readOnly,
+        destructiveHint: !descriptor.readOnly,
+        idempotentHint: descriptor.readOnly,
+        openWorldHint: descriptor.name !== "ff_status",
+      },
+      parameters: Type.Unsafe(descriptor.parameters),
+      outputSchema: OUTPUT_SCHEMA,
+      async execute(_toolCallId, params, signal, _onUpdate, context) {
+        const result = await execute(
+          descriptor.name,
+          params as Record<string, unknown>,
+          context,
+          signal,
+        );
+        return {
+          content: [{ type: "text", text: modelFacingJson(result) }],
+          details: result,
+          structuredContent: result,
+          isError: result.ok === false,
+        };
+      },
+    });
+  }
+
+  const commands: Array<{
+    name: string;
+    description: string;
+    tool: string;
+  }> = [
+    {
+      name: "firefox-status",
+      description: "Show the core Firefox status result",
+      tool: "ff_status",
+    },
+    {
+      name: "firefox-session",
+      description: "List core Firefox session results",
+      tool: "ff_session_list",
+    },
+    {
+      name: "firefox-container",
+      description: "List core Firefox container results",
+      tool: "ff_container_list",
+    },
   ];
 
-  for (const warning of status.result.warnings.slice(0, MAX_WARNING_COUNT)) {
-    lines.push(`Warning: ${clip(warning, 240)}`);
+  for (const command of commands) {
+    pi.registerCommand(command.name, {
+      description: command.description,
+      async handler(_args, context: ExtensionCommandContext) {
+        if (!context.hasUI) return;
+        const result = await getAutomation(context).execute(
+          command.tool,
+          {},
+          context.signal ? { signal: context.signal } : {},
+        );
+        context.ui.notify(
+          modelFacingJson(result),
+          result.ok === false ? "warning" : "info",
+        );
+      },
+    });
   }
-  if (status.result.warnings.length > MAX_WARNING_COUNT) {
-    lines.push(
-      `Additional warnings omitted: ${status.result.warnings.length - MAX_WARNING_COUNT}`,
-    );
-  }
-
-  return clip(lines.join("\n"), MAX_SUMMARY_LENGTH);
-}
-
-export function registerFirefoxStatus(
-  pi: ExtensionAPI,
-  createClient: FirefoxClientFactory,
-): void {
-  let client: ReturnType<FirefoxClientFactory> | undefined;
-  const getClient = () => (client ??= createClient());
-
-  pi.registerTool({
-    name: "ff_status",
-    label: "Firefox Status",
-    description:
-      "Check Firefox CLI, native host, and connection status without changing setup.",
-    exposure: "direct",
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    parameters: Type.Object({}, { additionalProperties: false }),
-    outputSchema,
-    async execute(_toolCallId, _params, signal) {
-      const status = await getClient().status(signal ? { signal } : undefined);
-      return {
-        content: [{ type: "text", text: summarizeStatus(status) }],
-        details: status,
-        structuredContent: status,
-        isError: !status.ok,
-      };
-    },
-  });
-
-  pi.registerCommand("firefox-status", {
-    description: "Show Firefox CLI and native host status",
-    async handler(_args, ctx) {
-      if (!ctx.hasUI) return;
-
-      const status = await getClient().status();
-      ctx.ui.notify(summarizeStatus(status), status.ok ? "info" : "warning");
-    },
-  });
 }

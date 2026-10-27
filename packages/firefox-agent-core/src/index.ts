@@ -8,6 +8,16 @@ import type {
 } from "./types.js";
 
 export type { FirefoxStatusResult } from "./types.js";
+export { createFirefoxBrowser } from "./sessions.js";
+export type { FirefoxPageSummary } from "./summary.js";
+export type {
+  FirefoxBrowserFailure,
+  FirefoxBrowserOptions,
+  FirefoxBrowserResult,
+  FirefoxBrowserTab,
+  FirefoxReplacementConfirmation,
+  FirefoxVerifiedContainer,
+} from "./browser-types.js";
 
 export const SUPPORTED_FIREFOX_CLI_VERSION = "0.4.1";
 
@@ -293,3 +303,38 @@ function transportFailure(
 function failure(code: string, message: string): FirefoxStatusResult {
   return { ok: false, code, message, recovery: null };
 }
+
+export type {
+  FirefoxActInput,
+  FirefoxActionDiff,
+  FirefoxActionResult,
+  FirefoxJsonResult,
+  FirefoxLocateInput,
+  FirefoxLocatedElement,
+  FirefoxNetworkEntry,
+  FirefoxNetworkInput,
+  FirefoxNetworkResult,
+  FirefoxReadText,
+  FirefoxReadTextInput,
+  FirefoxScreenshotInput,
+  FirefoxScreenshotResult,
+  FirefoxSessionCleanupInput,
+  FirefoxSessionCleanupResult,
+  FirefoxSessionSummary,
+  FirefoxSnapshot,
+  FirefoxSnapshotInput,
+  FirefoxWaitInput,
+  FirefoxWaitResult,
+} from "./browser-feature-types.js";
+
+export { createFirefoxAutomation } from "./automation.js";
+export type {
+  FirefoxAutomationOptions,
+  FirefoxAutomationContext,
+  FirefoxAutomationResult,
+  FirefoxAutomationJson,
+} from "./automation.js";
+export { FIREFOX_TOOLS } from "./tool-catalog.js";
+export { loadFirefoxConfig } from "./config.js";
+export type { FirefoxRuntimeConfig } from "./config.js";
+export { createPersistentFirefoxBrowser } from "./persistent.js";

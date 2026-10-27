@@ -1,125 +1,142 @@
 # @pi-kaush/pi-firefox
 
-Native Pi tools for the existing Firefox session, powered by firefox-cli.
+Native Pi tools and safety guidance for owned Firefox sessions. The extension delegates all browser behavior to `@pi-kaush/firefox-agent-core` and `firefox-cli`.
 
-## Current scope
+This package is local-only. It is not published to npm.
 
-The first implementation provides `ff_status` and `/firefox-status` only.
-Session ownership, navigation, page reads, and CTC replacement confirmation are
-not implemented yet. This is not a finished browser-control extension.
+## Tools
 
-`@pi-kaush/firefox-core` contains the CLI transport and status logic. This package
-only registers Pi tools, translates results, and renders status. It adds no
-browser driver, MCP server, or second browser.
+The extension registers every public Firefox core tool:
 
-## 1. Install Firefox and firefox-cli
+- Status and inventory: `ff_status`, `ff_session_list`, `ff_tab_list`, `ff_container_list`.
+- Session and navigation: `ff_session_ensure`, `ff_go`, `ff_session_close`, `ff_session_cleanup`.
+- Page operations: `ff_read`, `ff_locate`, `ff_act`, `ff_wait`, `ff_network`, `ff_screenshot`, `ff_extract`, `ff_do`.
 
-Install Firefox 150 or newer. The live checks used Firefox 158.0.1 on macOS.
+The commands `/firefox-status`, `/firefox-session`, and `/firefox-container` show the matching core result. They do not add adapter-side browser logic.
 
-Run these commands in fish:
+The adapter uses public Pi APIs. It caches a lazy core automation instance by working directory and Pi session ID. It does not start Firefox, a process, or a socket while Pi loads the extension.
+
+The model-facing tool text is JSON capped at 8,000 bytes. Larger results include a valid JSON truncation notice and preview. The Pi `details` and `structuredContent` fields keep the exact core result. The output schema closes the outer result object.
+
+## Safety and limits
+
+- Firefox access uses the public `firefox-cli` interface. This is not an MCP server or a remote browser backend.
+- CTC controls container routing. The extension does not read or change CTC rules.
+- `ff_container_list` reports configured or observed containers only. It cannot enumerate every Firefox container.
+- Do not use private windows or private-page data.
+- The tools do not read cookies, authentication headers, response bodies, or raw HTML. The `ff_network` tool returns bounded request metadata.
+- `ff_read` returns a summary by default. Scoped, full, and text modes remain bounded.
+- The extension does not provide arbitrary page evaluation.
+- Pi can send tool content to the selected model provider. Do not request secrets or unnecessary personal data.
+
+Firefox replacement approval uses Pi's human confirmation dialog. The dialog shows the exact candidate. The core revalidates it after approval. Confirmation expires after two minutes. Headless calls cannot approve a replacement. Pending approvals do not survive a process restart; inspect an unadopted candidate manually before starting a new named session.
+
+Use `ff_do` with `dryRun: true` before a workflow. Writes require `allowWrite: true`. A failed workflow can include partial progress. Inspect its results before you try any operation again.
+
+The package declares Node 20 or newer. The live Firefox CLI baseline ran with Node 26.12.1. Compatibility with earlier Node 20 releases is not established by that live run.
+
+## Identity and configuration
+
+The adapter keys its client cache by `ctx.cwd` and `ctx.sessionManager.getSessionId()`. It passes the Pi session ID as the default core agent ID. Resuming the same Pi session keeps that ID. A new Pi session gets a different ID.
+
+The core's `FFX_AGENT_ID` setting overrides the default. Use it as a stable alias only when you need ownership continuity across different Pi sessions. Do not share an alias between independent agents. The core's default namespace hashes the working directory. `FFX_NAMESPACE` can set a trusted namespace explicitly.
+
+The core reads user settings from `$XDG_CONFIG_HOME/firefox-agent/config.json`, or `~/.config/firefox-agent/config.json` by default. It reads optional project limits from `.pi-firefox.json`. Project files may set timing and output limits only.
+
+| Setting              | Environment key         | Purpose                    |
+| -------------------- | ----------------------- | -------------------------- |
+| `binaryPath`         | `FFX_FIREFOX_CLI`       | Firefox CLI executable     |
+| `timeoutMs`          | `FFX_TIMEOUT_MS`        | CLI timeout                |
+| `maxOutputBytes`     | `FFX_MAX_OUTPUT_BYTES`  | Maximum CLI output         |
+| `summaryMaxBytes`    | `FFX_MAX_BYTES`         | Summary read limit         |
+| `scopedMaxBytes`     | `FFX_SCOPED_MAX_BYTES`  | Scoped read limit          |
+| `settleTimeoutMs`    | `FFX_SETTLE_TIMEOUT_MS` | Page settle wait           |
+| `statePath`          | `FFX_STATE_PATH`        | Owned-session state file   |
+| `screenshotDir`      | `FFX_SCREENSHOT_DIR`    | Screenshot directory       |
+| `logPath`            | `FFX_LOG_PATH`          | Diagnostic log path        |
+| `logLevel`           | `FFX_LOG_LEVEL`         | `off`, `error`, or `debug` |
+| `namespace`          | `FFX_NAMESPACE`         | Core ownership namespace   |
+| `agentId`            | `FFX_AGENT_ID`          | Stable core agent identity |
+| `defaultSession`     | `FFX_SESSION`           | Default session name       |
+| `defaultContainerId` | `FFX_CONTAINER`         | Expected container ID      |
+
+The shared activity gate always uses the OS user’s `~/.cache/firefox-agent/browser-activity.json`, independent of state paths and XDG overrides. Do not delete it while browser operations run.
+
+The default state, screenshot, and log paths use `$XDG_CACHE_HOME/firefox-agent`, or `~/.cache/firefox-agent`. Logging is off by default. The core also accepts `containerNames` in trusted user config.
+
+## Source and helper baseline
+
+The Firefox CLI 0.4.1 baseline measured fixture HTML, CLI snapshot text and JSON, and the pure core summary helper. It does not measure final Pi wire output or claim tokenizer parity. Token estimates use bytes divided by four, not a provider tokenizer.
+
+The final synthetic live check passed 20 fill/click/wait/extract cycles. Full core JSON measured 370 bytes for a summary and 402 bytes per four-step workflow. Human-confirmed CTC adoption through the public Pi loader also passed. See [core measurements and limits](../../packages/firefox-agent-core/README.md#configuration-and-validation).
+
+The real Pi-loader fixture returned 327 model-facing text bytes for a summary and 1,186 for a full read. Native result envelopes measured 1,116 and 3,749 bytes, respectively. These are byte measurements, not provider token counts. See [native result measurements](../../.agents/dox/report-firefox-pi-wire-live.json).
+
+See the [four-page source/helper baseline](../../.agents/dox/report-firefox-token-baseline.md).
+
+## Install locally
+
+Use a local checkout. Do not install this package from npm.
+
+1. Install Firefox and Node 20 or newer.
+2. Install the supported CLI and register its native host.
 
 ```fish
 npm install -g firefox-cli@0.4.1
 firefox-cli setup
 ```
 
-Open the matching extension URL printed by setup **in Firefox**. Install the
-extension through Firefox's installation prompt. For CLI 0.4.1, the URL is:
+3. Open the XPI URL printed by `setup` in Firefox.
+4. Install FF-CLI Bridge through Firefox's prompt.
 
-<https://github.com/respawn-llc/firefox-cli/releases/download/v0.4.1/firefox-cli-0.4.1.xpi>
+WARNING: Pairing grants CLI control of the connected normal Firefox profile. Pair only software and local users you trust.
 
-Keep Firefox running. Leave private-window access disabled.
-
-## 2. Approve the browser connection
-
-WARNING: Pairing firefox-cli grants full control over the signed-in Firefox
-session. Approve it only if you trust the software and users that can run the
-CLI on this machine.
+5. Request pairing.
 
 ```fish
 firefox-cli connect
+```
+
+6. Approve pairing in Firefox.
+7. Check the connection.
+
+```fish
 firefox-cli doctor --json
 ```
 
-Approve the request in Firefox. Doctor should report native host `installed`
-and extension connection `connected`. These are explicit setup actions; the Pi
-extension never installs components or requests pairing automatically.
+The result must show an installed native host and connected extension. Private-window access is not required.
 
-## 3. Load the local Pi extension
-
-These packages are not published. Use the existing repository checkout:
+8. Install workspace dependencies from the checkout.
 
 ```fish
 cd ~/dev/oss/pi-kaush
 npm install
-npm run build --workspace @pi-kaush/firefox-core
-pi -e ./extensions/pi-firefox
 ```
 
-The repository uses Node 20 or newer. Core compiles to ordinary ESM JavaScript;
-Pi loads the adapter's TypeScript entrypoint. Run `/firefox-status` in Pi, or ask
-the model to call `ff_status`.
+9. Build core explicitly.
 
-To keep the extension configured after this invocation:
+```fish
+npm run build --workspace @pi-kaush/firefox-agent-core
+```
+
+10. Install the Pi package.
 
 ```fish
 pi install ./extensions/pi-firefox
 ```
 
-Restart Pi or run `/reload`. Browser status names do not collide with
-`pi-browser`'s `/browser-status` or `browser_*` tools.
+11. Run `/reload` in Pi.
+12. Run `/firefox-status` before browser work.
 
-## Results and troubleshooting
+The extension does not install Firefox, the CLI, or FF-CLI Bridge. It does not change Firefox permissions or CTC settings.
 
-`ff_status` reports the CLI version, supported version, version match,
-native-host state, connection state, and warnings. The tool is read-only.
-Programmatic callers receive the same structured result as the tool's details.
-Expected failures set `isError` and include a stable code and safe message.
-Native-host paths, pairing URLs, and raw diagnostic output are omitted.
+## Test
 
-- CLI missing: install firefox-cli, then check `firefox-cli --version`.
-- Native host missing: run `firefox-cli setup` yourself.
-- Connection not approved: run `firefox-cli connect` yourself.
-- Disconnected: keep Firefox running and check that FF-CLI Bridge is enabled.
-- Version mismatch: prefer the tested CLI 0.4.1. Status warns rather than hiding
-  the mismatch.
-
-CTC owns container routing. This status-only implementation does not read CTC
-rules, change containers, or alter browser permissions. Normal Pi tool output
-can reach your selected model provider; this package adds no external analysis
-or telemetry.
-
-## Update or remove
-
-After updating the checkout, install workspace dependencies and rebuild core:
+Build the workspace core before running the focused tests. The tests make no browser connection.
 
 ```fish
-npm install
-npm run build --workspace @pi-kaush/firefox-core
+npm run build --workspace @pi-kaush/firefox-agent-core
+./node_modules/.bin/vitest run extensions/pi-firefox/test
 ```
 
-Reload Pi after the build. For a configured local installation, use `pi list`
-to find its source, then remove that source with `pi remove`.
-
-Removing the Pi package does not revoke firefox-cli pairing. Revoke pairing
-explicitly if desired:
-
-```fish
-firefox-cli unpair
-```
-
-To remove the backend, remove FF-CLI Bridge through Firefox's Add-ons Manager.
-Uninstall the CLI separately:
-
-```fish
-npm uninstall -g firefox-cli
-```
-
-These steps do not claim to remove native-host registration files. Check the
-upstream setup documentation for those platform-specific files.
-
-## Validation
-
-Run `npm run check` from the repository root. Focused status and adapter tests
-cover parsing, safe output, timeout, cancellation, output caps, structured tool
-results, lazy loading, and command-name coexistence.
+The tests mock the public automation port and load the extension with `pi-browser`. They do not call a browser or a model.

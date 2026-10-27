@@ -14,4 +14,4 @@ extensions/pi-better-read-edit/bench/published/*/
 .agents/
 
 # Generated Firefox core output
-extensions/firefox-core/dist/
+packages/firefox-agent-core/dist/
