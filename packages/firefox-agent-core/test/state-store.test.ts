@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createFirefoxStateStore,
   FirefoxStateError,
+  getFirefoxProcessIdentity,
 } from "../src/state-store.js";
 
 const temporaryDirectories: string[] = [];
@@ -105,6 +106,49 @@ afterEach(async () => {
 });
 
 describe("private Firefox state store", () => {
+  it.skipIf(process.platform !== "darwin")(
+    "looks up the current process identity once",
+    async () => {
+      const path = await newStatePath();
+      const directory = join(path, "..");
+      const logPath = join(directory, "ps.log");
+      const psPath = join(directory, "ps");
+      await writeFile(
+        psPath,
+        ["#!/bin/sh", 'printf "call\n" >> "$PS_LOG"', 'exec /bin/ps "$@"'].join(
+          "\n",
+        ),
+        { mode: 0o700 },
+      );
+      const moduleUrl = new URL("../dist/state-store.js", import.meta.url).href;
+      const program = [
+        "const { getFirefoxProcessIdentity } = await import(process.argv[1]);",
+        "const first = await getFirefoxProcessIdentity(process.pid);",
+        "const second = await getFirefoxProcessIdentity(process.pid);",
+        "if (!first || JSON.stringify(first) !== JSON.stringify(second)) process.exitCode = 1;",
+      ].join("\n");
+      const child = spawn(
+        process.execPath,
+        ["--input-type=module", "-e", program, moduleUrl],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            PATH: directory + ":" + (process.env.PATH ?? ""),
+            PS_LOG: logPath,
+          },
+        },
+      );
+      await waitForExit(child);
+      const lookups = (await readFile(logPath, "utf8"))
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+      expect(lookups).toHaveLength(1);
+      expect(await getFirefoxProcessIdentity(process.pid)).not.toBeNull();
+    },
+  );
+
   it("serializes operations on one key across child processes", async () => {
     const path = await newStatePath();
     const events = join(path, "..", "events.txt");

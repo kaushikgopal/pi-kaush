@@ -385,9 +385,27 @@ async function ensureLockRoot(path: string): Promise<void> {
   }
 }
 
-export async function getFirefoxProcessIdentity(
+// Only this process identity is stable for the lifetime of this module.
+type ProcessIdentity = { uid: number; start: string; state?: string };
+let currentProcessIdentity: Promise<ProcessIdentity | null> | undefined;
+
+export function getFirefoxProcessIdentity(
   pid: number,
-): Promise<{ uid: number; start: string; state?: string } | null> {
+): Promise<ProcessIdentity | null> {
+  if (pid !== process.pid) return readFirefoxProcessIdentity(pid);
+  if (!currentProcessIdentity) {
+    const lookup = readFirefoxProcessIdentity(pid);
+    currentProcessIdentity = lookup.then((identity) => {
+      if (!identity) currentProcessIdentity = undefined;
+      return identity;
+    });
+  }
+  return currentProcessIdentity;
+}
+
+async function readFirefoxProcessIdentity(
+  pid: number,
+): Promise<ProcessIdentity | null> {
   if (process.platform === "linux") {
     try {
       const [statText, statusText] = await Promise.all([
