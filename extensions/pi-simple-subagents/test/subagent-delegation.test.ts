@@ -272,13 +272,15 @@ describe("delegation lineage", () => {
     ).toBe(1);
   });
 
-  test("strips herdr state and passes trace metadata to the child", () => {
+  test("strips herdr and Rex state and passes trace metadata to the child", () => {
     const baseEnv = {
       PATH: "/bin",
       HERDR_ENV: "1",
       HERDR_SOCKET_PATH: "/tmp/herdr.sock",
       HERDR_PANE_ID: "1-1",
       Herdr_Mixed_Case: "enabled",
+      REX_SESSION: "session:caller",
+      REX_BLOCK: "block:caller",
       PI_MANAGED_SUBAGENT_DIR: "/managed",
       PI_MANAGED_SUBAGENT_HOLD_ON_MODEL_ERROR: "1",
       PI_MANAGED_SUBAGENT_FUTURE_SETTING: "must not leak",
@@ -291,6 +293,8 @@ describe("delegation lineage", () => {
     expect(childEnv.HERDR_SOCKET_PATH).toBeUndefined();
     expect(childEnv.HERDR_PANE_ID).toBeUndefined();
     expect(childEnv.Herdr_Mixed_Case).toBeUndefined();
+    expect(childEnv.REX_SESSION).toBeUndefined();
+    expect(childEnv.REX_BLOCK).toBeUndefined();
     for (const key of Object.keys(baseEnv).filter((name) =>
       name.startsWith("PI_MANAGED_SUBAGENT_"),
     ))
@@ -304,7 +308,7 @@ describe("delegation lineage", () => {
 });
 
 describe("delegated prompt boundary", () => {
-  test("allows one bounded subdelegation level and prohibits herdr", () => {
+  test("allows one bounded subdelegation level and prohibits herdr and Rex", () => {
     const trace = createDelegationTrace("main-session", "call-1", {});
     const prompt = buildDelegatedSystemPrompt(
       "Agent-specific instructions.",
@@ -313,7 +317,7 @@ describe("delegated prompt boundary", () => {
     );
 
     expect(prompt).toContain("Agent-specific instructions.");
-    expect(prompt).toContain("Never invoke or control herdr");
+    expect(prompt).toContain("Never invoke or control herdr or Rex");
     expect(prompt).toContain("run at most 5 children at once");
     expect(prompt).toContain("delegation depth 1 of the hard maximum 2");
     expect(prompt).toContain('calling the "yield" tool exactly once');

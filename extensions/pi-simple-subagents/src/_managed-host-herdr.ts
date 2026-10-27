@@ -1,22 +1,18 @@
 /**
  * Herdr host: each worker is a native interactive Pi in an extension-owned
- * pane stacked below the caller. Also selects the host for the current
- * environment, falling back to RPC outside Herdr.
+ * pane stacked below the caller. Host selection lives in
+ * `_managed-host-detect.ts`.
  */
 import { execFile, type ChildProcess } from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { createKeyedMutex } from "./_concurrency.ts";
 import {
-  defaultSleep,
   ManagedError,
   type ManagedHostLaunch,
   type ManagedHostPort,
   ManagedStartupError,
 } from "./_managed-host.ts";
-import { createRpcHost } from "./_managed-host-rpc.ts";
 import { errorText } from "./_parse.ts";
-import { isPidAlive, type SubagentProcessRegistry } from "./_process-tree.ts";
+import type { SubagentProcessRegistry } from "./_process-tree.ts";
 import { truncateUtf8Head } from "./_text.ts";
 
 /** Tracks a worker PID that this process did not spawn (Herdr pane children). */
@@ -58,11 +54,11 @@ const HERDR_PANE_BUSY_RETRIES = 30;
 const HERDR_PANE_BUSY_DELAY_MS = 100;
 
 /**
- * Pi configuration safe to forward into a pane. Provider credentials and
- * per-session variables stay out: Herdr `--env` values are visible in process
- * listings and persisted in the pane's shell.
+ * Pi configuration safe to forward into a Herdr or Rex pane. Provider
+ * credentials and per-session variables stay out: forwarded values are
+ * visible in process listings and persisted in the pane's shell.
  */
-const HERDR_FORWARD_ENV_KEYS = [
+const PANE_FORWARD_ENV_KEYS = [
   "PI_CODING_AGENT_DIR",
   "PI_PACKAGE_DIR",
   "PI_OFFLINE",
@@ -71,11 +67,11 @@ const HERDR_FORWARD_ENV_KEYS = [
   "PI_CACHE_RETENTION",
 ] as const;
 
-export function herdrForwardEnvironment(
+export function managedPaneForwardEnvironment(
   env: NodeJS.ProcessEnv,
 ): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const key of HERDR_FORWARD_ENV_KEYS) {
+  for (const key of PANE_FORWARD_ENV_KEYS) {
     const value = env[key];
     if (value) result[key] = value;
   }
@@ -373,7 +369,7 @@ export function createHerdrHost(options: HerdrHostOptions): ManagedHostPort {
   };
 }
 
-function execFileText(
+export function execHerdrText(
   bin: string,
   args: readonly string[],
   options: HerdrExecOptions = {},
@@ -427,55 +423,4 @@ function execFileText(
       },
     );
   });
-}
-
-function herdrExecutableAvailable(
-  bin: string,
-  env: NodeJS.ProcessEnv,
-): boolean {
-  const candidates =
-    path.isAbsolute(bin) || bin.includes(path.sep)
-      ? [bin]
-      : (env.PATH ?? process.env.PATH ?? "")
-          .split(path.delimiter)
-          .map((directory) => path.join(directory, bin));
-  return candidates.some((candidate) => {
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-}
-
-export function detectManagedHost(
-  env: NodeJS.ProcessEnv,
-  registry: SubagentProcessRegistry,
-  pollMs: number,
-): ManagedHostPort {
-  const workspaceId = env.HERDR_WORKSPACE_ID?.trim();
-  const parentPaneId = env.HERDR_PANE_ID?.trim();
-  const tabId = env.HERDR_TAB_ID?.trim();
-  const bin = env.HERDR_BIN_PATH?.trim() || "herdr";
-  if (
-    env.HERDR_ENV === "1" &&
-    workspaceId &&
-    parentPaneId &&
-    tabId &&
-    herdrExecutableAvailable(bin, env)
-  ) {
-    return createHerdrHost({
-      parentPaneId,
-      tabId,
-      bin,
-      exec: execFileText,
-      registry,
-      isPidAlive,
-      sleep: (ms, signal) => defaultSleep(ms, signal),
-      pollMs,
-      forwardEnv: herdrForwardEnvironment(env),
-    });
-  }
-  return createRpcHost(registry);
 }

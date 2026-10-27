@@ -480,6 +480,11 @@ export type ManagedPlacement =
       readonly paneId: string;
       /** Missing is a legacy worker tab; new native workers use a split pane. */
       readonly layout?: "tab" | "split";
+    }
+  | {
+      readonly kind: "rex";
+      readonly sessionId: string;
+      readonly blockId: string;
     };
 
 export type ManagedLifecycle =
@@ -520,6 +525,13 @@ function parsePlacement(value: unknown): ManagedPlacement | undefined {
   if (!isPlainRecord(value)) return undefined;
   if (value.kind === "rpc")
     return { kind: "rpc", ...opt("pid", finiteNumber(value.pid)) };
+  if (value.kind === "rex") {
+    const sessionId = stringValue(value.sessionId);
+    const blockId = stringValue(value.blockId);
+    return sessionId && blockId
+      ? { kind: "rex", sessionId, blockId }
+      : undefined;
+  }
   const tabId = stringValue(value.tabId);
   const paneId = stringValue(value.paneId);
   const layout = oneOf(value.layout, ["tab", "split"] as const);

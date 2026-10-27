@@ -246,7 +246,7 @@ export function createRpcHost(
     async focus() {
       throw new ManagedError(
         "unsupported",
-        "Native TUI attachment is only available when Pi runs inside Herdr.",
+        "Native TUI attachment is only available when Pi runs inside Herdr or Rex.",
       );
     },
   };

@@ -60,7 +60,7 @@ Background runs (the default) return a result inside the current turn:
 Interactive workers keep their session and report back on their own:
 
 - `Start an interactive bee worker: read src/index.ts and tell me in 3 bullets what it does.`
-  In Herdr it opens in an unfocused pane below. Outside Herdr, it uses the
+  In Herdr or Rex it opens in an unfocused pane below. Elsewhere, it uses the
   headless RPC fallback and warns that no interactive pane is available. The
   result arrives without a `wait` call.
 - `Send that worker a follow-up: list any timers it creates.` Same session, new
@@ -122,8 +122,8 @@ workers hold them all, background runs fail immediately and name workers to stop
 
 The default `action: "run"` runs background work. It supports single, parallel, and
 chain tasks. Use `action: "interactive"` for persistent workers.
-An interactive worker keeps its session for later assignments. In Herdr, it
-opens a pane. Interactive mode accepts one agent/task or a `tasks[]` batch
+An interactive worker keeps its session for later assignments. In Herdr or
+Rex, it opens a pane. Interactive mode accepts one agent/task or a `tasks[]` batch
 with optional shared `context`. It does not support chains.
 
 ```json
@@ -184,10 +184,12 @@ leaves interactive workers running. If interactive workers hold every slot,
 background runs fail immediately and list workers to stop.
 Interactive sessions persist even when `persistChildSessions` is disabled for background runs.
 
-In Herdr, each interactive worker runs in an unfocused, extension-owned pane split down from
-the caller; later workers stack below earlier ones. The `/subagent` picker can
-inspect it or focus it for native TUI use. Outside Herdr, interactive workers run through Pi
-RPC and remain headless. Interactive mode warns when no pane is available; the
+In Herdr or [Rex](https://www.superlogical.com/rex/), each interactive worker
+runs in an unfocused, extension-owned pane split down from the caller; later
+workers stack below earlier ones. The `/subagent` picker can inspect it or
+focus it for native TUI use. Herdr wins when both are present. Rex is detected
+from `REX_SESSION`, `REX_BLOCK`, and the `rex` CLI (`REX_BIN_DIR` or `PATH`).
+Elsewhere, interactive workers run through Pi RPC and remain headless. Interactive mode warns when no pane is available; the
 expanded tool output and picker give a fish-safe command for the saved session
 and tell you to stop a running headless worker before opening it elsewhere. That
 command opens a standalone session, not a live attachment: close it before
@@ -206,8 +208,8 @@ Durable is an experimental, separate framework, not a drop-in attachment feature
 for these Pi CLI workers. Adopting it would require a worker backend and UI adapter;
 it does not make independent concurrent storage writers safe.
 
-Herdr workers use the Herdr server's provider environment and the shared Pi agent
-directory. Parent-only exported credentials are not copied into launch arguments.
+Herdr and Rex workers use the multiplexer server's provider environment and the
+shared Pi agent directory. Parent-only exported credentials are not copied into launch arguments.
 Blocked trust or permission prompts are never automatically approved.
 
 Profiles and model overrides are resolved when an interactive worker starts and reused for
@@ -217,14 +219,15 @@ inherited. Isolation flags are opt-in; `noMcp` is currently supported only for
 background runs (requires Pi 1.0.4 or newer), and `noExtensions` explicitly loads this package's child bridge
 and `yield` tool.
 
-The offline RPC smoke runs in the ordinary test suite. Native Herdr smoke is
-opt-in because it creates and closes a real unfocused split pane:
+The offline RPC smoke runs in the ordinary test suite. Native Herdr and Rex
+smokes are opt-in because they create and close a real unfocused split pane:
 
 ```fish
 env PI_MANAGED_HERDR_SMOKE=1 npx vitest run extensions/pi-simple-subagents/test/subagent-managed-cli.test.ts
+env PI_MANAGED_REX_SMOKE=1 npx vitest run extensions/pi-simple-subagents/test/subagent-managed-cli.test.ts
 ```
 
-Both smoke tests use a deterministic local provider, not network model calls.
+All smoke tests use a deterministic local provider, not network model calls.
 
 ## Agents
 
