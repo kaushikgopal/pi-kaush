@@ -17,6 +17,7 @@ const required = [
   "package.json",
   "src/container-hooks.ts",
   "src/index.ts",
+  "src/intercom-message.ts",
   "src/render.ts",
 ];
 const allowed =
