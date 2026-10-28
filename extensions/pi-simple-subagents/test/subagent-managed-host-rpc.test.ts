@@ -110,6 +110,7 @@ describe("rpc host", () => {
     fs.mkdirSync(dir, { recursive: true });
     const script = path.join(dir, "child.mjs");
     const reply = path.join(dir, "reply.json");
+    const replyTmp = path.join(dir, "reply.tmp");
     fs.writeFileSync(
       script,
       `
@@ -120,7 +121,10 @@ let buffer = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   buffer += chunk;
-  if (buffer.includes("\\n")) fs.writeFileSync(${JSON.stringify(reply)}, buffer.split("\\n")[0]);
+  if (buffer.includes("\\n")) {
+    fs.writeFileSync(${JSON.stringify(replyTmp)}, buffer.split("\\n")[0]);
+    fs.renameSync(${JSON.stringify(replyTmp)}, ${JSON.stringify(reply)});
+  }
 });
 process.stdin.on("end", () => process.exit(0));
 `,
