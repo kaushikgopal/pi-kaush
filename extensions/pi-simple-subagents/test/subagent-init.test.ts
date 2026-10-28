@@ -46,6 +46,33 @@ describe("init scaffold", () => {
     expect(readFileSync(profiles, "utf-8")).toContain("profiles: {}");
   });
 
+  test.each([
+    { existing: "agent", content: "Custom agent" },
+    { existing: "profiles", content: "Custom profiles" },
+  ])(
+    "preserves existing $existing when creating the other file",
+    ({ existing, content }) => {
+      const dir = agentDir();
+      const agent = path.join(dir, "agents", "bee.md");
+      const profiles = path.join(dir, "profiles.yaml");
+      mkdirSync(path.join(dir, "agents"), { recursive: true });
+      const existingFile = existing === "agent" ? agent : profiles;
+      const newFile = existing === "agent" ? profiles : agent;
+      writeExisting(existingFile, content);
+
+      const outcomes = initScaffoldFiles(dir);
+
+      expect(outcomes).toEqual([
+        { file: agent, created: existing !== "agent" },
+        { file: profiles, created: existing !== "profiles" },
+      ]);
+      expect(readFileSync(existingFile, "utf-8")).toBe(content);
+      expect(readFileSync(newFile, "utf-8")).toContain(
+        existing === "agent" ? "profiles:" : "profile: quick",
+      );
+    },
+  );
+
   test("parses the init action with no arguments", () => {
     const parsed = parseSubagentCall({ action: "init" });
     expect(parsed).toEqual({ ok: true, command: { kind: "init" } });
