@@ -660,9 +660,18 @@ describe("Herdr", () => {
     });
   });
 
-  test("reports a malformed pane response", async () => {
-    const harness = createHarness(async () => success());
+  test("reports a malformed pane response without starting an agent", async () => {
+    const calls: string[][] = [];
+    const harness = createHarness(async (_command, args) => {
+      calls.push(args);
+      return success();
+    });
+
     await harness.btw("Side question");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.slice(0, 2)).toEqual(["pane", "split"]);
+    expect(harness.forks).toEqual([]);
     expect(harness.notifications.at(-1)?.message).toContain(
       "Could not read the new Herdr pane id",
     );
