@@ -91,6 +91,13 @@ describe("paired read and edit tools", () => {
     expect(firstEdit.details.diff).toContain("TWO");
     expect(firstEdit.details.patch).toContain("example.ts");
     expect(header(firstEdit)).not.toBe(header(firstRead));
+    const output =
+      "Updated 1 file(s).\n\n[example.ts#" +
+      firstEdit.details.hashlineAnchor.tag +
+      "]\n1:one\n2:TWO\n3:three\n4:four";
+    expect(firstEdit.content).toEqual([{ type: "text", text: output }]);
+    expect(firstEdit.structuredContent.output).toBe(output);
+    expect(firstEdit.structuredContent).not.toHaveProperty("recovery_warnings");
     addToolResult(firstEdit.details, "edit");
 
     const secondEdit = await edit(`${header(firstEdit)}\nPUT 1.=1:\n+ONE`);
@@ -116,6 +123,54 @@ describe("paired read and edit tools", () => {
       /no longer matches/,
     );
     expect(await readFile(path, "utf8")).toBe("changed target\nONE\ntwo\n");
+  });
+
+  test("returns ordered multi-file windows and recovery warnings in both result forms", async () => {
+    const zPath = join(root, "z.txt");
+    const aPath = join(root, "a.txt");
+    await writeFile(zPath, "one\ntwo\n");
+    await writeFile(aPath, "one\ntwo\n");
+    const zRead = await read("z.txt");
+    const aRead = await read("a.txt");
+    addToolResult(zRead.details);
+    addToolResult(aRead.details);
+    await writeFile(zPath, "external z\none\ntwo\n");
+    await writeFile(aPath, "external a\none\ntwo\n");
+
+    const result = await edit(
+      header(zRead) +
+        "\nPUT 1.=1:\n+ONE Z\n" +
+        header(aRead) +
+        "\nPUT 1.=1:\n+ONE A",
+    );
+    const warnings = [
+      "z.txt: preserved non-overlapping changes made after the tagged read.",
+      "a.txt: preserved non-overlapping changes made after the tagged read.",
+    ];
+    const output = [
+      "Updated 2 file(s).",
+      "[z.txt#" +
+        result.details.hashlineAnchors[0].tag +
+        "]\n1:external z\n2:ONE Z\n3:two",
+      "[a.txt#" +
+        result.details.hashlineAnchors[1].tag +
+        "]\n1:external a\n2:ONE A\n3:two",
+      "Warnings:\n- " + warnings[0] + "\n- " + warnings[1],
+    ].join("\n\n");
+    expect(result.content).toEqual([{ type: "text", text: output }]);
+    expect(result.details.files).toEqual(["z.txt", "a.txt"]);
+    expect(result.details.recoveryWarnings).toEqual(warnings);
+    expect(result.structuredContent).toEqual({
+      output,
+      files: ["z.txt", "a.txt"],
+      file_edits: [
+        { path: "z.txt", first_changed_line: 2 },
+        { path: "a.txt", first_changed_line: 2 },
+      ],
+      recovery_warnings: warnings,
+    });
+    expect(await readFile(zPath, "utf8")).toBe("external z\nONE Z\ntwo\n");
+    expect(await readFile(aPath, "utf8")).toBe("external a\nONE A\ntwo\n");
   });
 
   test("serializes sibling edits against one snapshot and preserves both", async () => {
