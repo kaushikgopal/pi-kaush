@@ -1254,6 +1254,22 @@ import("ci-sleep");
     ]);
   });
 
+  test("ignores side-effect import examples in strings and comments", () => {
+    const source = [
+      'import { value } from "actual-package";',
+      `const instructions = 'Use import "example-package"; to enable it';`,
+      'const template = `import "template-package";`;',
+      '// import "line-comment-package";',
+      '/* import "block-comment-package"; */',
+      'import("dynamic-package");',
+    ].join("\n");
+
+    expect(findUndeclaredImports(source, new Set())).toEqual([
+      "actual-package",
+      "dynamic-package",
+    ]);
+  });
+
   test("scores severity: blocked pin, behind, odd imports, ok", () => {
     expect(
       assessHealthSeverity({
