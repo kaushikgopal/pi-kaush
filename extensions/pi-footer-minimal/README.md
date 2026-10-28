@@ -58,7 +58,7 @@ The published package contains readable TypeScript and has:
 
 - no runtime dependencies;
 - no install scripts;
-- no filesystem, network, subprocess, environment, or model access — it only reads the session, model, and status data Pi already exposes;
+- no direct filesystem or network access, subprocesses, or model invocation; it reads `HOME` or `USERPROFILE` to shorten displayed paths, plus session, model, and status data Pi exposes;
 - no telemetry.
 
 ## Development
