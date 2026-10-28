@@ -1,5 +1,13 @@
+import {
+  Theme,
+  type WorkingIndicatorOptions,
+} from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
-import { waveFrames, type WaveColors } from "../src/index.ts";
+import registerIndicator, {
+  waveFrames,
+  type WaveColors,
+} from "../src/index.ts";
 
 const colors: WaveColors = {
   head: (square) => `H${square}`,
@@ -13,10 +21,53 @@ describe("waveFrames", () => {
     expect(waveFrames(colors, 5, 2)).toHaveLength(5);
   });
 
-  test("every frame renders at the same visible width", () => {
-    const widths = new Set(waveFrames(colors).map((frame) => frame.length));
-    expect([...widths]).toHaveLength(1);
-  });
+  test.each(["256color", "truecolor"] as const)(
+    "each ANSI wave frame occupies eight terminal columns in %s mode",
+    async (mode) => {
+      const handlers = new Map<
+        string,
+        (event: unknown, context: unknown) => Promise<void>
+      >();
+      registerIndicator({
+        on(
+          event: string,
+          handler: (event: unknown, context: unknown) => Promise<void>,
+        ) {
+          handlers.set(event, handler);
+        },
+        registerCommand() {},
+      } as never);
+
+      const theme = new Theme(
+        {
+          text: "#ff8010",
+          muted: "#401008",
+          dim: "#010203",
+          thinkingXhigh: 15,
+        } as never,
+        { selectedBg: 0 } as never,
+        mode,
+        { dim: ["dim"] },
+      );
+      const indicators: WorkingIndicatorOptions[] = [];
+      await handlers.get("session_start")!(
+        {},
+        {
+          ui: {
+            theme,
+            setWorkingIndicator: (indicator: WorkingIndicatorOptions) =>
+              indicators.push(indicator),
+            setWorkingMessage() {},
+          },
+        },
+      );
+
+      const frames = indicators[0]!.frames!;
+      expect(frames).toHaveLength(8);
+      expect(frames.every((frame) => frame.includes("\x1b["))).toBe(true);
+      expect(frames.map(visibleWidth)).toEqual(Array(8).fill(8));
+    },
+  );
 
   test("the head square advances one cell per frame and wraps", () => {
     const frames = waveFrames(colors, 5, 2);
