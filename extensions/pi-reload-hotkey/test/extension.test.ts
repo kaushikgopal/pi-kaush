@@ -60,10 +60,11 @@ test("the command waits for Pi's reload and sends no model message", async () =>
 test("reload errors propagate to Pi without retrying or sending a prompt", async () => {
   const { pi, command } = setup();
   const error = new Error("Reload failed");
-  const ctx = { reload: (): Promise<void> => Promise.reject(error) };
+  const ctx = { reload: vi.fn((): Promise<void> => Promise.reject(error)) };
   // SAFETY: the command accesses only reload on its command context.
   await expect(
-    command.handler("", ctx as ExtensionCommandContext),
+    command.handler("", ctx as unknown as ExtensionCommandContext),
   ).rejects.toBe(error);
+  expect(ctx.reload).toHaveBeenCalledTimes(1);
   expect(pi.sendUserMessage).not.toHaveBeenCalled();
 });
