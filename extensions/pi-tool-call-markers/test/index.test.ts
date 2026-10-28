@@ -1421,6 +1421,31 @@ describe("tool-call-markers grouping", () => {
     expect(lines[4]).toBe("    ... +1 more");
   });
 
+  test("hides a profile badge when a parallel task overrides its model", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "delegation");
+    row.args = {
+      tasks: [
+        {
+          agent: "alpha",
+          profile: "fast",
+          model: "provider/model",
+          task: "First task.",
+        },
+        { agent: "beta", profile: "thorough", task: "Second task." },
+      ],
+    };
+    row.updateResult({ isError: false, output: "child result" });
+    chat.addChild(row);
+
+    const lines = chat
+      .render(100)
+      .map(stripAnsi)
+      .filter((line) => line.trim());
+    expect(lines[1]).toBe("    [alpha] First task.");
+    expect(lines[2]).toBe("    [thorough][beta] Second task.");
+  });
+
   test("renders a single subagent as a one-line tool row", () => {
     const chat = new MockContainer();
     const row = new MockToolExecutionComponent("subagent", "delegation");
