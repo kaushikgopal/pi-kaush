@@ -625,7 +625,7 @@ async function applyPlan(
   signal?: AbortSignal,
 ): Promise<{
   details: BetterEditDetails;
-  windows: string[];
+  output: string;
 }> {
   const ordered = [...files].sort((a, b) =>
     compareCanonicalPaths(a.canonicalPath, b.canonicalPath),
@@ -826,7 +826,7 @@ async function applyPlan(
       snapshots.record(anchor, newDocuments[index]!);
     }
 
-    return { windows, details };
+    return { output: successOutput, details };
   });
 }
 
@@ -862,7 +862,7 @@ export default function registerEditTool(
       );
       const plan = await buildPlan(input, ctx.cwd, registry, snapshots);
       const applied = await applyPlan(plan, snapshots, signal);
-      const output = `Updated ${applied.details.files.length} file(s).\n\n${applied.windows.join("\n\n")}${applied.details.recoveryWarnings?.length ? `\n\nWarnings:\n${applied.details.recoveryWarnings.map((warning) => `- ${warning}`).join("\n")}` : ""}`;
+      const output = applied.output;
       return {
         content: [{ type: "text" as const, text: output }],
         details: applied.details,
