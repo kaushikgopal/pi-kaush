@@ -929,6 +929,51 @@ describe("pi-agent-mode", () => {
     });
   });
 
+  test.each(["xhigh", "max"])(
+    "restores the newest agent with a %s baseline and clears to that baseline",
+    async (thinkingLevel) => {
+      const dir = join(root, "home", ".pi", "agents");
+      writeAgent(dir, "plain", "provider/plain");
+      writeAgent(dir, "thinker", "provider/target:high");
+      const harness = createHarness(root, [
+        {
+          type: "custom",
+          customType: LEGACY_ACTIVE_AGENT_STATE_TYPE,
+          data: { active: true, name: "plain" },
+        },
+        {
+          type: "custom",
+          customType: PI_AGENT_MODE_STATE_TYPE,
+          data: {
+            active: true,
+            name: "thinker",
+            baseline: {
+              model: { provider: "provider", id: "baseline" },
+              thinkingLevel,
+              tools: ["read", "bash"],
+            },
+          },
+        },
+      ]);
+
+      await harness.sessionStart();
+      expect(harness.state()).toEqual({
+        model: "target",
+        thinkingLevel: "high",
+        activeTools: ["read"],
+      });
+      expect(harness.statuses.at(-1)).toEqual(["active-agent", "thinker"]);
+      expect(harness.entries).toHaveLength(0);
+
+      await harness.activate("none");
+      expect(harness.state()).toEqual({
+        model: "baseline",
+        thinkingLevel,
+        activeTools: ["read", "bash"],
+      });
+    },
+  );
+
   test("skips malformed persisted agent state entries", async () => {
     const malformedEntries = [
       {
