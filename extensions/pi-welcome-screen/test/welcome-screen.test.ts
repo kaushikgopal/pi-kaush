@@ -1318,6 +1318,17 @@ import("ci-sleep");
     }
   });
 
+  test("does not start a registry request when the caller is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetcher = vi.fn(async () => Response.json({ version: "2.7.1" }));
+
+    await expect(
+      fetchNpmLatestVersion("example", controller.signal, fetcher),
+    ).resolves.toBeUndefined();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   test("cancels an active registry request when the caller aborts", async () => {
     const controller = new AbortController();
     let requestSignal: AbortSignal | null | undefined;

@@ -243,6 +243,7 @@ export async function fetchNpmLatestVersion(
   fetcher: typeof fetch = fetch,
   timeoutMs = 3000,
 ): Promise<string | undefined> {
+  if (signal.aborted) return undefined;
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal.addEventListener("abort", abort);
