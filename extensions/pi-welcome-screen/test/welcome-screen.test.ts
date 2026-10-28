@@ -1298,6 +1298,26 @@ import("ci-sleep");
     expect(assessHealthSeverity({ missingDeps: ["node-pty"] })).toBe("blocked");
   });
 
+  test("fetches a registry version through a stubbed global fetch", async () => {
+    const fetcher = vi.fn(async () => Response.json({ version: "2.7.1" }));
+    vi.stubGlobal("fetch", fetcher);
+    delete process.env.PI_OFFLINE;
+    try {
+      await expect(
+        fetchNpmLatestVersion("@example/package", new AbortController().signal),
+      ).resolves.toBe("2.7.1");
+      expect(fetcher).toHaveBeenCalledExactlyOnceWith(
+        "https://registry.npmjs.org/%40example/package/latest",
+        {
+          signal: expect.any(AbortSignal),
+          headers: { accept: "application/json" },
+        },
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   test("cancels an active registry request when the caller aborts", async () => {
     const controller = new AbortController();
     let requestSignal: AbortSignal | null | undefined;
