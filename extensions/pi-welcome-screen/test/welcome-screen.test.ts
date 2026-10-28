@@ -66,6 +66,7 @@ const {
   collectExtensionHealth,
   compareVersions,
   describeHealthIssue,
+  fetchNpmLatestVersion,
   findUndeclaredImports,
   normalizeExtensionName,
   parseWelcomeResources,
@@ -1295,6 +1296,25 @@ import("ci-sleep");
       "ok",
     );
     expect(assessHealthSeverity({ missingDeps: ["node-pty"] })).toBe("blocked");
+  });
+
+  test("cancels an active registry request when the caller aborts", async () => {
+    const controller = new AbortController();
+    let requestSignal: AbortSignal | null | undefined;
+    const fetcher: typeof fetch = (_input, init) => {
+      requestSignal = init?.signal;
+      return new Promise((_resolve, reject) => {
+        requestSignal?.addEventListener("abort", () =>
+          reject(new Error("aborted")),
+        );
+      });
+    };
+
+    const latest = fetchNpmLatestVersion("example", controller.signal, fetcher);
+    expect(requestSignal?.aborted).toBe(false);
+    controller.abort();
+    expect(requestSignal?.aborted).toBe(true);
+    await expect(latest).resolves.toBeUndefined();
   });
 
   test("collects health through an injected environment without disk or network", async () => {
