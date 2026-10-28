@@ -67,6 +67,56 @@ function header(result: any): string {
 }
 
 describe("paired read and edit tools", () => {
+  test("reads multiple notebook cells as a selected untagged projection", async () => {
+    await writeFile(
+      join(root, "example.ipynb"),
+      JSON.stringify({
+        nbformat: 4,
+        nbformat_minor: 4,
+        metadata: {},
+        cells: [
+          {
+            cell_type: "markdown",
+            metadata: {},
+            source: ["# Title\n", "second\n"],
+          },
+          {
+            cell_type: "code",
+            execution_count: null,
+            metadata: {},
+            outputs: [],
+            source: "print(1)\n",
+          },
+        ],
+      }),
+    );
+    const projection = await read("example.ipynb");
+    expect(projection.content).toEqual([
+      {
+        type: "text",
+        text: "# %% [markdown] cell:1\n# Title\nsecond\n\n# %% [code] cell:2\nprint(1)",
+      },
+    ]);
+    expect(projection.details).toMatchObject({
+      sourceKind: "notebook",
+      projection: true,
+      mutableLocalText: false,
+      truncated: false,
+    });
+    expect(projection.details).not.toHaveProperty("hashlineAnchor");
+    expect(projection.structuredContent.source).toBe("projection");
+
+    const selected = await read("example.ipynb", { ranges: "2-3" });
+    expect(selected.content).toEqual([
+      { type: "text", text: "2|# Title\n3|second" },
+    ]);
+    expect(selected.details).toMatchObject({
+      selector: "2-3",
+      projection: true,
+      mutableLocalText: false,
+    });
+  });
+
   test("uses a strict total order for multi-file locks", () => {
     const left = "/tmp/a";
     const right = "/tmp/a\u200B";
