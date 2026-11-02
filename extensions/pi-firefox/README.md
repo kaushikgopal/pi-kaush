@@ -128,6 +128,8 @@ pi install ./extensions/pi-firefox
 11. Run `/reload` in Pi.
 12. Run `/firefox-status` before browser work.
 
+If the core dependency is missing or has not been built, Pi starts without Firefox tools and shows the setup commands. Run the commands from the checkout root, then reload Pi. After pulling changes to the core source, rebuild the core; an older build may still load without a warning.
+
 The extension does not install Firefox, the CLI, or FF-CLI Bridge. It does not change Firefox permissions or CTC settings.
 
 ## Test

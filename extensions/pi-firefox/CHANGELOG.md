@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Warn with setup instructions when the core dependency is missing or not built.
 - Register every public Firefox core tool through a lazy per-session Pi adapter.
 - Forward structured core results unchanged and mark only failed results as errors.
 - Require human approval for replacement candidates and pass tool cancellation through.
