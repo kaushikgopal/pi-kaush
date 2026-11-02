@@ -1,10 +1,23 @@
 import { mkdtemp, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
 import { expect, test } from "vitest";
 import { FIREFOX_TOOLS } from "@pi-kaush/firefox-agent-core";
+
+test("the Firefox core entry resolves for require-style extension loaders", () => {
+  const require = createRequire(import.meta.url);
+  expect(require.resolve("@pi-kaush/firefox-agent-core")).toBe(
+    fileURLToPath(
+      new URL(
+        "../../../packages/firefox-agent-core/dist/index.js",
+        import.meta.url,
+      ),
+    ),
+  );
+});
 
 test("Pi loads Firefox and pi-browser together without connecting to a browser", async () => {
   const directory = await mkdtemp(join(tmpdir(), "pi-firefox-loader-"));
