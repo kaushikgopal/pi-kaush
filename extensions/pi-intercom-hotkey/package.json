@@ -1,6 +1,6 @@
 {
   "name": "@pi-kaush/pi-intercom-hotkey",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Copy the current pi-intercom session ID with Ctrl+Shift+I.",
   "license": "MIT",
   "author": "Kaushik Gopal",
