@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Open interactive workers in a column right of the caller in Herdr and Rex.
+  The first worker splits right; later workers split below the newest worker.
+
 - Preserve the current intercom pool for managed workers. Report unconfirmed Rex
   exits and cleanup failures without releasing a live worker's slot or launching
   another copy.

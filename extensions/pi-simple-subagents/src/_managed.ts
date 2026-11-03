@@ -8,7 +8,7 @@
  *
  * Hosting: in Herdr (HERDR_ENV=1 with a caller workspace) or Rex (REX_SESSION
  * and REX_BLOCK) each worker is a native interactive Pi in an unfocused
- * extension-owned pane below the caller; elsewhere it is a portable
+ * extension-owned pane in a column right of the caller; elsewhere it is a portable
  * `pi --mode rpc` subprocess whose open stdin keeps it alive. All hosts
  * load the `_managed-child.ts` bridge, so control never depends on terminal
  * keystrokes or terminal text. Hosts live in `_managed-host*.ts`; lifecycle

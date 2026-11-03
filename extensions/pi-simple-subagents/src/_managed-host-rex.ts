@@ -1,6 +1,6 @@
 /**
  * Rex host: each worker is a native interactive Pi in an extension-owned
- * terminal block split below the caller, in the caller's Rex session. Rex has
+ * terminal block in a column right of the caller, in the caller's Rex session. Rex has
  * no agent-start handshake, so readiness comes from the bridge status file
  * like the RPC host, and liveness from the PID the bridge reports.
  */
@@ -127,7 +127,7 @@ function rexFocusError(error: unknown): ManagedError {
   );
 }
 
-/** Rex placement: extension-owned blocks stacked below the caller. */
+/** Rex placement: the first block splits right of the caller; later blocks stack below the newest. */
 export function createRexHost(options: RexHostOptions): ManagedHostPort {
   const allocationLock = createKeyedMutex();
   const pendingBlocks: string[] = [];
@@ -167,7 +167,9 @@ export function createRexHost(options: RexHostOptions): ManagedHostPort {
               ...scope,
               "-b",
               anchorBlockId,
-              "--split=below",
+              anchorBlockId === options.parentBlockId
+                ? "--split=right"
+                : "--split=below",
               "--focus=false",
               "--label",
               request.label,

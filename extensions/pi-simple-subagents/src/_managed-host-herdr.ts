@@ -1,6 +1,6 @@
 /**
  * Herdr host: each worker is a native interactive Pi in an extension-owned
- * pane stacked below the caller. Host selection lives in
+ * pane in a column right of the caller. Host selection lives in
  * `_managed-host-detect.ts`.
  */
 import { execFile, type ChildProcess } from "node:child_process";
@@ -186,7 +186,7 @@ function herdrFocusError(error: unknown): ManagedError {
   );
 }
 
-/** Herdr placement: extension-owned panes stacked below the caller. */
+/** Herdr placement: the first pane splits right of the caller; later panes stack below the newest. */
 export function createHerdrHost(options: HerdrHostOptions): ManagedHostPort {
   const allocationLock = createKeyedMutex();
   const pendingPanes: string[] = [];
@@ -224,7 +224,7 @@ export function createHerdrHost(options: HerdrHostOptions): ManagedHostPort {
               "--pane",
               anchorPaneId,
               "--direction",
-              "down",
+              anchorPaneId === options.parentPaneId ? "right" : "down",
               "--cwd",
               request.cwd,
               "--no-focus",

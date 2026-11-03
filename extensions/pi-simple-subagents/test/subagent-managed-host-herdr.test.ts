@@ -97,7 +97,7 @@ describe("herdr host", () => {
     result: { pane: { pane_id: "p-9" } },
   });
 
-  test("splits below the caller without focus and closes only its pane", async () => {
+  test("splits right of the caller without focus and closes only its pane", async () => {
     const calls: string[][] = [];
     const host = herdrHost(
       async (_bin, args) => {
@@ -122,7 +122,7 @@ describe("herdr host", () => {
       "--pane",
       "parent-pane",
       "--direction",
-      "down",
+      "right",
       "--cwd",
       "/work",
       "--no-focus",
@@ -443,12 +443,14 @@ describe("herdr host", () => {
 
   test("allocates a vertical stack serially while starts remain independent", async () => {
     const anchors: string[] = [];
+    const directions: string[] = [];
     const started: string[] = [];
     const startGate = deferred();
     let pane = 0;
     const host = herdrHost(async (_bin, args) => {
       if (args[0] === "pane") {
         anchors.push(argValue(args, "--pane")!);
+        directions.push(argValue(args, "--direction")!);
         return JSON.stringify({
           result: {
             pane: { pane_id: `child-${++pane}`, tab_id: "caller-tab" },
@@ -472,6 +474,7 @@ describe("herdr host", () => {
 
     await waitFor(() => started.length === 3);
     expect(anchors).toEqual(["parent-pane", "child-1", "child-2"]);
+    expect(directions).toEqual(["right", "down", "down"]);
     startGate.resolve();
     const processes = await Promise.all(launches);
     expect(processes.map((proc) => proc.placement)).toEqual([

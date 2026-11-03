@@ -60,7 +60,7 @@ Background runs (the default) return a result inside the current turn:
 Interactive workers keep their session and report back on their own:
 
 - `Start an interactive bee worker: read src/index.ts and tell me in 3 bullets what it does.`
-  In Herdr or Rex it opens in an unfocused pane below. Elsewhere, it uses the
+  In Herdr or Rex it opens in an unfocused pane to the right. Elsewhere, it uses the
   headless RPC fallback and warns that no interactive pane is available. The
   result arrives without a `wait` call.
 - `Send that worker a follow-up: list any timers it creates.` Same session, new
@@ -185,8 +185,8 @@ background runs fail immediately and list workers to stop.
 Interactive sessions persist even when `persistChildSessions` is disabled for background runs.
 
 In Herdr or [Rex](https://www.superlogical.com/rex/), each interactive worker
-runs in an unfocused, extension-owned pane split down from the caller; later
-workers stack below earlier ones. The `/subagent` picker can inspect it or
+runs in an unfocused, extension-owned pane. The first worker splits right of
+the caller; later workers stack below the newest one, forming a column. The `/subagent` picker can inspect it or
 focus it for native TUI use. Herdr wins when both are present. Rex is detected
 from `REX_SESSION`, `REX_BLOCK`, and the `rex` CLI (`REX_BIN_DIR` or `PATH`).
 Managed workers use the parent's current intercom pool, if intercom is installed.

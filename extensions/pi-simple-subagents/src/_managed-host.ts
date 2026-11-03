@@ -40,7 +40,7 @@ export interface ManagedHostLaunch {
   /** Managed and delegation variables only; hosts add their own base environment. */
   readonly env: Record<string, string>;
   readonly paths: ManagedPaths;
-  /** Other live worker placements, used only to stack Herdr panes below owned siblings. */
+  /** Other live worker placements, used only to stack panes below owned siblings. */
   readonly ownedPlacements?: readonly ManagedPlacement[];
   /** Aborts a launch that is still waiting on the host. */
   readonly signal?: AbortSignal;

@@ -97,7 +97,7 @@ describe("rex host", () => {
     };
   }
 
-  test("splits below the caller without focus and closes only its block", async () => {
+  test("splits right of the caller without focus and closes only its block", async () => {
     const calls: string[][] = [];
     const host = rexHost(
       async (_bin, args, options) => {
@@ -123,7 +123,7 @@ describe("rex host", () => {
       "session:caller",
       "-b",
       "block:caller",
-      "--split=below",
+      "--split=right",
       "--focus=false",
       "--label",
       "🤖 c3po abcdef",
@@ -328,11 +328,13 @@ describe("rex host", () => {
 
   test("stacks later workers below the latest owned block, then falls back to the caller", async () => {
     const tried: string[] = [];
+    const directions: string[] = [];
     let next = 0;
     const host = rexHost(async (_bin, args, options) => {
       if (args[0] === "split") {
         const anchor = argValue(args, "-b")!;
         tried.push(anchor);
+        directions.push(args.find((arg) => arg.startsWith("--split="))!);
         if (anchor === "block:stale" || anchor === "block:older")
           throw new RexCommandError(
             true,
@@ -363,11 +365,18 @@ describe("rex host", () => {
       request(tempDir("managed-rex-anchor-"), { ownedPlacements: owned }),
     );
     expect(tried).toEqual(["block:stale", "block:older", "block:caller"]);
+    // Owned blocks extend the column downward; the caller starts a new column.
+    expect(directions).toEqual([
+      "--split=below",
+      "--split=below",
+      "--split=right",
+    ]);
     // The pending block from the first launch anchors the second.
     const second = await host.launch(
       request(tempDir("managed-rex-anchor-"), { handle: "mw-second" }),
     );
     expect(tried.at(-1)).toBe("block:new-1");
+    expect(directions.at(-1)).toBe("--split=below");
     await Promise.all([first.terminate(), second.terminate()]);
   });
 
