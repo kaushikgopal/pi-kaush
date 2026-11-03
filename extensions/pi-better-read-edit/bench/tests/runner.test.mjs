@@ -141,7 +141,11 @@ test("requested identity preserves slashes inside provider model ids", () => {
   });
 });
 
-describe("runBench with fake pi", () => {
+// Each test spawns real fake-pi processes (up to 16 in one test), which can
+// exceed the default 5 s timeout on a loaded machine.
+const SPAWN_TIMEOUT_MS = 30_000;
+
+describe("runBench with fake pi", { timeout: SPAWN_TIMEOUT_MS }, () => {
   test("happy stream: raw.json, manifest, per-arm journals, isolated arms", async () => {
     setMode("happy");
     const config = baseConfig();
@@ -361,7 +365,7 @@ describe("runBench with fake pi", () => {
   });
 });
 
-describe("publish + verify round trip", () => {
+describe("publish + verify round trip", { timeout: SPAWN_TIMEOUT_MS }, () => {
   test("published bundle regenerates identically and verifies clean", async () => {
     setMode("happy");
     const config = baseConfig();
