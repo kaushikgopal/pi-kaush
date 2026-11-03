@@ -1232,6 +1232,126 @@ describe("managed runtime suspend, exit, and restore", () => {
     await runtime.stop(third.handle);
   });
 
+  test("a failed stop keeps the worker tracked and reports cleanup failure", async () => {
+    const { runtime, host, gate } = setup({ graceMs: 20 });
+    host.startModes = ["ignoreShutdown"];
+    const { handle } = await runtime.spawn(launch());
+    await runtime.wait(handle, { timeoutMs: 2_000 });
+    const terminate = host.last.process.terminate;
+    host.last.process.terminate = async () => {
+      throw new Error("close failed");
+    };
+
+    const error = await expectCode(runtime.stop(handle), "cleanup");
+    expect(error.message).toContain("close failed");
+    expect(runtime.status(handle)).toMatchObject({
+      lifecycle: "running",
+      live: true,
+      lastError: expect.stringContaining("close failed"),
+    });
+    expect(gate.status.active).toBe(1);
+    expect(host.last.terminated).toBe(false);
+
+    host.last.process.terminate = terminate;
+    await runtime.stop(handle);
+    expect(gate.status.active).toBe(0);
+    expect(runtime.status(handle)).toMatchObject({
+      lifecycle: "stopped",
+      live: false,
+    });
+  });
+
+  test("a close failure after a graceful exit reports the remaining terminal", async () => {
+    const { runtime, host, gate } = setup();
+    const { handle } = await runtime.spawn(launch());
+    await runtime.wait(handle, { timeoutMs: 2_000 });
+    Object.assign(host.last.process, {
+      placement: { kind: "rex", sessionId: "session", blockId: "block" },
+      terminate: async () => {
+        throw new Error("close failed");
+      },
+    });
+    const error = await expectCode(runtime.stop(handle), "cleanup");
+    expect(error.message).toContain(
+      "worker exited, but its terminal may still be open",
+    );
+    expect(runtime.status(handle)).toMatchObject({
+      lifecycle: "stopped",
+      live: false,
+      lastError: expect.stringContaining("terminal may still be open"),
+    });
+    expect(gate.status.active).toBe(0);
+  });
+
+  test("a startup cleanup failure keeps the worker tracked", async () => {
+    const { runtime, host, gate } = setup({
+      graceMs: 20,
+      ports: { startupTimeoutMs: 40 },
+    });
+    host.startModes = ["never"];
+    const starting = runtime.spawn(
+      launch({ modelCandidates: ["fake/first", "fake/second"] }),
+    );
+    await waitFor(() => host.workers.length === 1);
+    const terminate = host.last.process.terminate;
+    host.last.process.terminate = async () => {
+      throw new Error("close failed");
+    };
+
+    const error = await expectCode(starting, "cleanup");
+    expect(error.message).toContain("close failed");
+    expect(host.workers).toHaveLength(1);
+    const [worker] = runtime.list();
+    expect(worker).toMatchObject({
+      lifecycle: "running",
+      live: true,
+      lastError: expect.stringContaining("close failed"),
+    });
+    expect(gate.status.active).toBe(1);
+
+    host.last.process.terminate = terminate;
+    await runtime.stop(worker!.handle);
+    expect(gate.status.active).toBe(0);
+  });
+
+  test("a retryable startup failure does not start another worker if cleanup fails", async () => {
+    const host = new FakeHost();
+    const readiness = deferred();
+    host.launchGate = readiness.promise;
+    const { runtime, gate } = setup({ host, graceMs: 20 });
+    host.startModes = ["ignoreShutdown"];
+    const starting = runtime.spawn(
+      launch({ modelCandidates: ["fake/first", "fake/second"] }),
+    );
+    await waitFor(
+      () =>
+        host.workers.length === 1 &&
+        !!readChildStatus(host.last.request.paths.status),
+    );
+    const status = readChildStatus(host.last.request.paths.status)!;
+    const terminate = host.last.process.terminate;
+    host.last.process.terminate = async () => {
+      throw new Error("close failed");
+    };
+    writeJsonAtomic(host.last.request.paths.status, {
+      ...status,
+      state: "exited",
+    });
+    readiness.resolve();
+
+    await expectCode(starting, "cleanup");
+    expect(host.workers).toHaveLength(1);
+    expect(gate.status.active).toBe(1);
+    const [worker] = runtime.list();
+    expect(worker).toMatchObject({
+      live: true,
+      lastError: expect.stringContaining("close failed"),
+    });
+    host.last.process.terminate = terminate;
+    await runtime.stop(worker!.handle);
+    expect(gate.status.active).toBe(0);
+  });
+
   test("stop forces tree cleanup after the grace window", async () => {
     const { runtime, host, gate } = setup({ graceMs: 30 });
     host.startModes = ["ignoreShutdown"];
@@ -1361,6 +1481,35 @@ describe("managed runtime delivery and fallback safety", () => {
     expect(host.workers).toHaveLength(1);
     expect(host.last.terminated).toBe(true);
     expect(gate.status.active).toBe(0);
+  });
+
+  test("a watchdog cleanup failure remains visible and keeps the worker tracked", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { runtime, host, gate } = setup({
+      limits: { maxRuntimeMs: 40 },
+      graceMs: 20,
+      ports: { watchdogGraceMs: 40 },
+    });
+    host.startModes = ["ignoreShutdown"];
+    host.behavior = () => [{ kind: "stuck" }];
+    const { handle } = await runtime.spawn(launch());
+    const terminate = host.last.process.terminate;
+    host.last.process.terminate = async () => {
+      throw new Error("close failed");
+    };
+    await waitFor(
+      () => runtime.status(handle).lastError?.includes("close failed") === true,
+    );
+    expect(runtime.status(handle)).toMatchObject({
+      lifecycle: "running",
+      live: true,
+    });
+    expect(gate.status.active).toBe(1);
+    expect(log).toHaveBeenCalledOnce();
+    host.last.process.terminate = terminate;
+    await runtime.stop(handle);
+    expect(gate.status.active).toBe(0);
+    log.mockRestore();
   });
 
   test("the parent terminates a worker that ignores its own runtime limit", async () => {

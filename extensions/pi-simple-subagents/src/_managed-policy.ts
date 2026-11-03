@@ -45,6 +45,14 @@ export type LifecycleEvent =
       readonly kind: "shutdownRequested";
       readonly lifecycle: "stopped" | "suspended" | "starting";
     }
+  /** Cleanup failed; keep the placement visible until the process exits. */
+  | {
+      readonly kind: "cleanupFailed";
+      readonly placement: ManagedPlacement;
+      readonly error: string;
+    }
+  /** The worker exited but its placement could not be closed. */
+  | { readonly kind: "cleanupAfterExitFailed"; readonly error: string }
   /** Same request for a worker with no live process. */
   | {
       readonly kind: "shutdownIdle";
@@ -93,6 +101,15 @@ export function transition(
       };
     case "shutdownRequested":
       return { ...config, lifecycle: event.lifecycle };
+    case "cleanupFailed":
+      return {
+        ...config,
+        lifecycle: "running",
+        placement: event.placement,
+        lastError: event.error,
+      };
+    case "cleanupAfterExitFailed":
+      return { ...config, lifecycle: "stopped", lastError: event.error };
     case "shutdownIdle":
       return config.lifecycle === "stopped"
         ? config

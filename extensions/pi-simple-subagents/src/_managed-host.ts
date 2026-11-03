@@ -14,6 +14,7 @@ export type ManagedErrorCode =
   | "not_running"
   | "invalid"
   | "launch"
+  | "cleanup"
   | "unsupported"
   | "aborted";
 

@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Preserve the current intercom pool for managed workers.
+- Preserve the current intercom pool for managed workers. Report unconfirmed Rex
+  exits and cleanup failures without releasing a live worker's slot or launching
+  another copy.
 
 - Host interactive workers in Rex: unfocused blocks split below the caller,
   stacked like Herdr panes, focusable from `/subagent`, and closed on stop.

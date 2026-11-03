@@ -87,6 +87,31 @@ function isMissingRexTarget(error: unknown): boolean {
   return error instanceof RexCommandError && error.missing;
 }
 
+function isMissingRexBlock(error: unknown): boolean {
+  return (
+    isMissingRexTarget(error) &&
+    error instanceof Error &&
+    /^rex block close failed:\s*block(?:\s+target)?\b.*\bnot found\b/i.test(
+      error.message,
+    )
+  );
+}
+
+function isRexWaitExit(stdout: string): boolean {
+  try {
+    const payload: unknown = JSON.parse(stdout);
+    return (
+      typeof payload === "object" &&
+      payload !== null &&
+      "exit_code" in payload &&
+      typeof payload.exit_code === "number" &&
+      Number.isInteger(payload.exit_code)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function rexStartupError(error: unknown): Error {
   if (error instanceof ManagedError || error instanceof ManagedStartupError)
     return error;
@@ -182,11 +207,18 @@ export function createRexHost(options: RexHostOptions): ManagedHostPort {
       } catch (error) {
         throw rexStartupError(error);
       }
-      const closeBlock = () =>
-        options.exec(options.bin, ["block", "close", ...scope, blockId]).then(
-          () => undefined,
-          () => undefined,
-        );
+      const closeBlock = async () => {
+        try {
+          await options.exec(options.bin, [
+            "block",
+            "close",
+            ...scope,
+            blockId,
+          ]);
+        } catch (error) {
+          if (!isMissingRexBlock(error)) throw error;
+        }
+      };
       let pid: number | undefined;
       let finished = false;
       let blockEnded = false;
@@ -207,10 +239,18 @@ export function createRexHost(options: RexHostOptions): ManagedHostPort {
           timeoutMs: 0,
           signal: waiter.signal,
         })
-        .catch(() => undefined)
-        .then(() => {
-          blockEnded = true;
-        });
+        .then(
+          () => {
+            blockEnded = true;
+          },
+          (error) => {
+            if (!waiter.signal.aborted) {
+              console.error(
+                `[pi-simple-subagents] Rex worker exit could not be confirmed: ${errorText(error)}`,
+              );
+            }
+          },
+        );
       const finish = () => {
         waiter.abort();
         forgetPendingBlock(blockId);
@@ -241,7 +281,12 @@ export function createRexHost(options: RexHostOptions): ManagedHostPort {
             await closeBlock();
             finish();
           })();
-          await terminatePromise;
+          try {
+            await terminatePromise;
+          } catch (error) {
+            terminatePromise = undefined;
+            throw error;
+          }
         },
       };
     },
@@ -297,6 +342,11 @@ export function execRexText(
         const failure = error as { killed?: boolean; code?: unknown };
         if (failure.killed) {
           reject(new RexCommandError(false, `${what} timed out.`));
+          return;
+        }
+        // Rex wait returns the child's nonzero status with a JSON exit payload.
+        if (args[0] === "wait" && isRexWaitExit(stdout)) {
+          resolve(stdout);
           return;
         }
         const detail = parseRexError(stderr);

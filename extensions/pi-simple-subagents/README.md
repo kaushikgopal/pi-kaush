@@ -200,6 +200,10 @@ worker implicitly. `/reload` refreshes the
 default host adapter without moving existing worker tabs or restarting processes;
 subsequent launches use the current split layout. Host-specific launch, focus,
 and cleanup remain behind the existing host port for future multiplexer adapters.
+If cleanup fails, the error is reported and a worker that may still be running
+keeps its slot. No replacement is launched until its exit is confirmed. If the
+worker has exited but its terminal cannot close, the error retains the terminal
+placement so the terminal can be closed manually.
 
 Future direction: [Pi Durable's multiplayer model](https://earendil.com/posts/pi-durable/#multiplayer)
 could let multiple clients observe and steer the same running worker without

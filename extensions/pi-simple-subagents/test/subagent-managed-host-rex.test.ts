@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   ManagedError,
   type ManagedHostLaunch,
@@ -10,6 +10,7 @@ import {
 import { detectManagedHost } from "../src/_managed-host-detect.ts";
 import {
   createRexHost,
+  execRexText,
   parseRexError,
   RexCommandError,
   type RexExecOptions,
@@ -19,6 +20,7 @@ import { SubagentProcessRegistry } from "../src/_process-tree.ts";
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0))
     fs.rmSync(root, { recursive: true, force: true });
 });
@@ -167,6 +169,101 @@ describe("rex host", () => {
         (args) => args.includes("block:caller") && args[0] !== "split",
       ),
     ).toEqual([]);
+  });
+
+  test("reports a close failure and keeps tracking until an explicit retry succeeds", async () => {
+    let closeAttempts = 0;
+    const host = rexHost(async (_bin, args, options) => {
+      if (args[0] === "split") return splitResult("block:child");
+      if (args[0] === "wait") return pendingWait(options);
+      if (++closeAttempts === 1)
+        throw new RexCommandError(false, "rex block close failed");
+      return "";
+    });
+    const proc = await host.launch(request(tempDir("managed-rex-close-")));
+    let exited = false;
+    void proc.exited.then(() => {
+      exited = true;
+    });
+    await expect(proc.terminate()).rejects.toThrow("rex block close failed");
+    await tick(10);
+    expect(exited).toBe(false);
+    expect(closeAttempts).toBe(1);
+    await proc.terminate();
+    await proc.exited;
+    expect(closeAttempts).toBe(2);
+  });
+
+  test("accepts a block that has already closed", async () => {
+    const host = rexHost(async (_bin, args, options) => {
+      if (args[0] === "split") return splitResult("block:child");
+      if (args[0] === "wait") return pendingWait(options);
+      throw new RexCommandError(
+        true,
+        "rex block close failed: block not found",
+      );
+    });
+    const proc = await host.launch(request(tempDir("managed-rex-missing-")));
+    await proc.terminate();
+    await proc.exited;
+  });
+
+  test("a missing session does not count as a closed block", async () => {
+    let closeAttempts = 0;
+    const host = rexHost(async (_bin, args, options) => {
+      if (args[0] === "split") return splitResult("block:child");
+      if (args[0] === "wait") return pendingWait(options);
+      if (++closeAttempts === 1)
+        throw new RexCommandError(
+          true,
+          "rex block close failed: session target not found",
+        );
+      return "";
+    });
+    const proc = await host.launch(request(tempDir("managed-rex-session-")));
+    await expect(proc.terminate()).rejects.toThrow("session target not found");
+    await proc.terminate();
+    await proc.exited;
+  });
+
+  test("a wait transport failure does not claim the worker exited", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const host = rexHost(async (_bin, args) => {
+      if (args[0] === "split") return splitResult("block:child");
+      if (args[0] === "wait")
+        throw new RexCommandError(false, "server unavailable");
+      return "";
+    });
+    const proc = await host.launch(request(tempDir("managed-rex-wait-")));
+    let exited = false;
+    void proc.exited.then(() => {
+      exited = true;
+    });
+    await tick(10);
+    expect(exited).toBe(false);
+    expect(log).toHaveBeenCalledOnce();
+    await proc.terminate();
+    await proc.exited;
+  });
+
+  test("recognizes a Rex wait exit payload when the child exits nonzero", async () => {
+    const bin = path.join(tempDir("managed-rex-wait-bin-"), "rex");
+    fs.writeFileSync(
+      bin,
+      [
+        "#!/bin/sh",
+        "echo " + JSON.stringify('{"exit_code":7}'),
+        "exit 7",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    await expect(
+      execRexText(bin, ["wait", "block:child", "--json"]),
+    ).resolves.toContain('"exit_code":7');
+    await expect(execRexText(bin, ["split"])).rejects.toThrow(
+      "rex split failed (7)",
+    );
   });
 
   test("watches the pid the bridge reports for this boot", async () => {

@@ -1136,7 +1136,22 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         return;
       }
 
-      if (proc) await proc.terminate().catch(() => {});
+      if (proc) {
+        try {
+          await proc.terminate();
+        } catch (error) {
+          const detail = `Managed worker ${config.handle} failed to start (${failure}) and cleanup failed: ${errorText(error)}. The worker may still be running.`;
+          this.writeConfig(
+            transition(config, {
+              kind: "cleanupFailed",
+              placement: proc.placement,
+              error: detail,
+            }),
+          );
+          this.track(config.handle, bootId, proc, lease);
+          throw new ManagedError("cleanup", detail);
+        }
+      }
       const status = readChildStatus(paths.status);
       this.linkDeadWorkerSession(config.handle, status);
       const ran =
@@ -1327,7 +1342,26 @@ class ManagedRuntimeImpl implements ManagedRuntime {
         );
         if (verdict.kind === "terminate") {
           worker.intent = { kind: "killed", reason: verdict.reason };
-          await worker.process.terminate().catch(() => {});
+          try {
+            await worker.process.terminate();
+          } catch (error) {
+            const detail = `Managed worker ${handle} cleanup failed: ${errorText(error)}. The worker may still be running.`;
+            const config = this.readOwned(handle);
+            if (
+              config &&
+              this.state.live.get(handle) === worker &&
+              worker.intent.kind === "killed"
+            ) {
+              this.writeConfig(
+                transition(config, {
+                  kind: "cleanupFailed",
+                  placement: worker.process.placement,
+                  error: detail,
+                }),
+              );
+            }
+            console.error(`[pi-simple-subagents] ${detail}`);
+          }
           return;
         }
         running = verdict.kind === "running";
@@ -1386,8 +1420,33 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       this.ports.sleep(this.ports.graceMs).then(() => false),
     ]);
     // Pane hosts always close the worker's pane, even after a graceful exit.
-    if (!graceful || worker.process.placement.kind !== "rpc")
-      await worker.process.terminate().catch(() => {});
+    if (!graceful || worker.process.placement.kind !== "rpc") {
+      try {
+        await worker.process.terminate();
+      } catch (error) {
+        const stillLive = this.state.live.get(handle) === worker;
+        const detail = `Managed worker ${handle} cleanup failed: ${errorText(error)}. ${stillLive ? "The worker may still be running." : "The worker exited, but its terminal may still be open."}`;
+        if (stillLive) {
+          worker.intent = { kind: "none" };
+          this.writeConfig(
+            transition(this.ownedConfig(handle), {
+              kind: "cleanupFailed",
+              placement: worker.process.placement,
+              error: detail,
+            }),
+          );
+        } else {
+          if (slot === "keep") worker.lease.release();
+          this.writeConfig(
+            transition(this.ownedConfig(handle), {
+              kind: "cleanupAfterExitFailed",
+              error: detail,
+            }),
+          );
+        }
+        throw new ManagedError("cleanup", detail);
+      }
+    }
     await worker.process.exited;
     await worker.exitHandled;
     this.linkDeadWorkerSession(handle);
