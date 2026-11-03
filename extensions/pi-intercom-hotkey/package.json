@@ -1,0 +1,54 @@
+{
+  "name": "@pi-kaush/pi-intercom-hotkey",
+  "version": "0.1.0",
+  "description": "Copy the current pi-intercom session ID with Ctrl+Shift+I.",
+  "license": "MIT",
+  "author": "Kaushik Gopal",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "types": "./src/index.ts",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "intercom",
+    "hotkey"
+  ],
+  "homepage": "https://github.com/kaushikgopal/pi-kaush/tree/main/extensions/pi-intercom-hotkey#readme",
+  "bugs": {
+    "url": "https://github.com/kaushikgopal/pi-kaush/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kaushikgopal/pi-kaush.git",
+    "directory": "extensions/pi-intercom-hotkey"
+  },
+  "files": [
+    "src",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "package:check": "node ./scripts/check-package.mjs"
+  },
+  "sideEffects": false
+}
