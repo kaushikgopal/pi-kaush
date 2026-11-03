@@ -1063,6 +1063,8 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       const invocation = this.ports.invocation(args);
       const floor = Math.max(0, config.nextSeq - 1);
       const env: Record<string, string> = {
+        // Pane hosts use their server's environment; empty selects the default pool.
+        PI_INTERCOM_SCOPE_ID: this.env.PI_INTERCOM_SCOPE_ID?.trim() || "",
         ...delegationTraceEnvironment(config.launch.trace),
         ...encodeManagedBootEnv({
           dir: paths.dir,

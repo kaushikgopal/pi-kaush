@@ -1214,6 +1214,24 @@ describe("managed runtime suspend, exit, and restore", () => {
     await runtime.stop(handle);
   });
 
+  test("managed workers use the current intercom pool on every launch", async () => {
+    const env: NodeJS.ProcessEnv = { PI_INTERCOM_SCOPE_ID: "  first-pool  " };
+    const { runtime, host } = setup({ env });
+    const first = await runtime.spawn(launch());
+    expect(host.last.request.env.PI_INTERCOM_SCOPE_ID).toBe("first-pool");
+    await runtime.stop(first.handle);
+
+    env.PI_INTERCOM_SCOPE_ID = "second-pool";
+    const second = await runtime.spawn(launch());
+    expect(host.last.request.env.PI_INTERCOM_SCOPE_ID).toBe("second-pool");
+    await runtime.stop(second.handle);
+
+    delete env.PI_INTERCOM_SCOPE_ID;
+    const third = await runtime.spawn(launch());
+    expect(host.last.request.env.PI_INTERCOM_SCOPE_ID).toBe("");
+    await runtime.stop(third.handle);
+  });
+
   test("stop forces tree cleanup after the grace window", async () => {
     const { runtime, host, gate } = setup({ graceMs: 30 });
     host.startModes = ["ignoreShutdown"];

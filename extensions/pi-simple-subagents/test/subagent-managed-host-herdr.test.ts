@@ -86,7 +86,7 @@ describe("herdr host", () => {
       command: "/usr/bin/node",
       args: ["/pi/cli.js", "--name", "it's"],
       piArgs: ["--name", "it's"],
-      env: { PI_MANAGED_SUBAGENT_DIR: dir },
+      env: { PI_MANAGED_SUBAGENT_DIR: dir, PI_INTERCOM_SCOPE_ID: "team" },
       paths: managedPaths(dir),
       ownedPlacements: [],
       ...overrides,
@@ -130,6 +130,8 @@ describe("herdr host", () => {
       "PI_OFFLINE=1",
       "--env",
       `PI_MANAGED_SUBAGENT_DIR=${dir}`,
+      "--env",
+      "PI_INTERCOM_SCOPE_ID=team",
     ]);
     expect(calls[1]).toEqual([
       "agent",

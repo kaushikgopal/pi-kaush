@@ -189,6 +189,8 @@ runs in an unfocused, extension-owned pane split down from the caller; later
 workers stack below earlier ones. The `/subagent` picker can inspect it or
 focus it for native TUI use. Herdr wins when both are present. Rex is detected
 from `REX_SESSION`, `REX_BLOCK`, and the `rex` CLI (`REX_BIN_DIR` or `PATH`).
+Managed workers use the parent's current intercom pool, if intercom is installed.
+For pane hosts, the pool value appears in local process arguments. A pool is not a security boundary.
 Elsewhere, interactive workers run through Pi RPC and remain headless. Interactive mode warns when no pane is available; the
 expanded tool output and picker give a fish-safe command for the saved session
 and tell you to stop a running headless worker before opening it elsewhere. That

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve the current intercom pool for managed workers.
+
 - Host interactive workers in Rex: unfocused blocks split below the caller,
   stacked like Herdr panes, focusable from `/subagent`, and closed on stop.
   Bounded children no longer inherit `REX_*` variables and are told not to
