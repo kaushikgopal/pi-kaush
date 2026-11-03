@@ -11,6 +11,7 @@ Small, composable extensions for the [Pi coding agent](https://pi.dev).
 | [`@pi-kaush/pi-better-read-edit`](./extensions/pi-better-read-edit)       | Pair tagged local reads with strict, context-efficient hashline edits.                                   |
 | [`@pi-kaush/pi-double-paste`](./extensions/pi-double-paste)               | Paste the same large block twice to expand Pi's paste markers into editable text.                        |
 | [`@pi-kaush/pi-reload-hotkey`](./extensions/pi-reload-hotkey)             | Reload Pi with Ctrl+Shift+R.                                                                             |
+| [`@pi-kaush/pi-intercom-hotkey`](./extensions/pi-intercom-hotkey)         | Copy the current pi-intercom session ID with Ctrl+Shift+I.                                               |
 | [`@pi-kaush/pi-inline-identifier`](./extensions/pi-inline-identifier)     | Highlight and route inline Pi skill, agent, and prompt-template references.                              |
 | [`@pi-kaush/pi-verbatim-compaction`](./extensions/pi-verbatim-compaction) | Provider-neutral compaction that lets a model rank deletions, then preserves surviving history verbatim. |
 | [`@pi-kaush/pi-btw`](./extensions/pi-btw)                                 | Ask a question in a Herdr side fork or switch to a local session fork.                                   |
@@ -48,6 +49,7 @@ Install an extension globally through Pi's package manager:
 pi install npm:@pi-kaush/pi-double-paste
 pi install npm:@pi-kaush/pi-better-read-edit
 pi install npm:@pi-kaush/pi-reload-hotkey
+pi install npm:@pi-kaush/pi-intercom-hotkey
 pi install npm:@pi-kaush/pi-agent-mode
 pi install npm:@pi-kaush/pi-inline-identifier
 pi install npm:@pi-kaush/pi-verbatim-compaction
