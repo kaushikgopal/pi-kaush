@@ -97,6 +97,18 @@ function rexForwardEnvironment(): Record<string, string> {
   return result;
 }
 
+function rexIntercomScopeEnvironment(): string[] {
+  const scope = process.env.PI_INTERCOM_SCOPE_ID;
+  return scope?.trim()
+    ? ["PI_INTERCOM_SCOPE_ID=" + scope]
+    : ["-u", "PI_INTERCOM_SCOPE_ID"];
+}
+
+function herdrIntercomScopeEnvironment(): string[] {
+  const scope = (process.env.PI_INTERCOM_SCOPE_ID ?? "").trim();
+  return ["--env", "PI_INTERCOM_SCOPE_ID=" + scope];
+}
+
 function getPiInvocation(): { command: string; args: string[] } {
   const scriptPath = process.argv[1];
   if (existsSync(process.execPath) && scriptPath && existsSync(scriptPath)) {
@@ -121,6 +133,7 @@ async function launchRex(
   const invocation = getPiInvocation();
   const command = [
     "env",
+    ...rexIntercomScopeEnvironment(),
     ...Object.entries(forwardEnv).map(([key, value]) => `${key}=${value}`),
     invocation.command,
     ...invocation.args,
@@ -207,6 +220,7 @@ async function launchHerdr(
         "--cwd",
         ctx.cwd,
         "--no-focus",
+        ...herdrIntercomScopeEnvironment(),
       ],
       { timeout: HERDR_TIMEOUT_MS },
     );

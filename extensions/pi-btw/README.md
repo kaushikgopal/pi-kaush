@@ -4,7 +4,7 @@ Ask a question in a fork of the current Pi conversation with `/btw`.
 
 The extension opens a side session in this order: Herdr, Rex, then Pi's fork fallback. Herdr and Rex open a parallel Pi session in a right-hand pane or block. Without either host, Pi switches to the fork in the current terminal; the original remains saved and can be reopened with Pi's built-in `/resume` command.
 
-The extension has no background service, model call, transcript import, merge protocol, terminal-specific fallback, or Intercom integration.
+The extension has no background service, model call, transcript import, merge protocol, or terminal-specific fallback. It does not depend on pi-intercom; it only passes the current Intercom scope to hosted sessions.
 
 ### Install
 
@@ -53,9 +53,9 @@ Use Pi's built-in `/resume` picker to switch back to the original or move among 
 - `/btw` requires at least one completed response. It is rejected in a brand-new session because there is no useful conversation checkpoint to fork.
 - Without Herdr or Rex, the current agent must be idle and the conversation must contain an entry to fork.
 - Herdr and Rex sessions share the same working directory and files. Simultaneous edits can conflict.
-- The question submitted to Herdr or Rex may be briefly visible in local process arguments.
+- The question and scope value may be briefly visible in local process arguments. Herdr passes the scope with `--env`; Rex passes it with `env`. A pool is not a security boundary.
 - A Herdr pane or Rex block is retained after startup failure so its terminal can be inspected.
-- Rex receives only selected non-secret Pi configuration variables. The extension does not forward credentials.
+- Herdr receives the current trimmed scope through `herdr pane split --env`, including an empty value for the default pool. Rex receives the parent scope in the child environment or clears it when unscoped. The Rex CLI inherits Pi's process environment; a new Rex block uses the Rex server's login-shell environment. The extension explicitly sets selected Pi settings and the intercom pool, not credential variables.
 
 ## Design
 
@@ -63,7 +63,7 @@ The Herdr and Rex paths use Pi's public session APIs:
 
 1. Record the current leaf before each parent agent run.
 2. If the parent is busy, create a branched session through that pre-run leaf. Otherwise, let Pi fork the settled session.
-3. Open an unfocused right-hand pane or block.
+3. Open an unfocused right-hand pane or block. Herdr receives the trimmed `PI_INTERCOM_SCOPE_ID` through `--env` at each split, including an empty value for the default pool. Rex reads the parent value at each launch and clears it when the parent is unscoped.
 4. Start Pi and submit the question.
 
 The hostless path delegates to `ExtensionCommandContext.fork` with position at, then sends the question through the fresh replacement-session context. It follows Pi's session replacement lifecycle and never reuses stale session objects.

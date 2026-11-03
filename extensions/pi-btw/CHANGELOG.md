@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Propagate the current Intercom scope to Herdr and Rex side sessions. Herdr receives a trimmed value, including empty for the default pool; Rex clears inherited scope when the parent is unscoped.
 - Add Rex side sessions to `/btw` after Herdr and before the fork fallback, including snapshots while the parent is responding.
 - Allow Herdr `/btw` commands to start while the parent is responding by snapshotting the last completed conversation point.
 - Reject `/btw` only when no response has completed yet; the fallback without Herdr or Rex still waits because it replaces the active session.

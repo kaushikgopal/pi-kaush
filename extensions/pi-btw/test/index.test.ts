@@ -138,6 +138,7 @@ beforeEach(() => {
   vi.stubEnv("REX_SESSION", "");
   vi.stubEnv("REX_BLOCK", "");
   vi.stubEnv("REX_BIN_DIR", "");
+  vi.stubEnv("PI_INTERCOM_SCOPE_ID", "");
 
   const entries = [
     {
@@ -311,6 +312,67 @@ describe("Rex", () => {
     });
   });
 
+  test("forwards the current named Intercom scope to Rex", async () => {
+    vi.stubEnv("PI_INTERCOM_SCOPE_ID", "review-pool");
+    let splitArgs: string[] = [];
+    const harness = createHarness(async (_command, args) => {
+      splitArgs = args;
+      return {
+        code: 0,
+        stdout: JSON.stringify({ block_ids: ["rex-block"] }),
+        stderr: "",
+      };
+    });
+
+    await harness.btw("Use the current pool");
+
+    expect(splitArgs).toContain("PI_INTERCOM_SCOPE_ID=review-pool");
+    expect(splitArgs).not.toContain("-u");
+  });
+
+  test("reads the Intercom scope again for each Rex launch", async () => {
+    const splitArgs: string[][] = [];
+    const harness = createHarness(async (_command, args) => {
+      splitArgs.push(args);
+      return {
+        code: 0,
+        stdout: JSON.stringify({ block_ids: ["rex-block"] }),
+        stderr: "",
+      };
+    });
+
+    vi.stubEnv("PI_INTERCOM_SCOPE_ID", "first-pool");
+    await harness.btw("Use the first pool");
+    vi.stubEnv("PI_INTERCOM_SCOPE_ID", "second-pool");
+    await harness.btw("Use the second pool");
+
+    expect(splitArgs).toHaveLength(2);
+    expect(splitArgs[0]).toContain("PI_INTERCOM_SCOPE_ID=first-pool");
+    expect(splitArgs[1]).toContain("PI_INTERCOM_SCOPE_ID=second-pool");
+  });
+
+  test.each(["", "  \t  "])(
+    "clears a stale Rex scope when the parent scope is unscoped (%j)",
+    async (scope) => {
+      vi.stubEnv("PI_INTERCOM_SCOPE_ID", scope);
+      let splitArgs: string[] = [];
+      const harness = createHarness(async (_command, args) => {
+        splitArgs = args;
+        return {
+          code: 0,
+          stdout: JSON.stringify({ block_ids: ["rex-block"] }),
+          stderr: "",
+        };
+      });
+
+      await harness.btw("Use the default pool");
+
+      expect(splitArgs).toContain("-u");
+      expect(splitArgs).toContain("PI_INTERCOM_SCOPE_ID");
+      expect(splitArgs).not.toContain("PI_INTERCOM_SCOPE_ID=");
+    },
+  );
+
   test("uses the exact split arguments and forwards only allowed settings", async () => {
     const forwarded = [
       ["PI_CODING_AGENT_DIR", "/config/pi"],
@@ -356,6 +418,8 @@ describe("Rex", () => {
       "--json",
       "--",
       "env",
+      "-u",
+      "PI_INTERCOM_SCOPE_ID",
       ...forwarded.map(([key, value]) => key + "=" + value),
       ...piInvocation,
       "--fork",
@@ -506,6 +570,7 @@ describe("Herdr", () => {
   });
 
   test("forks natively in a right split and sends the question", async () => {
+    vi.stubEnv("PI_INTERCOM_SCOPE_ID", "  review-pool  ");
     const calls: Array<{ command: string; args: string[] }> = [];
     const harness = createHarness(async (command, args) => {
       calls.push({ command, args });
@@ -525,6 +590,8 @@ describe("Herdr", () => {
       "--cwd",
       "/tmp/project",
       "--no-focus",
+      "--env",
+      "PI_INTERCOM_SCOPE_ID=review-pool",
     ]);
     const agentName = calls[1]!.args[2]!;
     expect(agentName).toMatch(/^pi-btw-/);
@@ -553,6 +620,51 @@ describe("Herdr", () => {
       level: "info",
     });
   });
+
+  test("reads the current scope for each Herdr split", async () => {
+    const splitArgs: string[][] = [];
+    const harness = createHarness(async (_command, args) => {
+      if (args[0] === "pane") {
+        splitArgs.push(args);
+        return paneSplit();
+      }
+      return success();
+    });
+
+    vi.stubEnv("PI_INTERCOM_SCOPE_ID", "first-pool");
+    await harness.btw("Use the first pool");
+    vi.stubEnv("PI_INTERCOM_SCOPE_ID", "second-pool");
+    await harness.btw("Use the second pool");
+
+    expect(splitArgs).toHaveLength(2);
+    expect(splitArgs[0]?.slice(-2)).toEqual([
+      "--env",
+      "PI_INTERCOM_SCOPE_ID=first-pool",
+    ]);
+    expect(splitArgs[1]?.slice(-2)).toEqual([
+      "--env",
+      "PI_INTERCOM_SCOPE_ID=second-pool",
+    ]);
+  });
+
+  test.each(["", "   "])(
+    "passes an empty Herdr scope for the default pool (%j)",
+    async (scope) => {
+      vi.stubEnv("PI_INTERCOM_SCOPE_ID", scope);
+      let splitArgs: string[] = [];
+      const harness = createHarness(async (_command, args) => {
+        if (args[0] === "pane") {
+          splitArgs = args;
+          return paneSplit();
+        }
+        return success();
+      });
+
+      await harness.btw("Use the default pool");
+
+      expect(splitArgs.slice(-2)).toEqual(["--env", "PI_INTERCOM_SCOPE_ID="]);
+    },
+  );
 
   test("forks the last completed response while the parent keeps running", async () => {
     const calls: Array<{ command: string; args: string[] }> = [];
