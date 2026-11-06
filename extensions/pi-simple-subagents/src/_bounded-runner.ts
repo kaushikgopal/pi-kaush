@@ -557,6 +557,8 @@ function streamChild(
       if (applyChildEvent(result, parseChildEventLine(line))) emitUpdate();
     };
 
+    proc.stdout.setEncoding("utf8");
+    proc.stderr.setEncoding("utf8");
     proc.stdout.on("data", (data) => {
       watchdog?.recordActivity();
       const chunk = data.toString();

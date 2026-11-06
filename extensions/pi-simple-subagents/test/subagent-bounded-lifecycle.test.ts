@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { readFileSync, rmSync } from "node:fs";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -36,7 +39,7 @@ const agent: AgentConfig = {
   filePath: "/agents/bee.md",
 };
 
-function makeRunContext(): {
+function makeRunContext(rootSessionId = "root"): {
   context: RunContext;
   concurrency: SessionConcurrencyGate;
   processes: SubagentProcessRegistry;
@@ -51,7 +54,7 @@ function makeRunContext(): {
       availableModels: new Set(),
       resolveModel: () => undefined,
       trace: {
-        rootSessionId: "root",
+        rootSessionId,
         parentSessionId: "parent",
         parentToolCallId: "call",
         depth: 1,
@@ -85,6 +88,32 @@ function scheduleSuccessfulExit(): void {
     queueMicrotask(() => {
       child.stdout.end();
       child.stderr.end();
+      child.emit("exit", 0, null);
+      child.emit("close", 0, null);
+    });
+    return child;
+  });
+}
+
+function scheduleUtf8Output(stdoutText: string, stderrText: string): void {
+  mocks.spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), {
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      pid: undefined,
+    });
+    queueMicrotask(() => {
+      for (const [stream, text] of [
+        [child.stdout, stdoutText],
+        [child.stderr, stderrText],
+      ] as const) {
+        const bytes = Buffer.from(text);
+        const marker = Buffer.from("🐝");
+        const splitAt = bytes.indexOf(marker) + 2;
+        stream.write(bytes.subarray(0, splitAt));
+        stream.write(bytes.subarray(splitAt));
+        stream.end();
+      }
       child.emit("exit", 0, null);
       child.emit("close", 0, null);
     });
@@ -139,5 +168,48 @@ describe("bounded process admission", () => {
       reason: "Subagent did not start because the session is shutting down.",
     });
     expect(concurrency.status.active).toBe(0);
+  });
+});
+
+describe("bounded child streams", () => {
+  test("preserves UTF-8 characters split across child stream chunks", async () => {
+    const output = "The child says 🐝 and café.";
+    const stdout =
+      JSON.stringify({
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: output }],
+        },
+      }) + "\n";
+    const stderr = "Warning: café 🐝\n";
+    const { context } = makeRunContext(randomUUID());
+    scheduleUtf8Output(stdout, stderr);
+    let transcriptPath: string | undefined;
+
+    try {
+      const outcome = await runBoundedPlan(context, {
+        kind: "single",
+        item: { agent: "bee", task: "emit Unicode" },
+      });
+      if (outcome.kind !== "completed") throw new Error(outcome.message);
+      const result = outcome.results[0]!;
+      transcriptPath = result.transcriptPath;
+      expect(result.output).toBe(output);
+      expect(result.stderr).toBe(stderr);
+      expect(transcriptPath).toBeDefined();
+      const records = readFileSync(transcriptPath!, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const streamData = records
+        .filter((record) => record.record === "stream")
+        .map((record) => record.data as string)
+        .join("");
+      expect(streamData).toBe(stdout + stderr);
+    } finally {
+      if (transcriptPath)
+        rmSync(dirname(transcriptPath), { recursive: true, force: true });
+    }
   });
 });
