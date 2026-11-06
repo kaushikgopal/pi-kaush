@@ -451,6 +451,26 @@ describe("managed child assignment archives", () => {
     });
   });
 
+  test("archives assignments interrupted while restoring a previous boot", () => {
+    const first = harness();
+    first.send(1, "restart this assignment");
+    first.bridge.start(first.ctx);
+    runPrompt(first);
+    first.bridge.dispose();
+
+    const resumed = harness({ bootId: "boot-2" }, first.dir);
+    resumed.bridge.start(resumed.ctx);
+
+    expect(assignmentOf(resumed, "a1")).toMatchObject({
+      state: "interrupted",
+      outcome: { source: "lifecycle" },
+    });
+    expect(readArchivedAssignment(first.dir, "s-1", "a1")).toMatchObject({
+      state: "interrupted",
+      outcome: { source: "lifecycle" },
+    });
+  });
+
   test("hashes safe archive paths and isolates the same assignment across model sessions", () => {
     const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-archive-"));
     roots.push(dir);

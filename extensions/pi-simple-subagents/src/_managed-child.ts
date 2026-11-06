@@ -247,6 +247,7 @@ export class ManagedChildBridge {
     if (this.lifecycle.kind !== "unattached") return;
     this.lifecycle = { kind: "attached", ctx };
     const previous = readChildStatus(this.paths.status);
+    const expected = this.options.expectedSessionId;
     // Only a fresh model attempt (new session, nothing ran in its history)
     // may process the inbox from the start. Every other boot keeps acks so
     // nothing is replayed.
@@ -259,9 +260,11 @@ export class ManagedChildBridge {
       this.status.toolActivity = previous.toolActivity;
       if (previous.model) this.status.model = previous.model;
       if (previous.sessionFile) this.status.sessionFile = previous.sessionFile;
+      // Restore archive effects under the session that owned these assignments.
+      const ownerSessionId = previous.sessionId ?? expected;
+      if (ownerSessionId) this.status.sessionId = ownerSessionId;
       this.archive(this.ledger.restore(previous.assignments, this.now()));
     }
-    const expected = this.options.expectedSessionId;
     if (expected && ctx.sessionId && ctx.sessionId !== expected) {
       this.detach(ctx, expected, ctx.sessionId);
       return;
