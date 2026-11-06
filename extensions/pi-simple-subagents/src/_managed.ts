@@ -1415,12 +1415,17 @@ class ManagedRuntimeImpl implements ManagedRuntime {
       kind: "shutdownRequested",
       lifecycle,
     });
-    // An inbox write failure is tolerated: forced cleanup below still runs.
-    this.enqueue(config, {
-      kind: "shutdown",
-      id: `m-${this.ports.randomId()}`,
-      createdAt: this.ports.now(),
-    });
+    // Inbox write failures are returned. A config write failure must not skip cleanup.
+    let enqueueError: unknown;
+    try {
+      this.enqueue(config, {
+        kind: "shutdown",
+        id: `m-${this.ports.randomId()}`,
+        createdAt: this.ports.now(),
+      });
+    } catch (error) {
+      enqueueError = error;
+    }
     worker.process.requestStop?.();
     const graceful = await Promise.race([
       worker.process.exited.then(() => true),
@@ -1457,6 +1462,12 @@ class ManagedRuntimeImpl implements ManagedRuntime {
     await worker.process.exited;
     await worker.exitHandled;
     this.linkDeadWorkerSession(handle);
+    if (enqueueError !== undefined) {
+      const current = this.ownedConfig(handle);
+      const next = transition(current, { kind: "shutdownIdle", lifecycle });
+      if (next !== current) this.writeConfig(next);
+      throw enqueueError;
+    }
     return slot === "keep" ? worker.lease : undefined;
   }
 

@@ -1232,6 +1232,42 @@ describe("managed runtime suspend, exit, and restore", () => {
     await runtime.stop(third.handle);
   });
 
+  test("a config-write failure during stop does not skip worker cleanup", async () => {
+    let failConfigWrite = false;
+    let configPath = "";
+    const backupPath = () => `${configPath}.backup`;
+    const { agentDir, runtime, host, gate } = setup({
+      graceMs: 20,
+      ports: {
+        randomId: () => {
+          if (failConfigWrite) {
+            failConfigWrite = false;
+            fs.renameSync(configPath, backupPath());
+            fs.mkdirSync(configPath);
+          }
+          return "testid123";
+        },
+      },
+    });
+    const { handle } = await runtime.spawn(launch());
+    configPath = managedPaths(
+      path.join(managedParentDir(agentDir, "parent-session"), handle),
+    ).config;
+    failConfigWrite = true;
+    const stopping = runtime.stop(handle).catch((error: unknown) => error);
+    await tick(50);
+    const cleanedBeforeRetry = host.last.exited;
+    const activeBeforeRetry = gate.status.active;
+    if (fs.existsSync(configPath) && fs.statSync(configPath).isDirectory())
+      fs.rmdirSync(configPath);
+    if (fs.existsSync(backupPath())) fs.renameSync(backupPath(), configPath);
+    const result = await stopping;
+    if (!host.last.exited) await runtime.stop(handle);
+    expect(cleanedBeforeRetry).toBe(true);
+    expect(activeBeforeRetry).toBe(0);
+    expect(result).toBeInstanceOf(Error);
+  });
+
   test("a failed stop keeps the worker tracked and reports cleanup failure", async () => {
     const { runtime, host, gate } = setup({ graceMs: 20 });
     host.startModes = ["ignoreShutdown"];
