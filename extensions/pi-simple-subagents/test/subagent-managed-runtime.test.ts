@@ -1687,6 +1687,23 @@ describe("managed runtime session safety", () => {
     await first.runtime.stop(handle);
   });
 
+  test("resume fails safely when the earlier boot status is unreadable", async () => {
+    const first = setup();
+    const { handle } = await first.runtime.spawn(launch());
+    await first.runtime.wait(handle, { timeoutMs: 2_000 });
+    fs.writeFileSync(first.host.last.request.paths.status, "{ torn");
+
+    forgetRuntimes();
+    const second = setup({ agentDir: first.agentDir, host: first.host });
+    const [result] = await second.runtime.restore();
+    expect(result?.restored).toBe(false);
+    expect(result?.error).toContain("cannot be verified");
+    expect(first.host.workers).toHaveLength(1);
+    expect(second.gate.status.active).toBe(0);
+
+    await first.runtime.stop(handle);
+  });
+
   test("resume fails safely when the earlier boot cannot be identified", async () => {
     const first = setup();
     const { handle } = await first.runtime.spawn(launch());

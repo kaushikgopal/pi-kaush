@@ -79,6 +79,7 @@ import {
   managedPaths,
   readArchivedAssignment,
   readChildStatus,
+  readChildStatusResult,
   readInbox,
   readManagedConfig,
   readStderrTail,
@@ -989,7 +990,13 @@ class ManagedRuntimeImpl implements ManagedRuntime {
    */
   private async awaitPreviousBootExit(config: ManagedConfig): Promise<void> {
     const paths = managedPaths(this.dirOf(config.handle));
-    const status = readChildStatus(paths.status);
+    const statusRead = readChildStatusResult(paths.status);
+    if (statusRead.kind === "invalid")
+      throw new ManagedError(
+        "launch",
+        `The previous boot of ${config.handle} has an unreadable status file and cannot be verified safely. Inspect the status file before resuming.`,
+      );
+    const status = statusRead.kind === "ok" ? statusRead.value : undefined;
     if (!status || !Number.isSafeInteger(status.pid) || status.pid <= 0) return;
     const { pid } = status;
     const identity = () => this.ports.processIdentity(pid, status.updatedAt);
