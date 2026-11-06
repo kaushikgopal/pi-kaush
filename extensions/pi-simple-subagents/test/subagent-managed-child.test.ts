@@ -2,8 +2,12 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
 import {
+  type ExtensionAPI,
+  type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import managedChildExtension, {
   type BridgeContext,
   type BridgeScheduler,
   ManagedChildBridge,
@@ -20,9 +24,11 @@ import {
   type ChildAssignment,
   type ManagedDelivery,
 } from "../src/_managed-store.ts";
+import { encodeManagedBootEnv } from "../src/_managed-protocol.ts";
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const root of roots.splice(0))
     fs.rmSync(root, { recursive: true, force: true });
 });
@@ -1054,6 +1060,108 @@ describe("managed child bridge shutdown and session safety", () => {
     second.bridge.poll();
     second.bridge.onBeforeAgentStart("anything");
     expect(second.status()?.ackedSeq).toBe(1);
+  });
+});
+
+describe("managed child extension events", () => {
+  test("captures nested yield results from tool execution end", () => {
+    const dir = fs.mkdtempSync(path.join(tmpdir(), "managed-child-events-"));
+    roots.push(dir);
+    const paths = managedPaths(dir);
+    writeInboxMessage(paths.inbox, {
+      kind: "assignment",
+      seq: 1,
+      id: "m1",
+      assignmentId: "a1",
+      delivery: "auto",
+      text: "work",
+      createdAt: 1_000,
+    });
+    writeJsonAtomic(paths.activation, { bootId: "boot-1" });
+    const env = encodeManagedBootEnv({
+      dir,
+      bootId: "boot-1",
+      expectedSessionId: "s-1",
+      resumeFloorSeq: 0,
+      controlFloorSeq: 0,
+      freshAttempt: false,
+      holdOnInitialModelError: false,
+      limits: { maxRuntimeMs: 0, maxInactivityMs: 0 },
+    });
+    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+
+    const handlers = new Map<string, (...args: unknown[]) => unknown>();
+    const sent: string[] = [];
+    const pi = {
+      registerTool() {},
+      sendUserMessage(text: string) {
+        sent.push(text);
+      },
+      on(event: string, handler: (...args: unknown[]) => unknown) {
+        handlers.set(event, handler);
+        return () => {};
+      },
+    } as unknown as ExtensionAPI;
+    managedChildExtension(pi);
+
+    const invoke = (event: string, ...args: unknown[]) =>
+      handlers.get(event)?.(...args);
+    let idle = true;
+    const ctx = {
+      isIdle: () => idle,
+      abort() {},
+      shutdown() {},
+      hasPendingMessages: () => false,
+      sessionManager: {
+        getSessionId: () => "s-1",
+        getSessionFile: () => undefined,
+      },
+    } as unknown as ExtensionContext;
+
+    try {
+      invoke("session_start", { type: "session_start" }, ctx);
+      expect(sent).toHaveLength(1);
+      const prompt = sent[0]!;
+      invoke("input", { text: prompt, source: "extension" });
+      idle = false;
+      invoke("before_agent_start", { prompt });
+      invoke("message_start", { message: userMessage(prompt) });
+      invoke("tool_execution_start", {
+        type: "tool_execution_start",
+        toolName: "codemode",
+      });
+      invoke("tool_execution_end", {
+        type: "tool_execution_end",
+        toolCallId: "yield-1",
+        toolName: "yield",
+        parentToolCallId: "codemode-1",
+        result: {
+          content: [{ type: "text", text: "Yielded completed" }],
+          details: {
+            status: "completed",
+            result: "nested result",
+            artifacts: ["artifact.md"],
+          },
+        },
+        isError: false,
+      });
+      invoke("message_end", {
+        message: { role: "assistant", content: [], stopReason: "endTurn" },
+      });
+      idle = true;
+      invoke("agent_settled", { type: "agent_settled" });
+
+      expect(readArchivedAssignment(dir, "s-1", "a1")).toMatchObject({
+        state: "completed",
+        outcome: {
+          source: "yield",
+          result: "nested result",
+          artifacts: ["artifact.md"],
+        },
+      });
+    } finally {
+      invoke("session_shutdown", { reason: "reload" });
+    }
   });
 });
 

@@ -18,7 +18,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { parseChildMessage } from "./_child-events.ts";
+import { parseChildEvent, parseChildMessage } from "./_child-events.ts";
 import {
   formatAssignmentPrompt,
   formatSteerPrompt,
@@ -948,6 +948,10 @@ export default function managedChildExtension(pi: ExtensionAPI): void {
   pi.on("message_end", (event) => bridge.onMessageEnd(event.message));
   pi.on("tool_execution_start", (event) => bridge.onToolStart(event.toolName));
   pi.on("tool_execution_update", () => bridge.onActivity());
+  pi.on("tool_execution_end", (event) => {
+    const parsed = parseChildEvent(event);
+    if (parsed._tag === "toolResultEnd") bridge.onMessageEnd(parsed.message);
+  });
   pi.on("session_before_compact", () => bridge.onCompactionStart());
   pi.on("session_compact", () => bridge.onCompactionEnd());
   pi.on("agent_settled", () => bridge.onSettled());
