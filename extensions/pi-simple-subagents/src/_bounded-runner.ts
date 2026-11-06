@@ -737,6 +737,7 @@ async function runSingleAgent(
       agent.name,
       buildDelegatedSystemPrompt(agent.systemPrompt, trace, limits),
     );
+    if (ctx.processes.isShuttingDown) return reject(result, shutdownMessage);
     const args = buildChildArgs({
       agent,
       task: item.task,
