@@ -326,7 +326,11 @@ function legacyRunStatus(raw: Readonly<Record<string, unknown>>): RunStatus {
 /** Reads a result from session details, including ones persisted by older versions. */
 export function parsePersistedResult(value: unknown): SingleResult | undefined {
   if (!isPlainRecord(value)) return undefined;
-  const status = parseRunStatus(value.status) ?? legacyRunStatus(value);
+  const hasStatus = Object.prototype.hasOwnProperty.call(value, "status");
+  const status = hasStatus
+    ? parseRunStatus(value.status)
+    : legacyRunStatus(value);
+  if (!status) return undefined;
   const {
     exitCode: _exitCode,
     spawnBlocked: _spawnBlocked,

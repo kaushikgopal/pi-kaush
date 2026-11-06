@@ -196,4 +196,13 @@ describe("result status", () => {
     expect(parsed).not.toHaveProperty("exitCode");
     expect(parsePersistedResult("not a result")).toBeUndefined();
   });
+
+  test("rejects an unknown status instead of inferring a legacy exit", () => {
+    expect(
+      parsePersistedResult({
+        ...result(),
+        status: { kind: "futureStatus" },
+      }),
+    ).toBeUndefined();
+  });
 });
