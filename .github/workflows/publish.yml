@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-better-read-edit-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-content-layout-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-footer-minimal-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-intercom-hotkey-v') || startsWith(github.event.release.tag_name, 'pi-reload-hotkey-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-simple-subagents-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-verbatim-compaction-v') || startsWith(github.event.release.tag_name, 'pi-model-profiles-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v') || startsWith(github.event.release.tag_name, 'pi-working-indicator-v') || startsWith(github.event.release.tag_name, 'pi-inline-agent-identifier-v')
+    if: startsWith(github.event.release.tag_name, 'firefox-agent-core-v') || startsWith(github.event.release.tag_name, 'pi-firefox-v') || startsWith(github.event.release.tag_name, 'pi-agent-mode-v') || startsWith(github.event.release.tag_name, 'pi-better-read-edit-v') || startsWith(github.event.release.tag_name, 'pi-btw-v') || startsWith(github.event.release.tag_name, 'pi-content-layout-v') || startsWith(github.event.release.tag_name, 'pi-double-paste-v') || startsWith(github.event.release.tag_name, 'pi-footer-minimal-v') || startsWith(github.event.release.tag_name, 'pi-inline-identifier-v') || startsWith(github.event.release.tag_name, 'pi-inline-skill-identifier-v') || startsWith(github.event.release.tag_name, 'pi-intercom-hotkey-v') || startsWith(github.event.release.tag_name, 'pi-reload-hotkey-v') || startsWith(github.event.release.tag_name, 'pi-response-style-v') || startsWith(github.event.release.tag_name, 'pi-simple-subagents-v') || startsWith(github.event.release.tag_name, 'pi-tool-call-markers-v') || startsWith(github.event.release.tag_name, 'pi-verbatim-compaction-v') || startsWith(github.event.release.tag_name, 'pi-model-profiles-v') || startsWith(github.event.release.tag_name, 'pi-welcome-screen-v') || startsWith(github.event.release.tag_name, 'pi-working-indicator-v') || startsWith(github.event.release.tag_name, 'pi-inline-agent-identifier-v')
     runs-on: ubuntu-latest
     environment: npm
     steps:
@@ -31,6 +31,16 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           case "$RELEASE_TAG" in
+            firefox-agent-core-v*)
+              workspace="@pi-kaush/firefox-agent-core"
+              directory="packages/firefox-agent-core"
+              prefix="firefox-agent-core-v"
+              ;;
+            pi-firefox-v*)
+              workspace="@pi-kaush/pi-firefox"
+              directory="extensions/pi-firefox"
+              prefix="pi-firefox-v"
+              ;;
             pi-agent-mode-v*)
               workspace="@pi-kaush/pi-agent-mode"
               directory="extensions/pi-agent-mode"
@@ -135,4 +145,9 @@ jobs:
           fi
 
           echo "workspace=$workspace" >> "$GITHUB_OUTPUT"
+      - name: Verify published Firefox core
+        if: steps.package.outputs.workspace == '@pi-kaush/pi-firefox'
+        run: |
+          core_range="$(node -p "require('./extensions/pi-firefox/package.json').dependencies['@pi-kaush/firefox-agent-core']")"
+          npm view "@pi-kaush/firefox-agent-core@$core_range" version --json
       - run: npm publish --workspace "${{ steps.package.outputs.workspace }}" --access public --provenance

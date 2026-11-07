@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish a pi-kaush extension to npm via GitHub Actions OIDC.
+# Publish a pi-kaush package to npm via GitHub Actions OIDC.
 #
 # Usage:
 #   make publish PACKAGE=pi-openai-compaction # patch bump
@@ -21,12 +21,15 @@ PACKAGE="${1:-}"
 VERSION="${2:-}"
 
 if [ -z "$PACKAGE" ]; then
-  echo "Usage: make publish PACKAGE=<extension-name> [VERSION=<x.y.z>]" >&2
-  echo "Known packages: pi-agent-mode, pi-better-read-edit, pi-browser, pi-btw, pi-content-layout, pi-double-paste, pi-footer-minimal, pi-inline-identifier, pi-intercom-hotkey, pi-model-profiles, pi-response-style, pi-simple-subagents, pi-tool-call-markers, pi-verbatim-compaction, pi-welcome-screen" >&2
+  echo "Usage: make publish PACKAGE=<package-name> [VERSION=<x.y.z>]" >&2
+  echo "Known packages: firefox-agent-core, pi-firefox, pi-agent-mode, pi-better-read-edit, pi-browser, pi-btw, pi-content-layout, pi-double-paste, pi-footer-minimal, pi-inline-identifier, pi-intercom-hotkey, pi-model-profiles, pi-response-style, pi-simple-subagents, pi-tool-call-markers, pi-verbatim-compaction, pi-welcome-screen" >&2
   exit 1
 fi
 
-DIR="extensions/$PACKAGE"
+case "$PACKAGE" in
+  firefox-agent-core) DIR="packages/firefox-agent-core" ;;
+  *) DIR="extensions/$PACKAGE" ;;
+esac
 PKG_FILE="$DIR/package.json"
 
 if [ ! -f "$PKG_FILE" ]; then
@@ -51,6 +54,15 @@ git fetch origin main
 if ! git merge-base --is-ancestor origin/main HEAD; then
   echo "Error: HEAD must contain the latest origin/main before publishing." >&2
   exit 1
+fi
+
+# The adapter must never be released before its declared core range exists.
+if [ "$PACKAGE" = "pi-firefox" ]; then
+  CORE_RANGE=$(jq -r '.dependencies["@pi-kaush/firefox-agent-core"]' "$PKG_FILE")
+  if ! npm view "@pi-kaush/firefox-agent-core@$CORE_RANGE" version --json; then
+    echo "Error: publish firefox-agent-core for $CORE_RANGE before pi-firefox." >&2
+    exit 1
+  fi
 fi
 
 # --- Resolve version --------------------------------------------------------

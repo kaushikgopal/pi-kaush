@@ -2,8 +2,6 @@
 
 Native Pi tools and safety guidance for owned Firefox sessions. The extension delegates all browser behavior to `@pi-kaush/firefox-agent-core` and `firefox-cli`.
 
-This package is local-only. It is not published to npm.
-
 ## Tools
 
 The extension registers every public Firefox core tool:
@@ -33,7 +31,7 @@ Firefox replacement approval uses Pi's human confirmation dialog. The dialog sho
 
 Use `ff_do` with `dryRun: true` before a workflow. Writes require `allowWrite: true`. A failed workflow can include partial progress. Inspect its results before you try any operation again.
 
-The package declares Node 20 or newer. The live Firefox CLI baseline ran with Node 26.12.1. Compatibility with earlier Node 20 releases is not established by that live run.
+Pi 1.x requires Node 22.19.0 or newer. The core package declares Node 20 or newer, but Node 20 execution is not verified. Live Firefox validation passed on macOS with Node 26.12.1, Firefox 158.0.1, and `firefox-cli` 0.4.1. Linux identity code paths and CI unit checks do not establish live Firefox support. Persistent browser control on Windows is unsupported.
 
 ## Identity and configuration
 
@@ -68,17 +66,17 @@ The default state, screenshot, and log paths use `$XDG_CACHE_HOME/firefox-agent`
 
 The Firefox CLI 0.4.1 baseline measured fixture HTML, CLI snapshot text and JSON, and the pure core summary helper. It does not measure final Pi wire output or claim tokenizer parity. Token estimates use bytes divided by four, not a provider tokenizer.
 
-The final synthetic live check passed 20 fill/click/wait/extract cycles. Full core JSON measured 370 bytes for a summary and 402 bytes per four-step workflow. Human-confirmed CTC adoption through the public Pi loader also passed. See [core measurements and limits](../../packages/firefox-agent-core/README.md#configuration-and-validation).
+The final synthetic live check passed 20 fill/click/wait/extract cycles. Full core JSON measured 370 bytes for a summary and 402 bytes per four-step workflow. Human-confirmed CTC adoption through the public Pi loader also passed. See [core measurements and limits](https://github.com/kaushikgopal/pi-kaush/blob/main/packages/firefox-agent-core/README.md#configuration-and-validation).
 
-The real Pi-loader fixture returned 327 model-facing text bytes for a summary and 1,186 for a full read. Native result envelopes measured 1,116 and 3,749 bytes, respectively. These are byte measurements, not provider token counts. See [native result measurements](../../.agents/dox/report-firefox-pi-wire-live.json).
+The real Pi-loader fixture returned 327 model-facing text bytes for a summary and 1,186 for a full read. Native result envelopes measured 1,116 and 3,749 bytes, respectively. These are byte measurements, not provider token counts. See [native result measurements](https://github.com/kaushikgopal/pi-kaush/blob/main/.agents/dox/report-firefox-pi-wire-live.json).
 
-See the [four-page source/helper baseline](../../.agents/dox/report-firefox-token-baseline.md).
+See the [four-page source/helper baseline](https://github.com/kaushikgopal/pi-kaush/blob/main/.agents/dox/report-firefox-token-baseline.md).
 
 ## Install locally
 
-Use a local checkout. Do not install this package from npm.
+Until both initial npm releases are complete, use a local checkout.
 
-1. Install Firefox and Node 20 or newer.
+1. Install Firefox and Node 22.19.0 or newer for Pi 1.x.
 2. Install the supported CLI and register its native host.
 
 ```fish
@@ -130,7 +128,17 @@ pi install ./extensions/pi-firefox
 
 If the core dependency is missing or has not been built, Pi starts without Firefox tools and shows the setup commands. Run the commands from the checkout root, then reload Pi. After pulling changes to the core source, rebuild the core; an older build may still load without a warning.
 
-The extension does not install Firefox, the CLI, or FF-CLI Bridge. It does not change Firefox permissions or CTC settings.
+The package does not install Firefox, `firefox-cli`, or FF-CLI Bridge. Install the pinned CLI manually and pair it as described above. Package installation cannot install or pair it. The package does not change Firefox permissions or CTC settings.
+
+## Install from npm
+
+The npm path becomes available after the initial releases. The adapter requires `@pi-kaush/firefox-agent-core` at `^0.1.0`, so publish the core first. After both packages are published, install the adapter with Pi:
+
+```fish
+pi install npm:@pi-kaush/pi-firefox
+```
+
+Pi installs the core dependency with the adapter. Do not install the core separately for Pi. This does not install or pair `firefox-cli`; retain the local checkout setup above until the packages are available from npm.
 
 ## Test
 

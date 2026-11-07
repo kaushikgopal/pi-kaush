@@ -10,8 +10,10 @@ check:
 bench-pi:
 	@bun run "$(ROOT)/benchmarks/startup-benchmark.ts"
 
-# Publish an extension to npm via GitHub Actions OIDC.
+# Publish a package to npm via GitHub Actions OIDC.
 #
+#   make publish PACKAGE=firefox-agent-core   # core first
+#   make publish PACKAGE=pi-firefox           # after a compatible core is on npm
 #   make publish PACKAGE=pi-btw               # patch bump
 #   make publish PACKAGE=pi-agent-mode        # patch bump
 #   make publish PACKAGE=pi-better-read-edit  # patch bump

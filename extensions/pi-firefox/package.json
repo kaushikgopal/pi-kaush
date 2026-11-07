@@ -55,13 +55,13 @@
     }
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "package:check": "node ./scripts/check-package.mjs"
+    "package:check": "node ./scripts/check-package.mjs && node ./scripts/check-install.mjs"
   },
   "sideEffects": false
 }

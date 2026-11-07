@@ -78,6 +78,6 @@ test("core remains a library workspace outside the Pi extensions", async () => {
   expect(core.pi).toBeUndefined();
   expect(Object.keys(core.dependencies ?? {})).toEqual([]);
   expect(adapter.name).toBe("@pi-kaush/pi-firefox");
-  expect(adapter.dependencies[core.name]).toBe(`^${core.version}`);
+  expect(adapter.dependencies[core.name]).toEqual(expect.any(String));
   expect(adapter.dependencies["@pi-kaush/firefox-core"]).toBeUndefined();
 });

@@ -21,4 +21,10 @@ To release a new version of an extension (only when explicitly asked):
 4. The release event triggers `.github/workflows/publish.yml`, which verifies the tag matches the package version, then publishes to npm via OIDC.
 5. Monitor with `gh run watch` and verify with `npm view @pi-kaush/<package> version`.
 
-Known publishable packages: `pi-agent-mode`, `pi-better-read-edit`, `pi-btw`, `pi-content-layout`, `pi-double-paste`, `pi-inline-identifier`, `pi-intercom-hotkey`, `pi-response-style`, `pi-tool-call-markers`, `pi-verbatim-compaction`, `pi-welcome-screen`. A package's first release must be bootstrapped with a manual `npm publish` (which requires browser 2FA) before its trusted publisher can be configured; subsequent releases use `make publish`.
+Known publishable packages: `firefox-agent-core`, `pi-firefox`, `pi-agent-mode`, `pi-better-read-edit`, `pi-btw`, `pi-content-layout`, `pi-double-paste`, `pi-inline-identifier`, `pi-intercom-hotkey`, `pi-response-style`, `pi-tool-call-markers`, `pi-verbatim-compaction`, `pi-welcome-screen`. A package's first release must be bootstrapped with a manual `npm publish` (which requires browser 2FA) before its trusted publisher can be configured; subsequent releases use `make publish`.
+
+### Firefox package order
+
+`firefox-agent-core` lives under `packages/firefox-agent-core`; `pi-firefox` remains under `extensions/pi-firefox`. Publish a core version that satisfies the adapter dependency before publishing the adapter. Both the release script and workflow check registry availability for the adapter's declared core range.
+
+The first releases require the manual bootstrap above. Subsequent releases use `make publish PACKAGE=firefox-agent-core` or `make publish PACKAGE=pi-firefox`. The repository check explicitly builds core and tests installed tarballs outside the workspace. Do not rely on npm lifecycle scripts. First-release details are in `.agents/dox/guide-firefox-release.md`.

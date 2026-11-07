@@ -4,7 +4,15 @@
 
 ## Setup
 
-See [the complete local setup](../../extensions/pi-firefox/README.md#install-locally) for Firefox, the bridge, pairing, and Pi installation. These packages are not published.
+After the initial publication, install the core in a harness project:
+
+```fish
+npm install @pi-kaush/firefox-agent-core
+```
+
+Until then, use [the complete local setup](https://github.com/kaushikgopal/pi-kaush/blob/main/extensions/pi-firefox/README.md#install-locally) for Firefox, the bridge, pairing, and Pi installation. The adapter depends on core `^0.1.0`, so publish the core before the adapter. Installing this package does not install or pair `firefox-cli`.
+
+For a local checkout:
 
 1. Install workspace dependencies.
 2. Build core explicitly.
@@ -14,7 +22,7 @@ npm install
 npm run build --workspace @pi-kaush/firefox-agent-core
 ```
 
-Node 20 or newer is declared. Live validation uses Node 26.12.1, Firefox 158.0.1, and Firefox CLI 0.4.1 on macOS. Node 20 execution and Windows browser control are not verified. Persistent browser identity currently supports macOS and Linux.
+The package declares Node 20 or newer, but Node 20 execution is not verified. Live Firefox validation passed on macOS with Node 26.12.1, Firefox 158.0.1, and `firefox-cli` 0.4.1. Linux identity code paths and CI unit checks do not establish live Firefox support. Persistent browser control on Windows is unsupported.
 
 ## Harness-neutral API
 
@@ -157,7 +165,7 @@ Each field returns `extracted`, `absent`, or `uncertain`, with bounded source ev
 
 ## Configuration and validation
 
-See [the configuration table](../../extensions/pi-firefox/README.md#identity-and-configuration). Precedence is defaults, trusted user JSON, project limits, then known `FFX_*` overrides. Unknown keys fail validation. Project files cannot change executables, paths, identity, or containers. Logging is off by default; enabled logs contain metadata and URL domains only.
+See [the configuration table](https://github.com/kaushikgopal/pi-kaush/blob/main/extensions/pi-firefox/README.md#identity-and-configuration). Precedence is defaults, trusted user JSON, project limits, then known `FFX_*` overrides. Unknown keys fail validation. Project files cannot change executables, paths, identity, or containers. Logging is off by default; enabled logs contain metadata and URL domains only.
 
 Live validation completed 20 fill/click/wait/extract cycles, a separate-process restart, independent sessions, network metadata, screenshot resizing, and owned cleanup. Human approval through the public Pi loader also passed. Private-window access remained disabled.
 
@@ -170,7 +178,7 @@ Live validation completed 20 fill/click/wait/extract cycles, a separate-process 
 | Four-step workflow, each of 20 cycles |                    402 |              101 |
 | Screenshot path and metadata          |                    398 |              100 |
 
-These are one fixture's core JSON results, not provider token counts. Estimates use bytes divided by four. The screenshot file measured 58,031 bytes; no image data entered tool output. See [the live report](../../.agents/dox/report-firefox-v1-live.json) and [four-page source/helper baseline](../../.agents/dox/report-firefox-token-baseline.md). The latter is not final Pi wire output.
+These are one fixture's core JSON results, not provider token counts. Estimates use bytes divided by four. The screenshot file measured 58,031 bytes; no image data entered tool output. See [the live report](https://github.com/kaushikgopal/pi-kaush/blob/main/.agents/dox/report-firefox-v1-live.json) and [four-page source/helper baseline](https://github.com/kaushikgopal/pi-kaush/blob/main/.agents/dox/report-firefox-token-baseline.md). The latter is not final Pi wire output.
 
 The summary-first and bounded-workflow techniques follow [surf-cli](https://github.com/nicobailon/surf-cli). This implementation is original wrapper code, not copied browser code. See [the supported backend contract](SUPPORTED_FIREFOX_CLI.md) for capability limits.
 
