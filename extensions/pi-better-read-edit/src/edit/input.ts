@@ -123,12 +123,47 @@ export const editSchema = Type.Object(
 
 export function normalizeEditArguments(input: unknown): EditParams {
   if (!input || typeof input !== "object") return input as EditParams;
-  const raw = input as Record<string, unknown>;
+  let raw = input as Record<string, unknown>;
   if (typeof raw.script === "string" && raw.files === undefined) {
     if (Object.keys(raw).some((key) => key !== "script")) {
       throw new Error("Legacy edit calls accept only the script field.");
     }
     return legacyScriptToParams(raw.script);
+  }
+
+  const fileKeys = [
+    "path",
+    "tag",
+    "edits",
+    "appendLines",
+    "finalNewline",
+  ] as const;
+  const readKeys = ["ranges", "selector", "offset", "limit"] as const;
+  const hasTopLevelFileFields = fileKeys.some((key) =>
+    Object.prototype.hasOwnProperty.call(raw, key),
+  );
+  if (raw.files !== undefined && hasTopLevelFileFields) {
+    throw new Error("Do not combine top-level file fields with files.");
+  }
+  if (raw.files === undefined) {
+    if (
+      readKeys.some((key) => Object.prototype.hasOwnProperty.call(raw, key))
+    ) {
+      throw new Error(
+        "These are read arguments. edit needs files: [{ path, tag, edits }]. Call read first for a tag.",
+      );
+    }
+    if (hasTopLevelFileFields) {
+      const file: Record<string, unknown> = {};
+      const remaining = { ...raw };
+      for (const key of fileKeys) {
+        if (Object.prototype.hasOwnProperty.call(raw, key)) {
+          file[key] = raw[key];
+          delete remaining[key];
+        }
+      }
+      raw = { ...remaining, files: [file] };
+    }
   }
 
   const files = parseJsonArray(raw.files, "files");

@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Value } from "typebox/value";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import registerExtension from "../src/index.ts";
 import { editSchema, normalizeEditArguments } from "../src/edit/input.ts";
@@ -101,6 +102,56 @@ describe("structured edit input", () => {
     expect(file.required).toEqual(["path", "tag"]);
     expect(file.properties.edits.items.required).toBeUndefined();
   });
+
+  test("applies single-file shorthand after preparation and schema validation", async () => {
+    await writeFile(join(root, "example.txt"), "one\ntwo\nthree\n");
+    const tag = await taggedRead("example.txt");
+    const tool = tools.get("edit");
+    const prepared = tool.prepareArguments({
+      path: "example.txt",
+      tag,
+      edits: [{ startLine: 2, deleteCount: 1, newLines: ["TWO"] }],
+      appendLines: ["four"],
+      finalNewline: "present",
+    });
+
+    expect(Value.Check(editSchema, prepared)).toBe(true);
+    const result = await tool.execute(
+      "edit-shorthand",
+      prepared,
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(await readFile(join(root, "example.txt"), "utf8")).toBe(
+      "one\nTWO\nthree\nfour\n",
+    );
+    expect(result.details.files).toEqual(["example.txt"]);
+  });
+
+  test("rejects mixed shorthand and files envelope", () => {
+    expect(() =>
+      normalizeEditArguments({
+        path: "example.txt",
+        tag: "ABCDEF0123456789",
+        edits: [],
+        files: [],
+      }),
+    ).toThrow("Do not combine top-level file fields with files.");
+  });
+
+  test.each([{ ranges: "1-1" }, { selector: "raw" }])(
+    "rejects read-style arguments before edit",
+    (readArguments) => {
+      const tool = tools.get("edit");
+      expect(() =>
+        tool.prepareArguments({ path: "example.txt", ...readArguments }),
+      ).toThrow(
+        "These are read arguments. edit needs files: [{ path, tag, edits }]. Call read first for a tag.",
+      );
+    },
+  );
 
   test("replaces, inserts, and appends in original coordinates", async () => {
     await writeFile(join(root, "example.txt"), "one\ntwo\nthree\n");
