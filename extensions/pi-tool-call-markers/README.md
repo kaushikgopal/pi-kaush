@@ -15,13 +15,14 @@ Restart Pi or run `/reload`.
 Collapsed tool rows use semantic theme colors with no gear, background fill, box padding, or filled blank rows:
 
 ```text
+  │ § writing-prose/SKILL.md           42 lines
+  │ π .pi/prompts/review.md            18 lines
   │ ● src/a.ts                         42 lines
-  │ ● src/b.ts                         18 lines
   │ $ npm test → done
 ```
 
 - **Two-column outer inset.** Tool markers and image output align with an inset conversation surface. Very narrow terminals reduce the decoration before useful content.
-- **`│` tool-call rail.** Every collapsed call anchors on a bold glyph instead of its tool name — `●` read, `+` write, `±` edit, `○` local search, `≡` ls, `↗` web search and fetch, `¢` codemode, and `$` bash; unmapped tools fall back to `*` — with a single space between the anchor and the call text, no joining colon. Grouped rows flow directly across tool types.
+- **`│` tool-call rail.** Collapsed calls use a bold glyph instead of repeating the tool name. A single space separates the glyph from the call text. Grouped rows flow directly across tool types. See [Tool-call glyphs](#tool-call-glyphs) for the full list.
 - **Semantic, low-contrast status.** The anchor and the call content share the collapsed mute, pending state is warning-colored, and failures remain error-colored. Ordinary tool states have no background.
 - **Width-safe outcome tails.** Long summaries truncate before useful tails such as `→ done`, `→ 42 lines`, `→ +2/-1`, or a `bash` duration.
 - **Stable running groups.** Adjacent calls group as they appear, including settled failures, which stay error-colored inside the group. Pending state and elapsed `bash` time settle into the final outcome without changing the row count.
@@ -30,6 +31,26 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 - **Images remain visible.** Image fallback text and terminal image components render below the corresponding marker with the same inset.
 - **User-run `!` bash blocks.** Execution display is owned here: user-typed commands trade Pi's green rules for the railed prompt shell (dark surface, status-colored rail) that submitted prompts use.
 - **Native expansion remains authoritative.** `Ctrl+O` restores Pi's full individual tool rendering, including complete results, custom renderers, and error details.
+
+## Tool-call glyphs
+
+| Tool call                                           | Glyph |
+| --------------------------------------------------- | ----- |
+| `read` a local `SKILL.md`                           | `§`   |
+| `read` a registered Pi prompt template              | `π`   |
+| `read` any other resource                           | `●`   |
+| `bash`                                              | `$`   |
+| `write`                                             | `+`   |
+| `edit`                                              | `±`   |
+| `grep`, `ffgrep`, `find`, `fffind`                  | `○`   |
+| `ls`                                                | `≡`   |
+| `web_search`, `fetch_content`, `get_search_content` | `↗`  |
+| `codemode`                                          | `¢`   |
+| Unmapped tools                                      | `*`   |
+
+Pi prompt templates are matched against the templates registered at session start, including files outside the usual prompt directories. Other skill files and unregistered templates keep the `●` read marker. These markers do not change submitted prompts or slash commands.
+
+Subagent calls use the `│` rail without a glyph. Recognized question calls use the submitted-prompt shell instead of a tool-call glyph.
 
 ## Codemode commands
 

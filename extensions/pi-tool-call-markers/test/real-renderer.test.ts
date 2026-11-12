@@ -88,6 +88,16 @@ function fgAnsiStrict(known: Record<string, string>, color: string): string {
 function install(): void {
   const api = {
     registerCommand() {},
+    getCommands: () => [
+      {
+        source: "prompt",
+        sourceInfo: { path: `${process.cwd()}/custom-templates/review.md` },
+      },
+      {
+        source: "extension",
+        sourceInfo: { path: `${process.cwd()}/custom-templates/extension.ts` },
+      },
+    ],
     on(event: string, handler: (event: unknown, ctx: unknown) => void) {
       if (event === "session_start") sessionHandlers.push(handler);
       if (event === "session_shutdown")
@@ -100,7 +110,11 @@ function install(): void {
   for (const handler of sessionHandlers) {
     handler(
       {},
-      { mode: "tui", ui: { theme: extensionTheme, setToolsExpanded() {} } },
+      {
+        mode: "tui",
+        cwd: process.cwd(),
+        ui: { theme: extensionTheme, setToolsExpanded() {} },
+      },
     );
   }
 }
@@ -1282,6 +1296,64 @@ describe("tool-call-markers with Pi's real renderer", () => {
     row.setExpanded(true);
     const expanded = renderPlain(chat);
     expect(expanded).toContain("FULL result body");
+  });
+
+  test("marks skill and registered prompt reads in live, grouped, and expanded views", () => {
+    const chat = new Container();
+    const skill = createReadRow(
+      "/home/user/.agents/skills/writing-prose/SKILL.md",
+    );
+    const prompt = createReadRow("custom-templates/review.md");
+    const ordinary = createReadRow("custom-templates/extension.ts");
+    const reference = createReadRow(
+      "/home/user/.agents/skills/writing-prose/references/style.md",
+    );
+    const bash = createBashRow("npm test");
+    for (const row of [skill, prompt, ordinary, reference, bash]) {
+      chat.addChild(row);
+      row.markExecutionStarted();
+    }
+    let output = renderPlain(chat);
+    expect(output).toContain(
+      "│ § /home/user/.agents/skills/writing-prose/SKILL.md",
+    );
+    expect(output).toContain("│ π custom-templates/review.md");
+    expect(output).toContain("│ ● custom-templates/extension.ts");
+    expect(output).toContain(
+      "│ ● /home/user/.agents/skills/writing-prose/references/style.md",
+    );
+    expect(output).toContain("│ $ npm test");
+
+    for (const row of [skill, prompt, ordinary, reference, bash])
+      settle(row, "output");
+    output = renderPlain(chat);
+    expect(output).toContain(
+      "│ § /home/user/.agents/skills/writing-prose/SKILL.md",
+    );
+    expect(output).toContain("│ π custom-templates/review.md");
+    for (const width of [8, 20, 80]) {
+      for (const line of chat.render(width))
+        expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    }
+    skill.setExpanded(true);
+    expect(renderPlain(chat)).toContain("FULL output");
+    expect(renderPlain(chat)).not.toContain("│ §");
+  });
+
+  test.each([
+    ["custom-templates/review.md", "π"],
+    ["@custom-templates/review.md", "π"],
+    [`${process.cwd()}/custom-templates/review.md`, "π"],
+    ["custom-templates/unregistered.md", "●"],
+    ["https://example.com/SKILL.md", "●"],
+    ["skill/SKILL.md.bak", "●"],
+    ["skill/SKILL.md", "§"],
+    ["@SKILL.md", "§"],
+  ])("marks a standalone read of %s with %s", (path, glyph) => {
+    const row = createReadRow(path);
+    settle(row, "output");
+    const output = row.render(120).join("\n").replace(ANSI_RE, "");
+    expect(output).toContain(`│ ${glyph} ${path}`);
   });
 
   test("preserves a read path wrapped in an OSC 8 hyperlink", () => {

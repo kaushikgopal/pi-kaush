@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   AssistantMessageComponent,
@@ -98,6 +100,8 @@ type PresentationPatchState = {
   // owner; a later install re-enables it.
   disabled?: boolean;
   theme?: ThemeLike;
+  cwd: string;
+  promptPaths: ReadonlySet<string>;
   collapseParallel: boolean;
   expandedTools: ReadonlySet<string>;
   groupCache: WeakMap<ToolExecutionRow, GroupRenderCache>;
@@ -964,6 +968,28 @@ function collapsedAnchor(
     : `${rail}${fgCollapsed(theme, color, glyph, true)} `;
 }
 
+function resourcePath(path: string, cwd: string): string {
+  const localPath = path.startsWith("@") ? path.slice(1) : path;
+  return resolve(
+    cwd,
+    localPath.startsWith("~/")
+      ? `${homedir()}/${localPath.slice(2)}`
+      : localPath,
+  );
+}
+
+function readGlyph(
+  row: ToolExecutionRow,
+  state: PresentationPatchState,
+): string {
+  const path = isRecord(row.args) ? row.args.path : undefined;
+  if (typeof path !== "string") return "●";
+  const localPath = path.startsWith("@") ? path.slice(1) : path;
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(localPath)) return "●";
+  if (/(?:^|[/\\])SKILL\.md$/.test(localPath)) return "§";
+  return state.promptPaths.has(resourcePath(path, state.cwd)) ? "π" : "●";
+}
+
 // The collapsed-row seam lives here and nowhere else: which anchor a row
 // takes, and the call text that follows it. Callers append the outcome tail.
 function collapsedSeam(
@@ -971,6 +997,7 @@ function collapsedSeam(
   width: number,
   theme: ThemeLike,
   color: string,
+  state: PresentationPatchState,
 ): { anchor: string; content: string } {
   const isBash = row.toolName === "bash";
   const isSubagent = row.toolName === "subagent";
@@ -978,7 +1005,9 @@ function collapsedSeam(
     ? undefined
     : isBash
       ? "$"
-      : (TOOL_CALL_GLYPHS.get(row.toolName ?? "") ?? "*");
+      : row.toolName === "read"
+        ? readGlyph(row, state)
+        : (TOOL_CALL_GLYPHS.get(row.toolName ?? "") ?? "*");
   const anchor = collapsedAnchor(theme, color, glyph);
   const budget = Math.max(1, width - visibleWidth(anchor));
   // Self-rendered rows build their own `tool {args}` label — Pi's call title
@@ -1046,11 +1075,12 @@ function collapsedRowLine(
   row: ToolExecutionRow,
   width: number,
   theme: ThemeLike,
+  state: PresentationPatchState,
 ): string {
   // Failed rows render entirely in error so the row reads as the one that
   // failed, not just its outcome tail. Only the row's anchor stays bold.
   const color = rowHasFailed(row) ? "error" : "muted";
-  const seam = collapsedSeam(row, width, theme, color);
+  const seam = collapsedSeam(row, width, theme, color, state);
   const budget = Math.max(1, width - visibleWidth(seam.anchor));
   const outcome = collapsedOutcome(row, budget, theme);
   // The truncation suffix inherits the row tone; pi-tui's truncation resets
@@ -1365,6 +1395,7 @@ function renderCollapsedToolRow(
   row: ToolExecutionRow,
   width: number,
   theme: ThemeLike,
+  state: PresentationPatchState,
 ): string[] {
   // An asked question is a user-input moment, not an execution row: it takes
   // the submitted-prompt shell, which carries its own inset.
@@ -1375,7 +1406,9 @@ function renderCollapsedToolRow(
     row.toolName === "subagent"
       ? renderSubagentPlan(row, layout.contentWidth, theme)
       : undefined;
-  const body = plan ?? [collapsedRowLine(row, layout.contentWidth, theme)];
+  const body = plan ?? [
+    collapsedRowLine(row, layout.contentWidth, theme, state),
+  ];
   body.push(...imageResultLines(row, layout.contentWidth, theme));
   return ["", ...insetLines(body, width)];
 }
@@ -1384,10 +1417,11 @@ function renderGroupedCallLines(
   rows: ToolExecutionRow[],
   width: number,
   theme: ThemeLike,
+  state: PresentationPatchState,
 ): Array<{ row: ToolExecutionRow; lines: string[] }> {
   const segments: Array<{ row: ToolExecutionRow; lines: string[] }> = [];
   for (const row of rows) {
-    segments.push({ row, lines: [collapsedRowLine(row, width, theme)] });
+    segments.push({ row, lines: [collapsedRowLine(row, width, theme, state)] });
   }
   return segments;
 }
@@ -1448,7 +1482,12 @@ function renderGroupedToolRows(
   }
 
   const layout = insetLayout(width);
-  const segments = renderGroupedCallLines(rows, layout.contentWidth, theme);
+  const segments = renderGroupedCallLines(
+    rows,
+    layout.contentWidth,
+    theme,
+    state,
+  );
   const lines = [
     "",
     ...insetLines(
@@ -1683,6 +1722,8 @@ function installPresentationPatch(): PresentationPatchState | undefined {
 
     const state: PresentationPatchState = {
       owners: 1,
+      cwd: process.cwd(),
+      promptPaths: new Set(),
       collapseParallel: envEnabled(COLLAPSE_PARALLEL_ENV, true),
       expandedTools: envToolNames(EXPANDED_TOOLS_ENV),
       groupCache: new WeakMap(),
@@ -1796,7 +1837,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
           return lines;
         }
         try {
-          const collapsed = renderCollapsedToolRow(this, width, theme);
+          const collapsed = renderCollapsedToolRow(this, width, theme, state);
           state.collapsedCache.set(this, {
             lines: collapsed,
             signature,
@@ -1817,7 +1858,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
         return lines;
       }
       try {
-        return renderCollapsedToolRow(this, width, theme);
+        return renderCollapsedToolRow(this, width, theme, state);
       } catch {
         return lines;
       }
@@ -1896,7 +1937,19 @@ export default function (pi: ExtensionAPI) {
   let released = false;
 
   pi.on("session_start", (_event, ctx) => {
-    if (patch) patch.theme = ctx.ui.theme;
+    if (patch) {
+      patch.theme = ctx.ui.theme;
+      patch.cwd = ctx.cwd ?? process.cwd();
+      patch.promptPaths = new Set(
+        (pi.getCommands?.() ?? [])
+          .filter((command) => command.source === "prompt")
+          .map((command) => command.sourceInfo?.path)
+          .filter((path): path is string => typeof path === "string")
+          .map((path) => resourcePath(path, patch.cwd)),
+      );
+      patch.groupCache = new WeakMap();
+      patch.collapsedCache = new WeakMap();
+    }
     if (bashPatch) bashPatch.theme = ctx.ui.theme;
     ctx.ui.setToolsExpanded(false);
   });

@@ -226,6 +226,7 @@ function succeeded(
 function install(): void {
   toolCallMarkers({
     registerCommand() {},
+    getCommands: () => [],
     on(event: string, handler: (event: unknown, ctx: unknown) => void) {
       if (event === "session_start") sessionHandlers.push(handler);
       if (event === "session_shutdown")
@@ -233,7 +234,7 @@ function install(): void {
     },
   } as never);
   for (const handler of sessionHandlers) {
-    handler({}, { ui: { theme, setToolsExpanded() {} } });
+    handler({}, { cwd: process.cwd(), ui: { theme, setToolsExpanded() {} } });
   }
 }
 
