@@ -1317,7 +1317,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).toContain(
       "│ § /home/user/.agents/skills/writing-prose/SKILL.md",
     );
-    expect(output).toContain("│ π custom-templates/review.md");
+    expect(output).toContain("│ ≡ custom-templates/review.md");
     expect(output).toContain("│ ● custom-templates/extension.ts");
     expect(output).toContain(
       "│ ● /home/user/.agents/skills/writing-prose/references/style.md",
@@ -1330,7 +1330,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).toContain(
       "│ § /home/user/.agents/skills/writing-prose/SKILL.md",
     );
-    expect(output).toContain("│ π custom-templates/review.md");
+    expect(output).toContain("│ ≡ custom-templates/review.md");
     for (const width of [8, 20, 80]) {
       for (const line of chat.render(width))
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
@@ -1341,9 +1341,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
   });
 
   test.each([
-    ["custom-templates/review.md", "π"],
-    ["@custom-templates/review.md", "π"],
-    [`${process.cwd()}/custom-templates/review.md`, "π"],
+    ["custom-templates/review.md", "≡"],
+    ["@custom-templates/review.md", "≡"],
+    [`${process.cwd()}/custom-templates/review.md`, "≡"],
     ["custom-templates/unregistered.md", "●"],
     ["https://example.com/SKILL.md", "●"],
     ["skill/SKILL.md.bak", "●"],

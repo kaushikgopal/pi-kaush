@@ -987,7 +987,7 @@ function readGlyph(
   const localPath = path.startsWith("@") ? path.slice(1) : path;
   if (/^[a-z][a-z\d+.-]*:\/\//i.test(localPath)) return "●";
   if (/(?:^|[/\\])SKILL\.md$/.test(localPath)) return "§";
-  return state.promptPaths.has(resourcePath(path, state.cwd)) ? "π" : "●";
+  return state.promptPaths.has(resourcePath(path, state.cwd)) ? "≡" : "●";
 }
 
 // The collapsed-row seam lives here and nowhere else: which anchor a row

@@ -16,7 +16,7 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 
 ```text
   │ § writing-prose/SKILL.md           42 lines
-  │ π .pi/prompts/review.md            18 lines
+  │ ≡ .pi/prompts/review.md            18 lines
   │ ● src/a.ts                         42 lines
   │ $ npm test → done
 ```
@@ -37,7 +37,7 @@ Collapsed tool rows use semantic theme colors with no gear, background fill, box
 | Tool call                                           | Glyph |
 | --------------------------------------------------- | ----- |
 | `read` a local `SKILL.md`                           | `§`   |
-| `read` a registered Pi prompt template              | `π`   |
+| `read` a registered Pi prompt template              | `≡`   |
 | `read` any other resource                           | `●`   |
 | `bash`                                              | `$`   |
 | `write`                                             | `+`   |
