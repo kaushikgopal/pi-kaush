@@ -1949,6 +1949,15 @@ describe("tool-call-markers grouping", () => {
     expect(malformedOutput).not.toContain("chain");
     expect(malformedOutput).not.toContain("▌");
 
+    const restoredChat = new MockContainer();
+    const restored = new MockToolExecutionComponent("subagent", "restored");
+    restored.updateResult({ isError: false, output: "child result" });
+    restored.callRendererComponent = new MockText("subagent ... [user]");
+    // Saved tool calls can contain null despite the live component's record type.
+    Object.assign(restored, { args: null });
+    restoredChat.addChild(restored);
+    expect(renderPlain(restoredChat)).toBe("  ▏  subagent 👾 ... [user]");
+
     const narrowChat = new MockContainer();
     const narrow = new MockToolExecutionComponent("subagent", "x");
     narrow.args = {
