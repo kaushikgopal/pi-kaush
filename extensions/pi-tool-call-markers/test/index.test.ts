@@ -1776,8 +1776,11 @@ describe("tool-call-markers grouping", () => {
     const malformed = new MockToolExecutionComponent("subagent", "broken");
     malformed.args = { tasks: [{ task: 42 }] };
     malformedChat.addChild(malformed);
-    expect(renderPlain(malformedChat)).toContain("▏  subagent");
-    expect(renderPlain(malformedChat)).not.toContain("▌");
+    const malformedOutput = renderPlain(malformedChat);
+    expect(malformedOutput).toContain("▏  subagent");
+    expect(malformedOutput).not.toContain("parallel");
+    expect(malformedOutput).not.toContain("chain");
+    expect(malformedOutput).not.toContain("▌");
 
     const narrowChat = new MockContainer();
     const narrow = new MockToolExecutionComponent("subagent", "x");
