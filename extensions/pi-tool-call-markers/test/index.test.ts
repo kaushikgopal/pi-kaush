@@ -1776,14 +1776,25 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("read", "one.md"));
     chat.addChild(succeeded("read", "two.md"));
 
+    const rawLines = () => chat.render(100).map(stripAnsi);
+    const groupedLines = rawLines();
+    expect(groupedLines.filter((line) => line === "")).toHaveLength(1);
+    expect(groupedLines.join("\n")).toContain("▏");
+
     firstShutdown!();
+    expect(rawLines()).toEqual(groupedLines);
     firstShutdown!();
+    expect(rawLines()).toEqual(groupedLines);
     expect(renderPlain(chat)).not.toContain("▏  read");
     expect(renderPlain(chat).match(/▏/g)).toHaveLength(2);
 
     finalShutdown!();
-    expect(renderPlain(chat)).not.toContain("%");
-    expect(renderPlain(chat)).toContain("result:one.md");
+    const nativeLines = rawLines();
+    expect(nativeLines).not.toEqual(groupedLines);
+    expect(nativeLines.join("\n")).not.toContain("▏");
+    expect(nativeLines.join("\n")).not.toContain("%");
+    expect(nativeLines.join("\n")).toContain("result:one.md");
+    expect(nativeLines.join("\n")).toContain("result:two.md");
   });
 
   test("restores native rendering after shutdown", () => {

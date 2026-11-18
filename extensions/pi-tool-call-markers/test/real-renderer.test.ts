@@ -2197,7 +2197,7 @@ describe("user bash blocks", () => {
     });
   });
 
-  test("keeps the bash decoration until the final owner shuts down", () => {
+  test("keeps real-renderer grouping and bash decoration until the final owner shuts down", () => {
     const localStarts: Array<(event: unknown, ctx: unknown) => void> = [];
     const localShutdowns: Array<() => void> = [];
     toolCallMarkers({
@@ -2213,9 +2213,24 @@ describe("user bash blocks", () => {
     }
     const firstOwnerShutdown = shutdownHandlers.shift()!;
     const finalOwnerShutdown = localShutdowns[0]!;
+    const chat = new Container();
+    const firstRow = createBashRow("first command");
+    const secondRow = createBashRow("second command");
+    chat.addChild(firstRow);
+    chat.addChild(secondRow);
+    settle(firstRow, "first result");
+    settle(secondRow, "second result");
+    const rawLines = () =>
+      chat.render(80).map((line) => line.replace(ANSI_RE, "").trimEnd());
+    const groupedLines = rawLines();
+    expect(groupedLines.filter((line) => line === "")).toHaveLength(1);
+    expect(groupedLines.join("\n")).toContain("▏$ first command");
+    expect(groupedLines.join("\n")).toContain("▏$ second command");
 
     firstOwnerShutdown();
+    expect(rawLines()).toEqual(groupedLines);
     firstOwnerShutdown();
+    expect(rawLines()).toEqual(groupedLines);
     expect(BashExecutionComponent.prototype.render).not.toBe(
       NATIVE_BASH_RENDER,
     );
@@ -2225,6 +2240,13 @@ describe("user bash blocks", () => {
 
     finalOwnerShutdown();
     expect(BashExecutionComponent.prototype.render).toBe(NATIVE_BASH_RENDER);
+    const nativeLines = rawLines();
+    expect(nativeLines).not.toEqual(groupedLines);
+    expect(nativeLines.join("\n")).not.toContain("▏$");
+    expect(nativeLines.join("\n")).toContain("$ first command");
+    expect(nativeLines.join("\n")).toContain("$ second command");
+    expect(nativeLines.join("\n")).toContain("first result");
+    expect(nativeLines.join("\n")).toContain("second result");
   });
 
   test("installs and restores the bash block renderer with the session", () => {
