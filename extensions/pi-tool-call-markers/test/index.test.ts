@@ -1701,6 +1701,42 @@ describe("tool-call-markers grouping", () => {
       expect(output).toBe("  ▏  subagent 🤖 ... [user] · ...");
     },
   );
+  test.each([
+    {
+      args: { action: "interactive", agent: "réviseur" },
+      heading: "réviseur [user]",
+      label: "🤖 réviseur [user]",
+    },
+    {
+      args: { action: "interactive", agent: "réviseur", profile: "coder" },
+      heading: "réviseur [coder] [user]",
+      label: "🧑‍💻 réviseur [coder] [user]",
+    },
+    {
+      args: { action: "interactive", agent: "🧪 réviseur" },
+      heading: "🧪 réviseur [user]",
+      label: "🤖 🧪 réviseur [user]",
+    },
+    {
+      args: { action: "list" },
+      heading: "• workers [user]",
+      label: "🤖 • workers [user]",
+    },
+  ])(
+    "uses the fallback default without an assigned emoji: $heading",
+    ({ args, heading, label }) => {
+      const chat = new MockContainer();
+      const row = new MockToolExecutionComponent("subagent", "fallback-name");
+      row.args = args;
+      row.updateResult({ isError: false, output: "worker result" });
+      row.callRendererComponent = new MockText(
+        `subagent ${heading}\n  Working`,
+      );
+      chat.addChild(row);
+
+      expect(renderPlain(chat)).toBe(`  ▏  subagent ${label} · Working`);
+    },
+  );
 
   test("keeps the assigned emoji when a launch falls back to generic rendering", () => {
     const chat = new MockContainer();

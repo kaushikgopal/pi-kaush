@@ -1108,10 +1108,27 @@ function defaultSubagentEmoji(args: unknown): string {
     : "👾";
 }
 
+// Match a whole icon token, including joined emoji, flags, and keycaps.
+// ASCII digits, #, and * count only in keycap sequences.
+const SUBAGENT_EMOJI_TOKEN =
+  /^(?:[#*0-9]\uFE0F?\u20E3|(?![#*0-9])\p{Emoji}[\uFE0E\uFE0F\u{E0020}-\u{E007F}]*\u200D?)+$/u;
+
 function subagentFallbackLabel(args: unknown, summary: string): string {
-  const { displayName, bareName } = parseStepContent(summary);
-  const prefix =
-    displayName === bareName ? `${defaultSubagentEmoji(args)} ` : "";
+  const match = /^(\S+)\s+(?=\S)/u.exec(summary);
+  const icon = match?.[1] ?? "";
+  const heading = match ? summary.slice(match[0].length) : "";
+  const agent =
+    isRecord(args) && typeof args.agent === "string"
+      ? sanitizeInline(args.agent).trim()
+      : "";
+  const startsWithAgent = (text: string) =>
+    agent !== "" && (text === agent || text.startsWith(`${agent} `));
+  // Subagents also accept configured Unicode symbols as icons. A token
+  // directly before the known name can still be one of those assignments.
+  const assigned = startsWithAgent(heading)
+    ? /[^\x00-\x7f]/u.test(icon)
+    : !startsWithAgent(summary) && SUBAGENT_EMOJI_TOKEN.test(icon);
+  const prefix = assigned ? "" : `${defaultSubagentEmoji(args)} `;
   return `subagent ${prefix}${summary}`.trimEnd();
 }
 
