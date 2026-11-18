@@ -1769,6 +1769,16 @@ describe("tool-call-markers grouping", () => {
       label: "🧑‍💻 réviseur [coder] [user]",
     },
     {
+      args: {
+        action: "interactive",
+        agent: "réviseur",
+        profile: "coder",
+        model: "provider/model",
+      },
+      heading: "réviseur [user]",
+      label: "🤖 réviseur [user]",
+    },
+    {
       args: { action: "interactive", agent: "🧪 réviseur" },
       heading: "🧪 réviseur [user]",
       label: "🤖 🧪 réviseur [user]",
