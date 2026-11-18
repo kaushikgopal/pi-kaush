@@ -81,7 +81,7 @@ type EditorFactory = (
 type Handler = (event: unknown, ctx: TestContext) => void;
 
 type TestContext = {
-  mode: "tui" | "print";
+  mode: "tui" | "print" | "rpc" | "json";
   ui: {
     theme: Theme;
     getEditorComponent(): EditorFactory | undefined;
@@ -897,8 +897,28 @@ describe("native transcript adapters", () => {
       ];
 
       if (order === "non-TUI") {
-        second.context.mode = "print";
-        second.fire("session_start");
+        const previousFactory: EditorFactory = () => new TestEditor();
+        second.factory = previousFactory;
+        const renderers = () => [
+          AssistantMessageComponent.prototype.render,
+          UserMessageComponent.prototype.render,
+          HostContainer.prototype.render,
+          Loader.prototype.render,
+          TruncatedText.prototype.render,
+        ];
+        const nativeRenderers = renderers();
+        const nativeHooks = [...chatContainerHooks()];
+        for (const mode of ["print", "rpc", "json"] as const) {
+          second.context.mode = mode;
+          second.fire("session_start");
+          expect(second.factory).toBe(previousFactory);
+          expect(renderers()).toEqual(nativeRenderers);
+          expect([...chatContainerHooks()]).toEqual(nativeHooks);
+          second.fire("session_shutdown");
+          expect(second.factory).toBe(previousFactory);
+          expect(renderers()).toEqual(nativeRenderers);
+          expect([...chatContainerHooks()]).toEqual(nativeHooks);
+        }
       }
       expect(systemRows()).toEqual(native);
       first.fire("session_start");
