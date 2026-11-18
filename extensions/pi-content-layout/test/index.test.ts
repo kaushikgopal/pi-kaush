@@ -166,6 +166,14 @@ afterEach(() => {
 describe("editor factory composition", () => {
   test("keeps the previous editor's native border and behavior", () => {
     const target = new TestEditor();
+    const nativeRender = target.render.bind(target);
+    const nativeInvalidate = target.invalidate.bind(target);
+    let cached: string[] | undefined;
+    target.render = (width) => (cached ??= nativeRender(width));
+    target.invalidate = () => {
+      cached = undefined;
+      nativeInvalidate();
+    };
     target.text = "hello";
     const previous: EditorFactory = () => target;
     const harness = createHarness(previous);
@@ -180,12 +188,13 @@ describe("editor factory composition", () => {
     );
     expect(editor).toBeDefined();
 
+    expect(stripControls(editor?.render(30)[1] ?? "")).toMatch(/^hello/);
     editor?.handleInput("x");
     editor?.setText("changed");
+    expect(stripControls(editor?.render(30)[1] ?? "")).toMatch(/^hello/);
     editor?.invalidate();
     expect(target.handled).toEqual(["x"]);
     expect(target.getText()).toBe("changed");
-    expect(target.invalidations).toBe(1);
 
     const lines = editor?.render(30) ?? [];
     expect(lines).toHaveLength(3);
