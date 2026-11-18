@@ -882,6 +882,59 @@ describe("native transcript adapters", () => {
       expect(stripControls(statusLine ?? "")).toMatch(
         /^  Reloaded keybindings/,
       );
+
+      const originalChildren = [...chat.children];
+      const peer = new Text("peer tail", 0, 0);
+      const destructiveHook = (container: object, children: unknown[]) => {
+        if (container !== chat) return undefined;
+        children.splice(0, children.length, children[2], children[0]);
+        throw new Error("hook failed after changing children");
+      };
+      const peerHook = (container: object, children: unknown[]) => {
+        if (container !== chat) return undefined;
+        children.push(peer);
+        return () => {
+          children.splice(children.indexOf(peer), 1);
+        };
+      };
+      const failingRestoreHook = (container: object) => {
+        if (container !== chat) return undefined;
+        return () => {
+          throw new Error("restore failed");
+        };
+      };
+      const hooks = chatContainerHooks();
+      hooks.add(destructiveHook);
+      hooks.add(peerHook);
+      hooks.add(failingRestoreHook);
+      try {
+        const renderRows = () =>
+          chat
+            .render(80)
+            .map((line) => stripControls(line).trimEnd())
+            .filter(
+              (line) =>
+                line.includes("Reloaded keybindings") ||
+                line.includes("Cache miss") ||
+                line.includes("peer tail"),
+            );
+        const expected = [
+          "  Reloaded keybindings",
+          "  ! Cache miss: 32k tokens re-billed ($0.16)",
+          "peer tail",
+        ];
+        for (let i = 0; i < 2; i++) {
+          expect(renderRows()).toEqual(expected);
+          expect(chat.children).toHaveLength(originalChildren.length);
+          originalChildren.forEach((child, index) => {
+            expect(chat.children[index]).toBe(child);
+          });
+        }
+      } finally {
+        hooks.delete(destructiveHook);
+        hooks.delete(peerHook);
+        hooks.delete(failingRestoreHook);
+      }
     } finally {
       proto.render = inner;
     }
