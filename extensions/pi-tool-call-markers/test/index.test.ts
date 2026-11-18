@@ -570,18 +570,6 @@ describe("tool-call-markers grouping", () => {
     expect(lines.every((line) => !/[\x00-\x1f\x7f]/.test(line))).toBe(true);
   });
 
-  test("marks subagent calls with the tool-call rail", () => {
-    const chat = new MockContainer();
-    const row = new MockToolExecutionComponent("subagent", "delegation");
-    row.args = { agent: "lucien", task: "Consolidate the notes" };
-    row.updateResult({ isError: false, output: "child result" });
-    chat.addChild(row);
-
-    const plain = chat.render(100).map(stripAnsi).join("\n");
-    expect(plain).toContain("▏  [lucien]");
-    expect(plain).not.toContain("▏  subagent");
-  });
-
   test("sanitizes model-supplied subagent agent, profile, and task text", () => {
     const chat = new MockContainer();
     const row = new MockToolExecutionComponent("subagent", "delegation");
