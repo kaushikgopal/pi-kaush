@@ -508,12 +508,12 @@ function liveElapsedText(row: ToolExecutionRow): string | undefined {
   return formatDuration(Math.max(0, Date.now() - startedAt));
 }
 
+function isPendingRow(row: ToolExecutionRow): boolean {
+  return row.isPartial !== false || !row.result;
+}
+
 function isLiveRow(row: ToolExecutionRow): boolean {
-  return (
-    row.expanded === false &&
-    (row.isPartial !== false || !row.result) &&
-    !hasImageResult(row)
-  );
+  return row.expanded === false && isPendingRow(row) && !hasImageResult(row);
 }
 
 function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
@@ -1061,7 +1061,7 @@ function collapsedOutcome(
       theme,
     );
   }
-  if (isLiveRow(row)) {
+  if (isPendingRow(row)) {
     const elapsed = liveElapsedText(row);
     return theme.fg("warning", elapsed ? `… · ${elapsed}` : "…");
   }
@@ -1273,7 +1273,7 @@ function subagentPlanOutcome(
   theme: ThemeLike,
 ): string | undefined {
   if (failed) return collapsedOutcome(row, budget, theme);
-  if (isLiveRow(row))
+  if (isPendingRow(row))
     return theme.fg("warning", progress ? `→ ${progress}` : "…");
   if (row.result)
     return fgCollapsed(

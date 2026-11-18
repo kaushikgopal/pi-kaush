@@ -404,6 +404,107 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(expanded).not.toContain("▏¢");
   });
 
+  test.each([
+    ["default", "bash", false],
+    ["self", "glean_search", false],
+    ["self", "subagent", false],
+    ["self", "subagent", true],
+  ] as const)(
+    "keeps partial PNG results pending (%s %s progress=%s)",
+    (shell, toolName, progress) => {
+      const warningTheme = {
+        ...extensionTheme,
+        fg: (color: string, text: string) =>
+          color === "warning" ? `\x1b[33m${text}\x1b[0m` : text,
+      };
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme: warningTheme, setToolsExpanded() {} } });
+      }
+      try {
+        const isSubagent = toolName === "subagent";
+        const row =
+          shell === "default"
+            ? createBashRow("render image")
+            : createMcpRow(
+                "partial-png",
+                isSubagent
+                  ? { agent: "bee", task: "Inspect image." }
+                  : { query: "preview" },
+                toolName,
+              );
+        row.setShowImages(false);
+        const chat = new Container();
+        chat.addChild(row);
+        const sibling = createBashRow("neighbor");
+        settle(sibling, "ok");
+        chat.addChild(sibling);
+        const neighbor = "\n  ▏$ neighbor → done";
+        const head = isSubagent
+          ? "  ▏  [bee] Inspect image."
+          : shell === "default"
+            ? "  ▏$ render image"
+            : '  ▏* {"query":"preview"}';
+        expect(renderPlain(chat)).toBe(`${head} …${neighbor}`);
+        const result = {
+          isError: false,
+          content: [{ type: "text" as const, text: "preview" }],
+          details: progress
+            ? { results: [{ usage: { turns: 1 }, model: "test/model" }] }
+            : {},
+        };
+        const pending = progress ? "→ 1 turn · test/model" : "…";
+        row.updateResult(result, true);
+        expect(renderPlain(chat)).toBe(`${head} ${pending}${neighbor}`);
+        expect(chat.render(100).join("\n")).toContain(
+          `\x1b[33m${pending}\x1b[0m`,
+        );
+        const withImage = {
+          ...result,
+          content: [
+            ...result.content,
+            {
+              type: "image" as const,
+              mimeType: "image/png",
+              data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=",
+            },
+          ],
+        };
+        const imageBody = "  preview\n  [Image: [image/png] 1x1]";
+        row.updateResult(withImage, true);
+        expect(renderPlain(chat)).toBe(
+          `${head} ${pending}\n${imageBody}${neighbor}`,
+        );
+        expect(chat.render(100).join("\n")).toContain(
+          `\x1b[33m${pending}\x1b[0m`,
+        );
+        row.updateResult(withImage, false);
+        const finalTail =
+          shell === "default"
+            ? ""
+            : progress
+              ? " → 1 turn · test/model"
+              : " → done";
+        expect(renderPlain(chat)).toBe(
+          `${head}${finalTail}\n${imageBody}${neighbor}`,
+        );
+        expect(chat.render(100).join("\n")).not.toContain("\x1b[33m");
+        for (const isPartial of [true, false]) {
+          row.updateResult({ ...withImage, isError: true }, isPartial);
+          expect(renderPlain(chat)).toBe(
+            `${head} → preview\n${imageBody}${neighbor}`,
+          );
+          expect(chat.render(100).join("\n")).not.toContain("\x1b[33m");
+        }
+        row.setExpanded(true);
+        expect(renderPlain(chat)).toContain("FULL preview");
+      } finally {
+        for (const handler of sessionHandlers) {
+          handler({}, { ui: { theme: extensionTheme, setToolsExpanded() {} } });
+        }
+      }
+    },
+  );
+
   test("separates codemode image result text from the collapsed call header", () => {
     const row = new ToolExecutionComponent(
       "codemode",
