@@ -397,13 +397,62 @@ describe("intercom message interception", () => {
   });
 
   test("follows the host's expansion state", () => {
-    sessionHarness();
-    const host = new CustomMessageComponent(message, foreignRenderer);
+    const harness = sessionHarness();
+    const input = { ...message, details: details as unknown };
+    const host = new CustomMessageComponent(input, foreignRenderer);
     const chat = chatWith(host);
 
     expect(render(chat)).not.toContain("audit.md");
     host.setExpanded(true);
     expect(render(chat)).toContain("Attachment: audit.md");
+    host.setExpanded(false);
+    expect(render(chat)).not.toContain("Attachment: audit.md");
+
+    const replacementDetails = {
+      from: { name: "new-peer" },
+      bodyText: "replacement body",
+    };
+    input.details = replacementDetails;
+    const replacement = render(chat, 100);
+    expect(replacement).toContain("From: new-peer");
+    expect(replacement).toContain("replacement body");
+    expect(replacement).not.toContain("Detailed Atomic audit");
+
+    input.details = { from: 123, bodyText: "malformed body" };
+    expect(
+      render(chat, 100)
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+    ).toEqual(["FOREIGN BOX"]);
+    replacementDetails.bodyText = "recovered body";
+    input.details = replacementDetails;
+    expect(render(chat, 100)).toContain("recovered body");
+    expect(render(chat, 100)).not.toContain("FOREIGN BOX");
+
+    const alternateTheme = {
+      fg(color: ThemeColor, text: string) {
+        return `\x1b[${color === "customMessageLabel" ? 35 : 36}m${text}\x1b[39m`;
+      },
+    } as Theme;
+    const renderWithTheme = (activeTheme: Theme) => {
+      const restore = interceptIntercomMessages(
+        [host],
+        activeTheme,
+        harness.renderers.get("intercom_message"),
+      );
+      try {
+        return host.render(100).join("\n");
+      } finally {
+        restore?.();
+      }
+    };
+    const originalColors = renderWithTheme(theme);
+    expect(originalColors).toContain("\x1b[33m╭");
+    expect(originalColors).toContain("\x1b[94mrecovered body");
+    const alternateColors = renderWithTheme(alternateTheme);
+    expect(alternateColors).toContain("\x1b[35m╭");
+    expect(alternateColors).toContain("\x1b[36mrecovered body");
   });
 
   test("falls back to the render Pi built when the payload is malformed", () => {
