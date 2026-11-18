@@ -1604,18 +1604,6 @@ describe("tool-call-markers grouping", () => {
     },
     {
       action: "run",
-      profile: undefined,
-      model: undefined,
-      identity: "👾 [lucien]",
-    },
-    {
-      action: "interactive",
-      profile: undefined,
-      model: undefined,
-      identity: "🤖 [lucien]",
-    },
-    {
-      action: "run",
       profile: "coder",
       model: undefined,
       identity: "🧑‍💻 [coder][lucien]",
