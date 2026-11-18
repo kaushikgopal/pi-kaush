@@ -315,6 +315,15 @@ function settle(
   );
 }
 
+function renderRawLines(container: Container, width = 100): string[] {
+  return container.render(width).map((line) =>
+    line
+      .replace(ANSI_RE, "")
+      .replace(/133;[A-Z]\u0007/g, "")
+      .trimEnd(),
+  );
+}
+
 function renderPlain(container: Container, width = 100): string {
   return container
     .render(width)
@@ -1041,19 +1050,33 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const first = createBashRow("npm test");
     chat.addChild(first);
     settle(first, "tests passed");
-    const singletonHeight = chat.render(100).length;
+    const singletonLines = renderRawLines(chat);
+    expect(singletonLines).toEqual(["", "  ▏$ npm test → done"]);
+    const singletonHeight = singletonLines.length;
     expect(renderPlain(chat)).toContain("▏$ npm test → done");
 
     chat.addChild(new AssistantMessageComponent());
     const second = createBashRow("npm run lint");
     chat.addChild(second);
-    const liveHeight = chat.render(100).length;
+    const liveLines = renderRawLines(chat);
+    expect(liveLines).toEqual([
+      "",
+      "  ▏$ npm test → done",
+      "  ▏$ npm run lint …",
+    ]);
+    const liveHeight = liveLines.length;
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
     expect(renderPlain(chat)).not.toContain("%");
     expect(renderPlain(chat).match(/▏/g)).toHaveLength(2);
     expect(renderPlain(chat)).toContain("▏$ npm run lint");
 
     settle(second, "lint passed");
+    const settledLines = renderRawLines(chat);
+    expect(settledLines).toEqual([
+      "",
+      "  ▏$ npm test → done",
+      "  ▏$ npm run lint → done",
+    ]);
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(output).not.toContain("%");
@@ -1071,6 +1094,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(first, "tests passed");
     settle(second, "lint passed");
 
+    expect(renderRawLines(chat, 36)).toEqual([
+      "",
+      "  ▏$ npm test → done",
+      "  ▏$ npm run lint → done",
+    ]);
     const output = renderPlain(chat, 36);
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(2);
@@ -1745,6 +1773,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(first, "alpha results");
     settle(second, "beta results");
 
+    expect(renderRawLines(chat)).toEqual([
+      "",
+      '  ▏* {"query":"alpha"} → done',
+      '  ▏* {"query":"beta"} → done',
+    ]);
     const output = renderPlain(chat);
     expect(output).not.toContain("(details omitted)");
     expect(output).not.toContain("▏  glean_search");
@@ -1763,6 +1796,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
     first.markExecutionStarted();
     second.markExecutionStarted();
 
+    expect(renderRawLines(chat)).toEqual([
+      "",
+      '  ▏* {"query":"alpha"} …',
+      '  ▏* {"query":"beta"} …',
+    ]);
     const output = renderPlain(chat);
     expect(output).toContain('▏* {"query":"alpha"}');
     expect(output).toContain('▏* {"query":"beta"}');
@@ -1771,6 +1809,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     settle(first, "alpha results");
     settle(second, "beta results");
+    expect(renderRawLines(chat)).toEqual([
+      "",
+      '  ▏* {"query":"alpha"} → done',
+      '  ▏* {"query":"beta"} → done',
+    ]);
     const settled = renderPlain(chat);
     expect(settled).toContain('▏* {"query":"alpha"}');
     expect(settled).toContain('▏* {"query":"beta"}');
@@ -1795,6 +1838,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
       false,
     );
 
+    expect(renderRawLines(chat)).toEqual([
+      "",
+      '  ▏* {"query":"x"} → done',
+      '  ▏* {"query":"y"} → Error: not connected to server "glean"',
+    ]);
     const output = renderPlain(chat);
     expect(output.match(/▏/g)).toHaveLength(2);
     expect(output).toContain('▏* {"query":"x"} → done');
@@ -1814,6 +1862,11 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chat.addChild(second);
     second.markExecutionStarted();
 
+    expect(renderRawLines(chat)).toEqual([
+      "",
+      '  ▏* {"query":"alpha"} …',
+      '  ▏* {"query":"beta"} …',
+    ]);
     const output = renderPlain(chat);
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(2);
@@ -3097,7 +3150,17 @@ describe("composition with pi-content-layout", () => {
     return chat;
   }
 
-  function expectGroupedAndInset(output: string): void {
+  function expectGroupedAndInset(chat: Container): void {
+    const rawLines = renderRawLines(chat);
+    expect(rawLines).toEqual([
+      "",
+      "  neighbor",
+      "  Reloaded keybindings",
+      "",
+      "  ▏$ npm test → done",
+      "  ▏$ npm run lint → done",
+    ]);
+    const output = renderPlain(chat);
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(2);
     expect(output).toContain("▏$ npm test → done");
@@ -3108,7 +3171,7 @@ describe("composition with pi-content-layout", () => {
   test("grouping and the system-text inset compose when markers installs first", () => {
     const { fireShutdown } = installBoth(false);
     try {
-      expectGroupedAndInset(renderPlain(buildTranscript()));
+      expectGroupedAndInset(buildTranscript());
     } finally {
       fireShutdown();
     }
@@ -3117,7 +3180,7 @@ describe("composition with pi-content-layout", () => {
   test("grouping and the system-text inset compose when content-layout installs first", () => {
     const { fireShutdown } = installBoth(true);
     try {
-      expectGroupedAndInset(renderPlain(buildTranscript()));
+      expectGroupedAndInset(buildTranscript());
     } finally {
       fireShutdown();
     }

@@ -205,10 +205,12 @@ const theme = {
   bg: (_color: string, text: string) => text,
 };
 
+function renderRawLines(container: MockContainer, width = 100): string[] {
+  return container.render(width).map(stripAnsi);
+}
+
 function renderPlain(container: MockContainer): string {
-  return container
-    .render(100)
-    .map(stripAnsi)
+  return renderRawLines(container)
     .filter((line) => line.trim())
     .join("\n");
 }
@@ -268,6 +270,12 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("read", "two.md"));
     chat.addChild(succeeded("read", "three.md"));
 
+    expect(renderRawLines(chat)).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+      "  ▏● three.md → 1 line",
+    ]);
     const output = renderPlain(chat);
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(3);
@@ -903,6 +911,13 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("write", "two.md"));
 
     const renderedLines = chat.render(100).map(stripAnsi);
+    expect(renderedLines).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+      "  ▏+ one.md → written",
+      "  ▏+ two.md → written",
+    ]);
     const output = renderedLines.filter((line) => line.trim()).join("\n");
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(4);
@@ -932,7 +947,9 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(first);
     chat.addChild(active);
 
-    const liveHeight = chat.render(100).length;
+    const liveLines = renderRawLines(chat);
+    expect(liveLines).toEqual(["", "  ▏● one.md → 1 line", "  ▏● two.md …"]);
+    const liveHeight = liveLines.length;
     const liveOutput = renderPlain(chat);
     expect(liveOutput).not.toContain("%");
     expect(liveOutput.match(/▏/g)).toHaveLength(2);
@@ -940,6 +957,12 @@ describe("tool-call-markers grouping", () => {
     expect(liveOutput).toContain("▏● two.md …");
 
     active.updateResult({ isError: false, output: "result:two.md" });
+    const settledLines = renderRawLines(chat);
+    expect(settledLines).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+    ]);
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(output).not.toContain("%");
@@ -957,11 +980,29 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("edit", "four.ts"));
     chat.addChild(succeeded("edit", "five.ts"));
 
-    const liveHeight = chat.render(100).length;
+    const liveLines = renderRawLines(chat);
+    expect(liveLines).toEqual([
+      "",
+      "  ▏± one.ts → applied",
+      "  ▏± two.ts → applied",
+      "  ▏± three.ts …",
+      "  ▏± four.ts → applied",
+      "  ▏± five.ts → applied",
+    ]);
+    const liveHeight = liveLines.length;
     expect(renderPlain(chat)).not.toContain("%");
     expect(renderPlain(chat).match(/▏/g)).toHaveLength(5);
 
     active.updateResult({ isError: false, output: "result:three.ts" });
+    const settledLines = renderRawLines(chat);
+    expect(settledLines).toEqual([
+      "",
+      "  ▏± one.ts → applied",
+      "  ▏± two.ts → applied",
+      "  ▏± three.ts → applied",
+      "  ▏± four.ts → applied",
+      "  ▏± five.ts → applied",
+    ]);
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(output).not.toContain("%");
@@ -979,8 +1020,15 @@ describe("tool-call-markers grouping", () => {
     const active = new MockToolExecutionComponent("edit", "three.ts");
     chat.addChild(active);
 
+    const pendingLines = renderRawLines(chat);
+    expect(pendingLines).toEqual([
+      "",
+      "  ▏± one.ts → applied",
+      "  ▏± two.ts → applied",
+      "  ▏± three.ts …",
+    ]);
     const pendingOutput = renderPlain(chat);
-    const pendingHeight = chat.render(100).length;
+    const pendingHeight = pendingLines.length;
     expect(pendingOutput).not.toContain("%");
     expect(pendingOutput.match(/▏/g)).toHaveLength(3);
     expect(pendingOutput).toContain("▏± one.ts");
@@ -988,6 +1036,13 @@ describe("tool-call-markers grouping", () => {
     expect(pendingOutput).toContain("▏± three.ts …");
 
     active.updateResult({ isError: false, output: "result:three.ts" });
+    const settledLines = renderRawLines(chat);
+    expect(settledLines).toEqual([
+      "",
+      "  ▏± one.ts → applied",
+      "  ▏± two.ts → applied",
+      "  ▏± three.ts → applied",
+    ]);
     const settledOutput = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(pendingHeight);
     expect(settledOutput).not.toContain("%");
@@ -1001,17 +1056,26 @@ describe("tool-call-markers grouping", () => {
     const chat = new MockContainer();
     chat.addChild(succeeded("read", "one.md"));
     const singletonHeight = chat.render(100).length;
+    expect(renderRawLines(chat)).toEqual(["", "  ▏● one.md → 1 line"]);
     expect(renderPlain(chat)).toContain("▏● one.md → 1 line");
 
     chat.addChild(new MockAssistantMessageComponent());
     const next = new MockToolExecutionComponent("read", "two.md");
     chat.addChild(next);
-    const liveHeight = chat.render(100).length;
+    const liveLines = renderRawLines(chat);
+    expect(liveLines).toEqual(["", "  ▏● one.md → 1 line", "  ▏● two.md …"]);
+    const liveHeight = liveLines.length;
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
     expect(renderPlain(chat)).not.toContain("%");
     expect(renderPlain(chat).match(/▏/g)).toHaveLength(2);
 
     next.updateResult({ isError: false, output: "result:two.md" });
+    const settledLines = renderRawLines(chat);
+    expect(settledLines).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+    ]);
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(output).not.toContain("%");
@@ -1020,21 +1084,39 @@ describe("tool-call-markers grouping", () => {
   });
 
   test("can keep same-turn parallel calls individual via environment", () => {
-    reinstallWithCollapseParallel("0");
-
     const parallel = new MockContainer();
     parallel.addChild(succeeded("read", "one.md"));
     parallel.addChild(succeeded("read", "two.md"));
-    expect(renderPlain(parallel).match(/▏/g)).toHaveLength(2);
+    const groupedLines = renderRawLines(parallel);
+    expect(groupedLines).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+    ]);
 
-    const sequential = new MockContainer();
-    sequential.addChild(succeeded("read", "one.md"));
-    sequential.addChild(new MockAssistantMessageComponent());
-    sequential.addChild(succeeded("read", "two.md"));
-    expect(renderPlain(sequential)).not.toContain("%");
-    expect(renderPlain(sequential).match(/▏/g)).toHaveLength(2);
-    expect(renderPlain(sequential)).toContain("▏● one.md");
-    expect(renderPlain(sequential)).toContain("▏● two.md");
+    reinstallWithCollapseParallel("0");
+    const individualLines = renderRawLines(parallel);
+    expect(individualLines).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "",
+      "  ▏● two.md → 1 line",
+    ]);
+
+    const quietTurn = new MockContainer();
+    quietTurn.addChild(succeeded("read", "one.md"));
+    quietTurn.addChild(new MockAssistantMessageComponent());
+    quietTurn.addChild(succeeded("read", "two.md"));
+    expect(renderRawLines(quietTurn)).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+    ]);
+
+    expect(renderPlain(parallel).match(/▏/g)).toHaveLength(2);
+    const sequentialOutput = renderPlain(quietTurn);
+    expect(sequentialOutput).not.toContain("%");
+    expect(sequentialOutput.match(/▏/g)).toHaveLength(2);
   });
   test("keeps always-expanded tools out of the collapsed presentation", () => {
     for (const handler of shutdownHandlers.splice(0)) handler();
@@ -1072,6 +1154,13 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("read", "three.md"));
     chat.addChild(succeeded("read", "four.md"));
 
+    expect(renderRawLines(chat)).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+      "  ▏● three.md → 1 line",
+      "  ▏● four.md → 1 line",
+    ]);
     const output = renderPlain(chat);
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(4);
