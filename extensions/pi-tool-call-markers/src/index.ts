@@ -187,14 +187,6 @@ function rowSignatureOf(row: ToolExecutionRow): string {
   return `${row.isPartial}|${row.expanded}|${row.result ? 1 : 0}|${row.result?.isError ? 1 : 0}`;
 }
 
-// Render caches hold lines with resolved colors baked in, so they key on the
-// palette's values rather than the theme object: Pi swaps the colors behind a
-// stable Proxy, which made an identity key survive a theme switch. Probing is
-// a handful of map lookups per row per frame.
-function themeSampleFor(theme: ThemeLike): string {
-  return paletteSample(theme);
-}
-
 type InsetLayout = {
   contentWidth: number;
   left: number;
@@ -1468,7 +1460,7 @@ function renderGroupedToolRows(
     const lines = state.originalRender.call(row, width);
     return { lines, heights: [{ component: row, height: lines.length }] };
   }
-  const themeSample = themeSampleFor(theme);
+  const themeSample = paletteSample(theme);
   const cached = state.groupCache.get(row);
   const hasLiveMembers = rows.some(isLiveRow);
   if (
@@ -1828,7 +1820,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
       if (!this.isPartial) {
         const signature = rowSignatureOf(this);
         const version = state.rowVersions.get(this) ?? 0;
-        const themeSample = themeSampleFor(theme);
+        const themeSample = paletteSample(theme);
         const cached = state.collapsedCache.get(this);
         if (
           cached &&
