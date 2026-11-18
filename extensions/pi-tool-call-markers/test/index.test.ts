@@ -1282,13 +1282,26 @@ describe("tool-call-markers grouping", () => {
     visibleChat.addChild(succeeded("read", "one.md"));
     visibleChat.addChild(new MockText("Thinking..."));
     visibleChat.addChild(succeeded("read", "two.md"));
-    expect(renderPlain(visibleChat).match(/▏/g)).toHaveLength(2);
+    const visibleOutput = visibleChat.render(100).map(stripAnsi);
+    expect(visibleOutput).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "Thinking...",
+      "",
+      "  ▏● two.md → 1 line",
+    ]);
 
     const hiddenChat = new MockContainer();
     hiddenChat.addChild(succeeded("read", "one.md"));
     hiddenChat.addChild(new MockText("   "));
     hiddenChat.addChild(succeeded("read", "two.md"));
-    const output = renderPlain(hiddenChat);
+    const hiddenOutput = hiddenChat.render(100).map(stripAnsi);
+    expect(hiddenOutput).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+    ]);
+    const output = hiddenOutput.filter((line) => line.trim()).join("\n");
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(2);
     expect(output).toContain("▏● one.md");
