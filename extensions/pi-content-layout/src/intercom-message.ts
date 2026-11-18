@@ -332,6 +332,7 @@ export function interceptIntercomMessages(
   const restores: Array<() => void> = [];
   for (const child of children) {
     if (!isIntercomMessageHost(child, ownRenderer)) continue;
+    const ownRender = Object.getOwnPropertyDescriptor(child, "render");
     const originalRender = child.render;
     child.render = (width: number): string[] => {
       const box = intercomBoxFor(
@@ -347,7 +348,8 @@ export function interceptIntercomMessages(
       return ["", ...box.render(width)];
     };
     restores.push(() => {
-      delete (child as { render?: unknown }).render;
+      if (ownRender) Object.defineProperty(child, "render", ownRender);
+      else delete (child as Partial<IntercomMessageHost>).render;
     });
   }
   if (restores.length === 0) return undefined;

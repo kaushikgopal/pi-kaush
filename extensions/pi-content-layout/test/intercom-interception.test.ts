@@ -380,6 +380,22 @@ describe("intercom message interception", () => {
     expect(render(chat)).toBe(first);
   });
 
+  test("restores an instance renderer after restyling an intercom box", () => {
+    const harness = sessionHarness();
+    const host = new CustomMessageComponent(message, foreignRenderer);
+    const originalRender = host.render.bind(host);
+    host.render = (width) => [...originalRender(width), "DECORATED BOX"];
+    const chat = chatWith(host);
+
+    expect(render(chat)).toContain("\n  ╭ From: subagent-chat");
+    harness.fire("session_shutdown");
+    expect(
+      render(chat)
+        .split("\n")
+        .map((line) => line.trimEnd()),
+    ).toEqual(["", "FOREIGN BOX", "DECORATED BOX"]);
+  });
+
   test("follows the host's expansion state", () => {
     sessionHarness();
     const host = new CustomMessageComponent(message, foreignRenderer);
