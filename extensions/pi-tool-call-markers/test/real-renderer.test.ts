@@ -446,12 +446,27 @@ describe("tool-call-markers with Pi's real renderer", () => {
   });
 
   test.each([
-    { action: "run", profile: undefined, identity: "👾 [lucien]" },
-    { action: "interactive", profile: undefined, identity: "🤖 [lucien]" },
-    { action: "interactive", profile: "coder", identity: "🧑‍💻 [coder][lucien]" },
+    {
+      action: "run",
+      profile: undefined,
+      identity: "👾 [lucien]",
+      narrow: "  ▏  👾 [l… → done",
+    },
+    {
+      action: "interactive",
+      profile: undefined,
+      identity: "🤖 [lucien]",
+      narrow: "  ▏  🤖 [l… → done",
+    },
+    {
+      action: "interactive",
+      profile: "coder",
+      identity: "🧑‍💻 [coder][lucien]",
+      narrow: "  ▏  🧑‍💻 [c… → done",
+    },
   ])(
     "keeps default emoji $identity width-safe and preserves expansion",
-    ({ action, profile, identity }) => {
+    ({ action, profile, identity, narrow }) => {
       const row = createMcpRow(
         "subagent-default-emoji",
         { action, agent: "lucien", profile, task: "Inspect it." },
@@ -464,10 +479,17 @@ describe("tool-call-markers with Pi's real renderer", () => {
       settle(row, "child result");
       expect(renderPlain(chat)).toBe(`  ▏  ${identity} Inspect it. → done`);
       for (const width of [8, 12, 16, 20, 40, 100]) {
-        for (const line of chat.render(width)) {
+        const lines = chat.render(width);
+        expect(
+          lines.some((line) => line.replace(ANSI_RE, "").includes("▏")),
+        ).toBe(true);
+        for (const line of lines) {
           expect(visibleWidth(line)).toBeLessThanOrEqual(width);
         }
       }
+      expect(
+        chat.render(20).map((line) => line.replace(ANSI_RE, "")),
+      ).toContain(narrow);
 
       row.setExpanded(true);
       const expanded = renderPlain(chat);
