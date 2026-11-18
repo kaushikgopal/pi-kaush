@@ -2439,13 +2439,13 @@ describe("asked questions", () => {
   const codes: Record<string, number> = {
     borderAccent: 35,
     text: 37,
-    userMessageText: 37,
+    userMessageText: 30,
     muted: 90,
     warning: 33,
     error: 31,
   };
   const questionTheme = {
-    bold: (text: string) => text,
+    bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
     italic: (text: string) => `\x1b[3m${text}\x1b[23m`,
     fg: (color: string, text: string) =>
       `\x1b[${codes[color] ?? 37}m${text}\x1b[0m`,
@@ -2589,8 +2589,8 @@ describe("asked questions", () => {
           "  ▎",
         ]);
         expect(lines.join("")).not.toContain("\x1b[31m");
-        expect(lines[2]).toContain("\x1b[3m\x1b[37mShip");
-        expect(lines[3]).toContain("\x1b[37myes");
+        expect(lines[2]).toContain("\x1b[90m\x1b[3m> Ship");
+        expect(lines[3]).toContain("\x1b[30m  User: \x1b[1myes");
         expect(lines[3]).not.toContain("\x1b[3m");
         expect(lines[2]).toContain(SURFACE_BG);
         expect(lines.filter(Boolean).map(visibleWidth)).toEqual([
@@ -2820,10 +2820,10 @@ describe("asked questions", () => {
     });
   });
 
-  test("italicizes the question and leaves the answer upright", () => {
+  test("styles the full question in gray italics and bolds only the user's reply", () => {
     withTheme(() => {
       const chat = new Container();
-      const row = createQuestionRow("ask-italics");
+      const row = createQuestionRow("ask-replay-style");
       chat.addChild(row);
       answer(row, {
         answers: [
@@ -2831,25 +2831,33 @@ describe("asked questions", () => {
             questionIndex: 0,
             question: ASKED,
             kind: "option",
-            answer: "nested",
+            answer: "Nested response stays bold on wrapped lines",
           },
         ],
         cancelled: false,
       });
 
-      const lines = chat.render(60);
-      const styled = lines.join("\n");
-      // \x1b[3m is the italic attribute questionTheme.italic applies.
-      const questionLine = lines.find((line) =>
-        stripControls(line).includes("> Which call-site shape"),
-      )!;
-      const answerLine = lines.find((line) =>
-        stripControls(line).includes("User: nested"),
-      )!;
-      expect(questionLine).toContain("\x1b[3m");
-      expect(questionLine).toContain("\x1b[23m");
-      expect(answerLine).not.toContain("\x1b[3m");
-      expect(styled).toContain("Which call-site shape");
+      const styled = chat.render(42).join("\n");
+      expect(styled).toContain(
+        "\x1b[90m\x1b[3m> Which call-site shape should\x1b[23m",
+      );
+      expect(styled).toContain(
+        "\x1b[90m\x1b[3m  `notifications:` use?\x1b[23m",
+      );
+      expect(styled).toContain(
+        "\x1b[30m  User: \x1b[1mNested response stays bold\x1b[22m",
+      );
+      expect(styled).toContain(
+        "\x1b[30m        \x1b[1mon wrapped lines\x1b[22m",
+      );
+
+      answer(row, {
+        answers: [{ question: ASKED, questionIndex: 0, answer: null }],
+        cancelled: false,
+      });
+      expect(chat.render(42).join("\n")).toContain(
+        "\x1b[30m  User: (no answer)",
+      );
     });
   });
 

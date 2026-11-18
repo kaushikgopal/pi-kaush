@@ -16,7 +16,7 @@ import { sanitizeInline } from "./sanitize.ts";
 // any particular question-tool implementation is needed.
 
 type QuestionTheme = PromptShellTheme & {
-  fg(color: string, text: string): string;
+  bold?(text: string): string;
   italic?(text: string): string;
 };
 
@@ -40,7 +40,7 @@ type AnswerEntry = {
 
 type QuestionLine =
   | { kind: "question"; text: string }
-  | { kind: "answer"; text: string }
+  | { kind: "answer"; text: string | undefined }
   | { kind: "status"; text: string; tone: "muted" | "warning" }
   // A painted blank body row; the shell gives it the prompt surface.
   | { kind: "spacer" };
@@ -196,7 +196,7 @@ function questionLines(
   const groups: QuestionLine[][] = pairs.map((pair) => {
     const group: QuestionLine[] = [{ kind: "question", text: pair.question }];
     if (!pending && !declined) {
-      group.push({ kind: "answer", text: pair.answer ?? NO_ANSWER_TEXT });
+      group.push({ kind: "answer", text: pair.answer });
     }
     return group;
   });
@@ -228,13 +228,14 @@ function fg(theme: QuestionTheme, token: string, text: string): string {
   }
 }
 
-// The question is the model's text read inside a user-input shell, so it takes
-// the quotation's italics; the answer is the user's own words and stays upright.
-// A theme without italics simply renders the question plainly.
-function italics(theme: QuestionTheme, text: string): string {
-  if (text === "" || typeof theme.italic !== "function") return text;
+function emphasize(
+  theme: QuestionTheme,
+  style: "bold" | "italic",
+  text: string,
+): string {
+  if (text === "" || typeof theme[style] !== "function") return text;
   try {
-    return theme.italic(text);
+    return theme[style](text);
   } catch {
     return text;
   }
@@ -299,22 +300,25 @@ function styleLine(
       : line.kind === "answer"
         ? ANSWER_PREFIX
         : "";
-  const prefixToken = line.kind === "question" ? "borderAccent" : "muted";
-  const textToken =
-    line.kind === "question"
-      ? "text"
-      : line.kind === "answer"
-        ? "userMessageText"
-        : line.tone;
-  const hang = " ".repeat(visibleWidth(prefix));
-  const body = wrapPlain(line.text, Math.max(1, width - visibleWidth(prefix)));
-  return body.map(
-    (piece, index) =>
-      fg(theme, prefixToken, index === 0 ? prefix : hang) +
-      (line.kind === "question"
-        ? italics(theme, fg(theme, textToken, piece))
-        : fg(theme, textToken, piece)),
-  );
+  const text =
+    line.kind === "answer" ? (line.text ?? NO_ANSWER_TEXT) : line.text;
+  const prefixWidth = visibleWidth(prefix);
+  const hang = " ".repeat(prefixWidth);
+  const body = wrapPlain(text, Math.max(1, width - prefixWidth));
+  return body.map((piece, index) => {
+    const leading = index === 0 ? prefix : hang;
+    switch (line.kind) {
+      case "question":
+        return fg(theme, "muted", emphasize(theme, "italic", leading + piece));
+      case "answer": {
+        const reply =
+          line.text === undefined ? piece : emphasize(theme, "bold", piece);
+        return fg(theme, "userMessageText", leading + reply);
+      }
+      case "status":
+        return fg(theme, line.tone, piece);
+    }
+  });
 }
 
 /**
