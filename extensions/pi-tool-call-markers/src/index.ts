@@ -1158,15 +1158,13 @@ function parseSubagentArgs(args: unknown): SubagentPlan | undefined {
   return { kind: "single", scope, steps: [single] };
 }
 
-// Splits a scraped plan line's content into the agent display name (which may
-// carry a leading emoji) and the remaining badge/preview text.
+// Splits scraped plan content into the emoji-capable display name and its bare lookup name.
 function parseStepContent(content: string): {
   displayName: string;
   bareName: string;
-  rest: string;
 } {
   const tokens = content.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return { displayName: "", bareName: "", rest: "" };
+  if (tokens.length === 0) return { displayName: "", bareName: "" };
   const first = tokens[0]!;
   const hasEmoji = [...first].some((char) => (char.codePointAt(0) ?? 0) > 0x7f);
   const nameTokens = hasEmoji && tokens.length > 1 ? 2 : 1;
@@ -1174,7 +1172,6 @@ function parseStepContent(content: string): {
   return {
     displayName,
     bareName: tokens[nameTokens - 1] ?? displayName,
-    rest: tokens.slice(nameTokens).join(" "),
   };
 }
 
