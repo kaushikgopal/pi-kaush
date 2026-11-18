@@ -480,6 +480,18 @@ describe("native transcript adapters", () => {
   });
 
   test("styles queued Steering rows with the optional theme color", () => {
+    const followUp = new TruncatedText(
+      theme.fg("dim", "Follow-up: remains native"),
+      1,
+      0,
+    );
+    const hint = new TruncatedText(
+      theme.fg("dim", "↳ Option+Up to edit all queued messages"),
+      1,
+      0,
+    );
+    const nativeFollowUp = [followUp.render(80), followUp.render(18)];
+    const nativeHint = [hint.render(80), hint.render(18)];
     const harness = createHarness();
     activeHarnesses.push(harness);
     harness.fire("session_start");
@@ -502,6 +514,18 @@ describe("native transcript adapters", () => {
       expect(configured).toContain("\x1b[34mSteering: accent color");
       expect(configured).not.toContain("\x1b[90mSteering:");
       expect(configured).not.toContain("\x1b[3m");
+      expect(followUp.render(80)).toEqual(nativeFollowUp[0]);
+      expect(followUp.render(18)).toEqual(nativeFollowUp[1]);
+      expect(hint.render(80)).toEqual(nativeHint[0]);
+      expect(hint.render(18)).toEqual(nativeHint[1]);
+      expect(nativeFollowUp[0]?.[0]).toContain(
+        "\x1b[90mFollow-up: remains native",
+      );
+      expect(nativeHint[0]?.[0]).toContain(
+        "\x1b[90m↳ Option+Up to edit all queued messages",
+      );
+      expect(visibleWidth(nativeFollowUp[1]?.[0] ?? "")).toBe(18);
+      expect(visibleWidth(nativeHint[1]?.[0] ?? "")).toBe(18);
 
       const narrowRow = new TruncatedText(
         theme.fg("dim", "Steering: long queued text"),
