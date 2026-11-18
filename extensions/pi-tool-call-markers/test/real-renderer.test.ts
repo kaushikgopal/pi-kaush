@@ -2621,6 +2621,118 @@ describe("asked questions", () => {
     });
   });
 
+  test.each([
+    { label: "empty string", answerFields: { answer: "" } },
+    { label: "null", answerFields: { answer: null } },
+    { label: "absent", answerFields: {} },
+  ])(
+    "renders a single unanswered question with $label",
+    ({ label, answerFields }) => {
+      withTheme(() => {
+        const chat = new Container();
+        const args = {
+          questions: [
+            { ...DEFAULT_ARGS.questions[0]!, question: "Single question?" },
+          ],
+        };
+        const row = createQuestionRow(
+          `ask-empty-${label}`,
+          "ask_user_question",
+          args,
+        );
+        chat.addChild(row);
+        answer(row, {
+          answers: [{ question: "Single question?", ...answerFields }],
+          cancelled: false,
+        });
+
+        expect(renderPlain(chat).split("\n")).toEqual([
+          "  ▎",
+          "  ▎ > Single question?",
+          "  ▎   User: (no answer)",
+          "  ▎",
+        ]);
+      });
+    },
+  );
+
+  test("renders an empty multi-select as unanswered", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const args = {
+        questions: [
+          { ...DEFAULT_ARGS.questions[0]!, question: "Multi question?" },
+        ],
+      };
+      const row = createQuestionRow(
+        "ask-empty-multi",
+        "ask_user_question",
+        args,
+      );
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            question: "Multi question?",
+            kind: "multi",
+            selected: [],
+          },
+        ],
+        cancelled: false,
+      });
+
+      expect(renderPlain(chat).split("\n")).toEqual([
+        "  ▎",
+        "  ▎ > Multi question?",
+        "  ▎   User: (no answer)",
+        "  ▎",
+      ]);
+    });
+  });
+
+  test("keeps an unanswered entry paired with its question", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const args = {
+        questions: [
+          { ...DEFAULT_ARGS.questions[0]!, question: "First question?" },
+          { ...DEFAULT_ARGS.questions[0]!, question: "Second question?" },
+        ],
+      };
+      const row = createQuestionRow(
+        "ask-mixed-answered",
+        "ask_user_question",
+        args,
+      );
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            questionIndex: 0,
+            question: "First question?",
+            kind: "option",
+            answer: "Ship it",
+          },
+          {
+            questionIndex: 1,
+            question: "Second question?",
+          },
+        ],
+        cancelled: false,
+      });
+
+      expect(renderPlain(chat).split("\n")).toEqual([
+        "  ▎",
+        "  ▎ > First question?",
+        "  ▎   User: Ship it",
+        "  ▎",
+        "  ▎ > Second question?",
+        "  ▎   User: (no answer)",
+        "  ▎",
+      ]);
+    });
+  });
+
   test("shows a live question with an awaiting tail", () => {
     withTheme(() => {
       const chat = new Container();
