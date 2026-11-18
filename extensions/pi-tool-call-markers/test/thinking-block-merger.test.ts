@@ -65,6 +65,8 @@ class MockAssistantMessageComponent {
     return child instanceof MockThinkingMarkdown ? child : undefined;
   }
 }
+const nativeUpdateContent =
+  MockAssistantMessageComponent.prototype.updateContent;
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   AssistantMessageComponent: MockAssistantMessageComponent,
@@ -515,12 +517,23 @@ describe("thinking block merger", () => {
   });
 
   test("restores the original renderer on shutdown", () => {
-    const patched = MockAssistantMessageComponent.prototype.updateContent;
-    expect(patched).not.toBeUndefined();
-
     for (const handler of shutdownHandlers.splice(0)) handler();
-    expect(MockAssistantMessageComponent.prototype.updateContent).not.toBe(
-      patched,
+    expect(MockAssistantMessageComponent.prototype.updateContent).toBe(
+      nativeUpdateContent,
     );
+
+    const assistant = new MockAssistantMessageComponent();
+    const message = {
+      content: [
+        { type: "thinking", thinking: "one" },
+        { type: "thinking", thinking: "two" },
+        { type: "text", text: "answer" },
+      ],
+    };
+    const originalContent = structuredClone(message.content);
+    assistant.updateContent(message, false, "future");
+    expect(assistant.lastMessage).toBe(message);
+    expect(assistant.lastMessage?.content).toEqual(originalContent);
+    expect(assistant.lastArgs).toEqual([false, "future"]);
   });
 });
