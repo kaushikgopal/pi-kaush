@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
   contentInset,
   insetLines,
+  paintBackground,
   renderSubmittedUserLines,
   splitLeadingSemanticControls,
 } from "../src/render.ts";
@@ -130,6 +131,16 @@ describe("submitted user block", () => {
     // the right margin. (truncateToWidth emits a reset at the clip point, so
     // the tail is matched loosely.)
     expect(line).toContain(`${SURFACE_BG}  \x1b[49m  `);
+
+    const resetInput = "\x1b[31ma\x1b[0mb\x1b[mc\x1b[49md";
+    const [resetLine] = renderSubmittedUserLines([resetInput], 20, theme);
+    expect(resetLine).toContain(
+      `\x1b[31ma\x1b[0m${SURFACE_BG}b\x1b[m${SURFACE_BG}c\x1b[49m${SURFACE_BG}d`,
+    );
+    expect(resetLine).toMatch(/d {10}\x1b\[49m {2}$/);
+    expect(paintBackground(resetInput, 8, SURFACE_BG)).toBe(
+      `${SURFACE_BG}\x1b[31ma\x1b[0m${SURFACE_BG}b\x1b[m${SURFACE_BG}c\x1b[49m${SURFACE_BG}d    \x1b[49m`,
+    );
   });
 
   test("falls back to the legacy surface hex when the theme lacks getBgAnsi", () => {
