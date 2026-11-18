@@ -1,4 +1,4 @@
-import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 export const OUTER_INSET = 2;
@@ -102,12 +102,22 @@ function replaceBackground(text: string, backgroundAnsi: string): string {
   return text.replace(BACKGROUND_PATTERN, backgroundAnsi);
 }
 
+export type RenderColors = {
+  readonly rail: string;
+  readonly surfaceBg: string;
+};
+
+export type RenderMemo = {
+  hit(src: string[], colors?: RenderColors): string[] | undefined;
+  store(src: string[], out: string[], colors?: RenderColors): void;
+};
+
 export function renderSubmittedUserLines(
   lines: string[],
   width: number,
   theme: Theme,
   inset = contentInset(width),
-  railColor: ThemeColor = "borderAccent",
+  memo?: RenderMemo,
 ): string[] {
   const blockWidth = width - inset * 2;
   if (inset === 0 || blockWidth <= visibleWidth(PROMPT_RAIL)) {
@@ -117,10 +127,13 @@ export function renderSubmittedUserLines(
   const bodyWidth = blockWidth - visibleWidth(PROMPT_RAIL);
   const margin = " ".repeat(inset);
   const surfaceBg = promptSurfaceBg(theme);
-  return lines.map((line) => {
+  const rail = lines.length === 0 ? "" : theme.fg("borderAccent", PROMPT_RAIL);
+  const colors = lines.length === 0 ? undefined : { rail, surfaceBg };
+  const cached = memo?.hit(lines, colors);
+  if (cached) return cached;
+  const decorated = lines.map((line) => {
     const { controls, content } = splitLeadingSemanticControls(line);
     const recolored = replaceBackground(content, surfaceBg);
-    const rail = theme.fg(railColor, PROMPT_RAIL);
     // The rail glyph (▎) fills only the left quarter of its cell, so one
     // column of left padding already reads as a two-column visual gap.
     // Give the right edge two columns so both sides of the text read equal.
@@ -134,4 +147,6 @@ export function renderSubmittedUserLines(
     );
     return `${controls}${margin}${rail}${body}${margin}`;
   });
+  memo?.store(lines, decorated, colors);
+  return decorated;
 }

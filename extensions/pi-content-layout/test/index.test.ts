@@ -349,6 +349,27 @@ describe("native transcript adapters", () => {
     expect(user.render(20)).toEqual(native);
   });
 
+  test("refreshes an existing submitted rail after a borderAccent-only theme switch", () => {
+    let borderAccent = "\x1b[38;2;255;0;0m";
+    const harness = createHarness();
+    harness.context.ui.theme = {
+      ...theme,
+      getFgAnsi(color: ThemeColor) {
+        return color === "borderAccent" ? borderAccent : theme.getFgAnsi(color);
+      },
+    } as Theme;
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    const user = new UserMessageComponent("unchanged prompt");
+    expect(user.render(30)[1]).toContain("\x1b[38;2;255;0;0m▎\x1b[39m");
+
+    // Pi keeps the UI theme proxy while changing the colors it resolves.
+    borderAccent = "\x1b[38;2;0;255;0m";
+    user.invalidate();
+    expect(user.render(30)[1]).toContain("\x1b[38;2;0;255;0m▎\x1b[39m");
+  });
+
   test("insets assistant rows and gives submitted user rows a darker rail block", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);

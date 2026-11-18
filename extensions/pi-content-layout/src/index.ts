@@ -30,6 +30,8 @@ import {
   contentInset,
   insetLines,
   renderSubmittedUserLines,
+  type RenderColors,
+  type RenderMemo,
 } from "./render.ts";
 
 const ASSISTANT_RENDER_PATCH = Symbol.for(
@@ -84,6 +86,7 @@ type RenderPatchState = {
 type RenderCacheEntry = {
   width: number;
   src: string[];
+  colors: RenderColors | undefined;
   lines: string[];
 };
 
@@ -101,23 +104,13 @@ type RenderCacheEntry = {
 // keystroke and made the input box visibly lag as sessions grew.
 //
 // The cache below makes decoration cost O(changed messages) instead of
-// O(all messages): decorators compare the freshly rendered source lines
-// against the lines they decorated last frame BY IDENTITY (=== per element)
-// and reuse the decorated output when nothing changed. Identity comparison
-// is what makes the cache self-invalidating across every change path —
-// streaming chunks, content edits, theme switches — because all of those
-// regenerate the source strings upstream of us. This is why there is no
-// explicit invalidate wiring here: partial invalidation would be worse than
-// none, and identity checks can never miss a real change.
+// O(all messages): decorators reuse output at the same width when the
+// freshly rendered source strings are unchanged. Submitted prompts also
+// compare their resolved shell colors, which may change independently of
+// the source strings. No explicit invalidate wiring is needed.
 //
 // If typing ever gets slow again in long sessions, suspect this cache first.
 // ==================================================================
-type RenderMemo = {
-  /** Decorated lines from the last frame, when `src` is unchanged. */
-  hit(src: string[]): string[] | undefined;
-  /** Record decorated output keyed by the source lines that produced it. */
-  store(src: string[], out: string[]): void;
-};
 
 type RenderDecorator = (
   original: RenderPatchState["originalRender"],
@@ -163,17 +156,23 @@ function installRenderPatch(
       // bound to this row + width so unchanged rows skip string building.
       const entry = state.cache.get(this);
       const memo: RenderMemo = {
-        hit: (src: string[]): string[] | undefined => {
+        hit: (src, colors) => {
           if (!entry || entry.width !== width) return undefined;
           const prev = entry.src;
           if (prev.length !== src.length) return undefined;
           for (let i = 0; i < src.length; i++) {
             if (prev[i] !== src[i]) return undefined;
           }
+          if (
+            entry.colors?.rail !== colors?.rail ||
+            entry.colors?.surfaceBg !== colors?.surfaceBg
+          ) {
+            return undefined;
+          }
           return entry.lines;
         },
-        store: (src: string[], out: string[]): void => {
-          state.cache.set(this, { width, src, lines: out });
+        store: (src, out, colors) => {
+          state.cache.set(this, { width, src, lines: out, colors });
         },
       };
       try {
@@ -484,11 +483,7 @@ function userDecorator(
   if (inset === 0 || bodyWidth < 1) return original.call(row, width);
   // Reserve the shell's one left and two right padding columns before wrapping.
   const lines = original.call(row, Math.max(1, bodyWidth - 3));
-  const cached = memo.hit(lines);
-  if (cached) return cached;
-  const decorated = renderSubmittedUserLines(lines, width, theme, inset);
-  memo.store(lines, decorated);
-  return decorated;
+  return renderSubmittedUserLines(lines, width, theme, inset, memo);
 }
 
 function supportsEmbeddedWorkingStatus(editor: EditorComponent): boolean {
