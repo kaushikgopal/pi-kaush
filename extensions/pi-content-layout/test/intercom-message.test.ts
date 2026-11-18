@@ -133,6 +133,18 @@ describe("intercom message frame", () => {
     );
     expect(lines.some((line) => line.includes("To reply:"))).toBe(true);
     expect(lines.some((line) => line.includes("Ctrl+O"))).toBe(false);
+    expect(
+      lines.slice(1, -1).map((line) => line.slice(4, -4).trimEnd()),
+    ).toEqual([
+      "Detailed Atomic audit",
+      "for your hashline",
+      "extension is attached.",
+      "",
+      "To reply: /intercom",
+      "reply subagent-chat",
+      "",
+      "Attachment: audit.md",
+    ]);
     expect(lines.every((line) => visibleWidth(line) === 30)).toBe(true);
   });
 
@@ -208,6 +220,20 @@ describe("intercom message frame", () => {
 
     const narrow = component.render(20).map(stripAnsi);
     const wide = component.render(40).map(stripAnsi);
+    const bodyRows = (lines: string[]) =>
+      lines.slice(1, -1).map((line) => line.slice(4, -4).trimEnd());
+    expect(bodyRows(narrow)).toEqual([
+      "A long body",
+      "wraps into",
+      "several",
+      "narrow rows",
+      "and fewer",
+      "wide rows.",
+    ]);
+    expect(bodyRows(wide)).toEqual([
+      "A long body wraps into several",
+      "narrow rows and fewer wide rows.",
+    ]);
     expect(narrow.filter((line) => line.includes("│")).length).toBeGreaterThan(
       wide.filter((line) => line.includes("│")).length,
     );
