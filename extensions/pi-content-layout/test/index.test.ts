@@ -890,13 +890,55 @@ describe("native transcript adapters", () => {
   test("unregisters its chat container hooks on shutdown", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);
-    const before = chatContainerHooks().size;
-    harness.fire("session_start");
-    // System-text inset and intercom message restyle.
-    expect(chatContainerHooks().size).toBe(before + 2);
-    harness.fire("session_shutdown");
-    activeHarnesses.pop();
-    expect(chatContainerHooks().size).toBe(before);
+    const hooks = chatContainerHooks();
+    const peer = new Text("peer sentinel", 1, 0);
+    const peerHook = (_container: object, children: unknown[]) => {
+      children.push(peer);
+      return () => {
+        children.splice(children.indexOf(peer), 1);
+      };
+    };
+    hooks.add(peerHook);
+    const before = hooks.size;
+    const HostContainer = Object.getPrototypeOf(
+      AssistantMessageComponent.prototype,
+    ).constructor as typeof Container;
+    const nativeRender = HostContainer.prototype.render;
+    const chat = new HostContainer();
+    chat.addChild(
+      new AssistantMessageComponent({
+        role: "assistant",
+        content: [{ type: "text", text: "neighbor" }],
+        stopReason: "stop",
+      } as never),
+    );
+    chat.addChild(
+      new Text(theme.fg("warning", "Warning: layout notice"), 1, 0),
+    );
+    const render = () => {
+      const restore = runChatContainerHooks(chat, chat.children, 40);
+      try {
+        return nativeRender
+          .call(chat, 40)
+          .map((line) => stripControls(line).trimEnd());
+      } finally {
+        restore();
+      }
+    };
+    try {
+      harness.fire("session_start");
+      // System-text inset and intercom message restyle.
+      expect(hooks.size).toBe(before + 2);
+      expect(render()).toContain("  ! layout notice");
+      expect(render()).toContain("  peer sentinel");
+      harness.fire("session_shutdown");
+      activeHarnesses.pop();
+      expect(render()).toContain(" peer sentinel");
+      expect(render()).toContain(" Warning: layout notice");
+      expect(hooks.size).toBe(before);
+    } finally {
+      hooks.delete(peerHook);
+    }
   });
 
   test("leaves tool execution rows byte-identical to Pi's own rendering", () => {
