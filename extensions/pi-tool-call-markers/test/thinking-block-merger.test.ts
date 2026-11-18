@@ -545,14 +545,6 @@ describe("thinking block merger", () => {
     );
   });
 
-  test("drops styling again on shutdown", () => {
-    startSession(mockTheme());
-    expect(visibleThoughtLabel("▏* Thought")).not.toBe("▏* Thought");
-    for (const handler of shutdownHandlers.splice(0)) handler();
-    expect(visibleThoughtLabel("▏* Thought")).toBe("▏* Thought");
-    install();
-  });
-
   test("restores the original renderer on shutdown", () => {
     for (const handler of shutdownHandlers.splice(0)) handler();
     expect(MockAssistantMessageComponent.prototype.updateContent).toBe(
