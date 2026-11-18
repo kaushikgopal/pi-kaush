@@ -481,6 +481,18 @@ describe("thinking block merger", () => {
     expect(visibleThoughtLabel("▏* Thought")).toBe("\x1b[23m▏* Thought");
   });
 
+  test("strips existing SGR before restyling a thought label", () => {
+    startSession({
+      getColorMode: () => "truecolor",
+      getFgAnsi: () => {
+        throw new Error("Unknown theme color");
+      },
+    });
+    expect(visibleThoughtLabel("\x1b[90m▏* Thought\x1b[39m")).toBe(
+      "\x1b[23m▏* Thought",
+    );
+  });
+
   test("tints the live label with the level token and settles muted", () => {
     startSession({
       getColorMode: () => "truecolor",
