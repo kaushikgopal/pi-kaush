@@ -652,7 +652,10 @@ describe("native transcript adapters", () => {
     };
     target.embedWorkingStatus = true;
     target.setWorkingStatusIndicator = () => {};
+    const renderFailure = new Error("editor render failed");
+    let failRender = false;
     target.render = function render(width: number): string[] {
+      if (failRender) throw renderFailure;
       const renderedStatus = working.render(width + 2)[1] ?? "";
       const status = renderedStatus.startsWith(" ")
         ? renderedStatus.slice(1).trimEnd()
@@ -684,6 +687,14 @@ describe("native transcript adapters", () => {
       expect(spinnerColumn).toBe(3);
       expect(stripControls(statusLine ?? "")).toContain("─");
       expect(statusLine).not.toContain(SURFACE_BG);
+
+      failRender = true;
+      expect(() => editor?.render(40)).toThrow(renderFailure);
+      const standalone = working
+        .render(40)
+        .find((line) => stripControls(line).includes("Working..."));
+      expect(stripControls(standalone ?? "")).toMatch(/^  ⠋ Working\.\.\./);
+      expect(visibleWidth(standalone ?? "")).toBe(40);
     } finally {
       working.stop();
       vi.useRealTimers();
