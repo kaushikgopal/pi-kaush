@@ -1249,6 +1249,7 @@ function splitEmojiName(
 // call component when available; args only carry the bare agent name.
 function scrapeSubagentDisplayNames(
   row: ToolExecutionRow,
+  kind: SubagentPlan["kind"],
 ): Map<string, string> {
   const names = new Map<string, string>();
   let component = row.callRendererComponent;
@@ -1258,7 +1259,11 @@ function scrapeSubagentDisplayNames(
   if (!component || typeof component.render !== "function") return names;
   try {
     for (const raw of component.render(120)) {
-      const line = sanitizeInline(stripAnsi(raw)).trim();
+      const text = sanitizeInline(stripAnsi(raw));
+      // Native single-call headings can wrap. The first indented line starts
+      // the task preview; neither it nor its continuations carry identity.
+      if (kind === "single" && text.startsWith("  ")) break;
+      const line = text.trim();
       if (!line) continue;
       // Single calls carry the agent name on their "subagent <name>" heading
       // line; stripping the heading word (and step numbers) lets both shapes
@@ -1350,7 +1355,7 @@ function renderSubagentPlan(
   const color = failed ? "error" : "muted";
   const nameColor = failed ? "error" : "accent";
   const suffix = fgCollapsed(theme, color, "…");
-  const displayNames = scrapeSubagentDisplayNames(row);
+  const displayNames = scrapeSubagentDisplayNames(row, plan.kind);
   // Agent/profile/task values are model-supplied; sanitize them like every
   // other collapsed-row text so control bytes cannot reach the terminal.
   // Identity order: emoji, then the profile and agent-name badges.

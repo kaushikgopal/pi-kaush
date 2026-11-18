@@ -253,6 +253,36 @@ function createMcpRow(
   );
 }
 
+function createSubagentRow(
+  displayName: string,
+  task: string,
+): ToolExecutionComponent {
+  const definition = {
+    name: "subagent",
+    label: "subagent",
+    description: "test subagent renderer",
+    parameters: { type: "object", properties: {} },
+    execute() {
+      throw new Error("not executed");
+    },
+    renderCall() {
+      return new Text(`subagent ${displayName} [user]\n  ${task}`, 0, 0);
+    },
+    renderResult() {
+      return new Text("child result", 0, 0);
+    },
+  };
+  return new ToolExecutionComponent(
+    "subagent",
+    "subagent-task-preview",
+    { action: "interactive", agent: "tester", task },
+    {},
+    definition as never,
+    { requestRender() {} } as never,
+    process.cwd(),
+  );
+}
+
 // Mirrors Pi's formatReadCall: a bold tool title, an accent path wrapped in
 // an OSC 8 hyperlink (`ESC]8;;url ESC\ <path> ESC]8;; ESC\`), a warning
 // line range, and a dim expand hint. `terminator` lets tests exercise BEL
@@ -443,6 +473,23 @@ describe("tool-call-markers with Pi's real renderer", () => {
       expect(expanded).toContain("FULL child result");
       expect(expanded).not.toContain("▏");
       expect(expanded).not.toContain(identity);
+    },
+  );
+
+  test.each([
+    ["assigned", "🧪 tester", "🧪 [tester]"],
+    ["default", "tester", "🤖 [tester]"],
+  ])(
+    "keeps the %s single-call emoji when the task starts with an emoji and the agent name",
+    (_assignment, displayName, identity) => {
+      const chat = new Container();
+      const row = createSubagentRow(displayName, "🐈 tester is an example");
+      settle(row, "child result");
+      chat.addChild(row);
+
+      expect(renderPlain(chat)).toBe(
+        `  ▏  ${identity} 🐈 tester is an example → done`,
+      );
     },
   );
 
