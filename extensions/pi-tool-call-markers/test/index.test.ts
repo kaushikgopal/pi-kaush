@@ -2029,6 +2029,7 @@ describe("tool-call-markers grouping", () => {
           [...line.matchAll(/<(\w+)>/g)].map((match) => match[1]),
         );
         expect([...colors]).toEqual(["error"]);
+        expect(line).toContain("<error>👾</error>");
       }
     } finally {
       for (const handler of sessionHandlers) {
