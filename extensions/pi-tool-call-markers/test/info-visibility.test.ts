@@ -318,12 +318,22 @@ describe("thinking stripping with real components", () => {
 
 function installMerger() {
   const sessionStarts: Handler[] = [];
+  const sessionShutdowns: Handler[] = [];
+  let released = false;
   thinkingBlockMerger({
     on(event: string, handler: never) {
       if (event === "session_start") sessionStarts.push(handler);
+      if (event === "session_shutdown") sessionShutdowns.push(handler);
     },
     getThinkingLevel: () => "medium",
   } as never);
+  liveHarnesses.push({
+    shutdown() {
+      if (released) return;
+      released = true;
+      for (const handler of sessionShutdowns) handler({}, {});
+    },
+  });
   return sessionStarts;
 }
 
