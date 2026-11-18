@@ -1167,22 +1167,29 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(first, "tests passed");
     settle(second, "lint passed");
 
-    const calls: Array<{ container: object; width: number }> = [];
-    let restores = 0;
-    const hook: ChatContainerHook = (container, _children, width) => {
-      calls.push({ container, width });
+    const sentinel = new Text("hook sentinel", 0, 0);
+    const hook: ChatContainerHook = (_container, children) => {
+      const originalChildren = [...children];
+      const secondIndex = children.indexOf(second);
+      children.splice(secondIndex, 1, sentinel);
       return () => {
-        restores += 1;
+        children.splice(0, children.length, ...originalChildren);
       };
     };
     chatContainerHooks().add(hook);
     try {
-      const output = renderPlain(chat);
-      expect(output).not.toContain("%");
-      expect(output.match(/▏/g)).toHaveLength(2);
+      const lines = chat
+        .render(100)
+        .map((line) => line.replace(ANSI_RE, "").trimEnd());
+      const output = lines.join("\n");
       expect(output).toContain("▏$ npm test → done");
-      expect(calls).toEqual([{ container: chat, width: 100 }]);
-      expect(restores).toBe(1);
+      expect(output).toContain("hook sentinel");
+      expect(output).not.toContain("npm run lint");
+      expect(output).not.toContain("%");
+      expect(output.match(/▏/g)).toHaveLength(1);
+      expect(chat.children).toHaveLength(2);
+      expect(chat.children[0]).toBe(first);
+      expect(chat.children[1]).toBe(second);
     } finally {
       chatContainerHooks().delete(hook);
     }
@@ -1190,21 +1197,34 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
   test("rolls back a hook that mutates children and then throws", () => {
     const chat = new Container();
-    const row = createBashRow("npm test");
-    chat.addChild(row);
-    settle(row, "tests passed");
+    const first = createBashRow("npm test");
+    const second = createBashRow("npm run lint");
+    chat.addChild(first);
+    chat.addChild(second);
+    settle(first, "tests passed");
+    settle(second, "lint passed");
 
     const destructiveHook: ChatContainerHook = (_container, children) => {
-      const index = children.indexOf(row);
-      if (index !== -1) children.splice(index, 1);
+      children.splice(0, children.length, second, first);
       throw new Error("boom");
     };
     chatContainerHooks().add(destructiveHook);
     try {
-      // Without the rollback the row would be gone from the child list for
-      // this render and every later one.
-      expect(renderPlain(chat)).toContain("▏$ npm test → done");
-      expect(renderPlain(chat)).toContain("▏$ npm test → done");
+      const renderLines = () =>
+        chat.render(100).map((line) => line.replace(ANSI_RE, "").trimEnd());
+      const lines = renderLines();
+      const output = lines.join("\n");
+      expect(output).toContain("▏$ npm test → done");
+      expect(output).toContain("▏$ npm run lint → done");
+      expect(output.indexOf("▏$ npm test")).toBeLessThan(
+        output.indexOf("▏$ npm run lint"),
+      );
+      expect(chat.children).toHaveLength(2);
+      expect(chat.children[0]).toBe(first);
+      expect(chat.children[1]).toBe(second);
+      expect(renderLines()).toEqual(lines);
+      expect(chat.children[0]).toBe(first);
+      expect(chat.children[1]).toBe(second);
     } finally {
       chatContainerHooks().delete(destructiveHook);
     }
