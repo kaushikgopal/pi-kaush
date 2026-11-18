@@ -625,7 +625,8 @@ function installThinkingGroupingPatch():
         // Preserve the original message intact.
       }
       try {
-        applyHiddenThinkingLabel(this, combined, streaming, state.timings);
+        // Visibility changes the display copy, not the thinking lifecycle.
+        applyHiddenThinkingLabel(this, message, streaming, state.timings);
       } catch {
         // Preserve Pi's native label if its private row shape changes.
       }

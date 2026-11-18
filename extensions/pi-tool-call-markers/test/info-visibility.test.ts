@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   BashExecutionComponent,
@@ -216,6 +217,70 @@ describe("info filter hook", () => {
 });
 
 describe("thinking stripping with real components", () => {
+  test.each(["before completion", "after completion"])(
+    "keeps thinking duration unchanged when toggle-info interleaves with a trailing thinking run (show %s)",
+    async (show) => {
+      const { AssistantMessageComponent } = await import(
+        "@earendil-works/pi-coding-agent"
+      );
+      const harness = createHarness().install();
+      thinkingBlockMerger(harness.pi);
+      harness.start();
+      vi.useFakeTimers();
+      try {
+        const row = new AssistantMessageComponent(undefined, true);
+        const update = row.updateContent.bind(row) as (
+          message: unknown,
+          streaming?: boolean,
+        ) => void;
+        const message = {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Earlier answer segment." },
+            {
+              type: "thinking",
+              thinking: "Still considering the next segment.",
+            },
+          ],
+        };
+        const lines = () =>
+          row
+            .render(80)
+            .map((line) => stripVTControlCharacters(line).trim())
+            .filter(Boolean);
+
+        vi.setSystemTime(1_000);
+        update(message, true);
+        expect(lines()).toEqual(["Earlier answer segment.", "▏⠋ Thinking…"]);
+
+        vi.setSystemTime(2_000);
+        await harness.toggle();
+        expect(lines()).toEqual(["Earlier answer segment."]);
+
+        if (show === "before completion") {
+          vi.setSystemTime(3_000);
+          await harness.toggle();
+        }
+        vi.setSystemTime(4_000);
+        update({ ...message, stopReason: "stop" }, false);
+        if (show === "after completion") {
+          expect(lines()).toEqual(["Earlier answer segment."]);
+          vi.setSystemTime(5_000);
+          await harness.toggle();
+        }
+        expect(lines()).toEqual([
+          "Earlier answer segment.",
+          "▏* Thought · 3.0s",
+        ]);
+      } finally {
+        for (const handler of harness.handlers.get("session_shutdown") ?? []) {
+          handler({}, {});
+        }
+        vi.useRealTimers();
+      }
+    },
+  );
+
   test("hides the collapsed thought label and restores it", async () => {
     const { AssistantMessageComponent } = await import(
       "@earendil-works/pi-coding-agent"
