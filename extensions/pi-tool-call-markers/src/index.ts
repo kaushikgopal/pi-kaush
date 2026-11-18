@@ -50,6 +50,8 @@ const TOOL_CALL_GLYPHS: ReadonlyMap<string, string> = new Map([
   ["get_search_content", "↗"],
   ["codemode", "¢"],
 ]);
+// Keep the historical slot so old, still-reachable delegates can be handed off.
+const PRESENTATION_GENERATION = 4;
 const PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v3");
 const LEGACY_PRESENTATION_PATCHED = Symbol.for("kg.pi.toolPresentation.v2");
 const GROUPING_PATCHED = Symbol.for("kg.pi.toolGrouping.v1");
@@ -99,10 +101,11 @@ type ToolExecutionRow = {
 };
 
 type PresentationPatchState = {
+  generation?: number;
   owners: number;
   // Set at the final owner's shutdown. A wrapper that another extension has
   // buried cannot be uninstalled, so it delegates instead of outliving its
-  // owner; a later install re-enables it.
+  // owner; a later compatible install re-enables it.
   disabled?: boolean;
   theme?: ThemeLike;
   cwd: string;
@@ -1764,12 +1767,16 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     if (!proto) return undefined;
 
     const existing = proto[PRESENTATION_PATCHED];
-    if (existing) {
+    const retired =
+      existing?.disabled && existing.generation !== PRESENTATION_GENERATION
+        ? existing
+        : undefined;
+    if (existing && !retired) {
       existing.owners++;
       existing.disabled = false;
       return existing;
     }
-    const legacy = proto[LEGACY_PRESENTATION_PATCHED];
+    const legacy = !existing && proto[LEGACY_PRESENTATION_PATCHED];
     if (legacy) {
       proto.render = legacy.originalRender;
       proto.updateDisplay = legacy.originalUpdateDisplay;
@@ -1780,17 +1787,25 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     )
       return undefined;
 
+    const { render, updateDisplay } = proto;
+    const buriedRender = retired && render !== retired.patchedRender;
+    const buriedUpdate =
+      retired && updateDisplay !== retired.patchedUpdateDisplay;
+    const retiredMouse = retired?.originalHandleMouse;
+
     const state: PresentationPatchState = {
+      generation: PRESENTATION_GENERATION,
       owners: 1,
       cwd: process.cwd(),
       promptPaths: new Set(),
-      collapseParallel: envEnabled(COLLAPSE_PARALLEL_ENV, true),
-      expandedTools: envToolNames(EXPANDED_TOOLS_ENV),
+      collapseParallel:
+        retired?.collapseParallel ?? envEnabled(COLLAPSE_PARALLEL_ENV, true),
+      expandedTools: retired?.expandedTools ?? envToolNames(EXPANDED_TOOLS_ENV),
       groupCache: new WeakMap(),
       collapsedCache: new WeakMap(),
       rowVersions: new WeakMap(),
-      originalRender: proto.render,
-      originalUpdateDisplay: proto.updateDisplay,
+      originalRender: retired?.originalRender ?? render,
+      originalUpdateDisplay: retired?.originalUpdateDisplay ?? updateDisplay,
     };
     const patchedUpdateDisplay = function updateDisplayWithToolPresentation(
       this: ToolExecutionRow,
@@ -1824,8 +1839,9 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     let patchedHandleMouse:
       | ((this: ToolExecutionRow, event: unknown) => unknown)
       | undefined;
-    if (typeof proto.handleMouse === "function") {
-      state.originalHandleMouse = proto.handleMouse;
+    const originalHandleMouse = retiredMouse ?? proto.handleMouse;
+    if (typeof originalHandleMouse === "function") {
+      state.originalHandleMouse = originalHandleMouse;
       patchedHandleMouse = function handleMouseWithCollapsedToggle(
         this: ToolExecutionRow,
         event: unknown,
@@ -1847,7 +1863,7 @@ function installPresentationPatch(): PresentationPatchState | undefined {
         }
         return state.originalHandleMouse?.call(this, event);
       };
-      proto.handleMouse = patchedHandleMouse;
+      if (!retiredMouse) proto.handleMouse = patchedHandleMouse;
     }
     const patchedRender = function renderWithToolPresentation(
       this: ToolExecutionRow,
@@ -1927,15 +1943,24 @@ function installPresentationPatch(): PresentationPatchState | undefined {
     try {
       state.patchedUpdateDisplay = patchedUpdateDisplay;
       state.patchedRender = patchedRender;
-      proto.updateDisplay = patchedUpdateDisplay;
-      proto.render = patchedRender;
+      if (!buriedUpdate) proto.updateDisplay = patchedUpdateDisplay;
+      if (!buriedRender) proto.render = patchedRender;
       Object.defineProperty(proto, PRESENTATION_PATCHED, {
         configurable: true,
         value: state,
       });
+      if (retired) {
+        // Keep foreign wrappers on the outside, including on cached renders.
+        // The retired closures stay disabled and only forward to these delegates.
+        if (buriedRender) retired.originalRender = patchedRender;
+        if (buriedUpdate) retired.originalUpdateDisplay = patchedUpdateDisplay;
+        if (retiredMouse && patchedHandleMouse) {
+          retired.originalHandleMouse = patchedHandleMouse;
+        }
+      }
     } catch {
-      proto.updateDisplay = state.originalUpdateDisplay;
-      proto.render = state.originalRender;
+      if (!buriedUpdate) proto.updateDisplay = updateDisplay;
+      if (!buriedRender) proto.render = render;
       return undefined;
     }
     return state;

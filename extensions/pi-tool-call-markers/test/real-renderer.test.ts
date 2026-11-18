@@ -3015,6 +3015,69 @@ describe("asked questions", () => {
 });
 
 describe("lifecycle hardening", () => {
+  test.each(["restored", "buried"] as const)(
+    "reload uses current subagent emojis after the previous presentation wrapper shuts down first (%s)",
+    (placement) => {
+      for (const handler of shutdownHandlers.splice(0)) handler();
+      sessionHandlers.length = 0;
+
+      const proto = ToolExecutionComponent.prototype;
+      const key = Symbol.for("kg.pi.toolPresentation.v3");
+      const previous = Object.getOwnPropertyDescriptor(proto, key);
+      const render = proto.render;
+      const updateDisplay = Object.getOwnPropertyDescriptor(
+        proto,
+        "updateDisplay",
+      )?.value as (this: ToolExecutionComponent) => void;
+      // The old release leaves this slot and its disabled render delegate
+      // behind when another extension owns the prototype method at shutdown.
+      const retired = {
+        owners: 0,
+        disabled: true,
+        originalUpdateDisplay: updateDisplay,
+        patchedUpdateDisplay(this: ToolExecutionComponent) {
+          retired.originalUpdateDisplay.call(this);
+        },
+        originalRender: render,
+        patchedRender(this: ToolExecutionComponent, width: number) {
+          if (retired.disabled) return retired.originalRender.call(this, width);
+          return ["  ▏  [tester] Review it. → done"];
+        },
+      };
+      Object.defineProperty(proto, "updateDisplay", {
+        value: retired.patchedUpdateDisplay,
+      });
+      Object.defineProperty(proto, key, { configurable: true, value: retired });
+      proto.render =
+        placement === "restored"
+          ? retired.patchedRender
+          : function (this: ToolExecutionComponent, width: number) {
+              return [
+                ...retired.patchedRender.call(this, width),
+                "outer decoration",
+              ];
+            };
+      try {
+        install();
+        const chat = new Container();
+        const row = createSubagentRow("tester", "Review it.");
+        chat.addChild(row);
+        settle(row, "child result");
+        const expected =
+          "  ▏  🤖 [tester] Review it. → done" +
+          (placement === "buried" ? "\nouter decoration" : "");
+        expect(renderPlain(chat)).toBe(expected);
+        expect(renderPlain(chat)).toBe(expected);
+      } finally {
+        for (const handler of shutdownHandlers.splice(0)) handler();
+        Object.defineProperty(proto, "updateDisplay", { value: updateDisplay });
+        proto.render = render;
+        if (previous) Object.defineProperty(proto, key, previous);
+        else Reflect.deleteProperty(proto, key);
+      }
+    },
+  );
+
   test("reloaded thinking owner supplies the theme through a buried wrapper from an older module instance", async () => {
     vi.useFakeTimers();
     const proto = AssistantMessageComponent.prototype;
