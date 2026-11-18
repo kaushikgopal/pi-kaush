@@ -516,26 +516,19 @@ function isLiveRow(row: ToolExecutionRow): boolean {
   return row.expanded === false && isPendingRow(row) && !hasImageResult(row);
 }
 
-function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
+// Settled failures join groups like settled successes; the row's error
+// color carries the failure, so the group stays visually unbroken.
+function isCollapsibleRow(row: ToolExecutionRow): boolean {
   return (
     row.expanded === false &&
     row.isPartial === false &&
     !!row.result &&
-    !rowHasFailed(row) &&
     !hasImageResult(row)
   );
 }
 
-// Settled failures join groups like settled successes; the row's error
-// color carries the failure, so the group stays visually unbroken.
-function isCollapsibleFailure(row: ToolExecutionRow): boolean {
-  return (
-    row.expanded === false &&
-    row.isPartial === false &&
-    !!row.result &&
-    rowHasFailed(row) &&
-    !hasImageResult(row)
-  );
+function isCollapsibleSuccess(row: ToolExecutionRow): boolean {
+  return isCollapsibleRow(row) && !rowHasFailed(row);
 }
 
 function hasToolSiblingInAssistantBatch(
@@ -578,12 +571,7 @@ function isGroupableToolRow(
   if (row.toolName === "subagent") return false;
   if (isQuestionToolCall(row)) return false;
   if (drawsNoRowLines(row, renderAt(index))) return false;
-  if (
-    !isLiveRow(row) &&
-    !isCollapsibleSuccess(row) &&
-    !isCollapsibleFailure(row)
-  )
-    return false;
+  if (!isLiveRow(row) && !isCollapsibleRow(row)) return false;
   return (
     state.collapseParallel ||
     !hasToolSiblingInAssistantBatch(children, index, renderAt)
