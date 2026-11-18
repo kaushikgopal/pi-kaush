@@ -2522,7 +2522,7 @@ describe("asked questions", () => {
     });
   });
 
-  test("interleaves one answer per question", () => {
+  test("matches reordered answers to each question", () => {
     withTheme(() => {
       const chat = new Container();
       const args = {
@@ -2532,51 +2532,6 @@ describe("asked questions", () => {
         ],
       };
       const row = createQuestionRow("ask-pair", "ask_user_question", args);
-      chat.addChild(row);
-      answer(row, {
-        answers: [
-          {
-            questionIndex: 0,
-            question: "First question?",
-            kind: "option",
-            answer: "Alpha",
-          },
-          {
-            questionIndex: 1,
-            question: "Second question?",
-            kind: "custom",
-            answer: "typed by hand",
-          },
-        ],
-        cancelled: false,
-      });
-
-      expect(renderPlain(chat).split("\n")).toEqual([
-        "  ▎",
-        "  ▎ > First question?",
-        "  ▎   User: Alpha",
-        "  ▎",
-        "  ▎ > Second question?",
-        "  ▎   User: typed by hand",
-        "  ▎",
-      ]);
-    });
-  });
-
-  test("matches reversed indexed entries to their questions", () => {
-    withTheme(() => {
-      const chat = new Container();
-      const args = {
-        questions: [
-          { ...DEFAULT_ARGS.questions[0]!, question: "First question?" },
-          { ...DEFAULT_ARGS.questions[0]!, question: "Second question?" },
-        ],
-      };
-      const row = createQuestionRow(
-        "ask-pair-reversed",
-        "ask_user_question",
-        args,
-      );
       chat.addChild(row);
       answer(row, {
         answers: [
