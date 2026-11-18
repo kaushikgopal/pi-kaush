@@ -346,6 +346,7 @@ describe("thinking stripping with real components", () => {
             },
           ],
         };
+        const messageSnapshot = structuredClone(message);
         const lines = () =>
           row
             .render(80)
@@ -355,26 +356,37 @@ describe("thinking stripping with real components", () => {
         vi.setSystemTime(1_000);
         update(message, true);
         expect(lines()).toEqual(["Earlier answer segment.", "▏⠋ Thinking…"]);
+        expect(message).toEqual(messageSnapshot);
 
         vi.setSystemTime(2_000);
         await harness.toggle();
         expect(lines()).toEqual(["Earlier answer segment."]);
+        expect(message).toEqual(messageSnapshot);
 
         if (show === "before completion") {
           vi.setSystemTime(3_000);
           await harness.toggle();
+          expect(message).toEqual(messageSnapshot);
         }
         vi.setSystemTime(4_000);
-        update({ ...message, stopReason: "stop" }, false);
+        const settledMessage = { ...message, stopReason: "stop" };
+        const settledMessageSnapshot = structuredClone(settledMessage);
+        update(settledMessage, false);
+        expect(message).toEqual(messageSnapshot);
+        expect(settledMessage).toEqual(settledMessageSnapshot);
         if (show === "after completion") {
           expect(lines()).toEqual(["Earlier answer segment."]);
           vi.setSystemTime(5_000);
           await harness.toggle();
+          expect(message).toEqual(messageSnapshot);
+          expect(settledMessage).toEqual(settledMessageSnapshot);
         }
         expect(lines()).toEqual([
           "Earlier answer segment.",
           "▏* Thought · 3.0s",
         ]);
+        expect(message).toEqual(messageSnapshot);
+        expect(settledMessage).toEqual(settledMessageSnapshot);
       } finally {
         for (const handler of harness.handlers.get("session_shutdown") ?? []) {
           handler({}, {});
@@ -439,66 +451,3 @@ function installMerger() {
   });
   return sessionStarts;
 }
-
-describe("thinking stripping", () => {
-  const thinkingMessage = () => ({
-    content: [
-      { type: "thinking", thinking: "ponder" },
-      { type: "text", text: "answer" },
-    ],
-  });
-
-  test("strips thinking blocks while hidden and replays them when restored", async () => {
-    const sessionStarts = installMerger();
-    for (const handler of sessionStarts) {
-      handler({}, { mode: "tui", ui: { theme: {} } });
-    }
-
-    const { AssistantMessageComponent } = await import(
-      "@earendil-works/pi-coding-agent"
-    );
-    const proto = AssistantMessageComponent.prototype as unknown as Record<
-      symbol,
-      unknown
-    > & {
-      updateContent(message: unknown, ...args: unknown[]): void;
-    };
-    const state = proto[Symbol.for("kg.pi.thinkingGrouping.v3")] as {
-      originalUpdateContent: (message: unknown, ...args: unknown[]) => void;
-    };
-
-    // Swap the patch state's original for a recorder, so we observe exactly
-    // what Pi would render — after combine/strip.
-    const received: unknown[] = [];
-    const previous = state.originalUpdateContent;
-    state.originalUpdateContent = (message: unknown) => {
-      received.push(message);
-    };
-    try {
-      setInfoVisibilityHidden(false);
-      proto.updateContent.call({}, thinkingMessage(), false);
-      expect((received.at(-1) as { content: unknown[] }).content).toHaveLength(
-        2,
-      );
-
-      setInfoVisibilityHidden(true);
-      proto.updateContent.call({}, thinkingMessage(), false);
-      const stripped = received.at(-1) as { content: Array<{ type: string }> };
-      expect(stripped.content).toHaveLength(1);
-      expect(stripped.content[0]?.type).toBe("text");
-
-      // Toggling back replays the row's last update with thinking restored.
-      setInfoVisibilityHidden(false);
-      const { refreshThinkingVisibility } = await import(
-        "../src/thinking-block-merger.ts"
-      );
-      refreshThinkingVisibility();
-      expect((received.at(-1) as { content: unknown[] }).content).toHaveLength(
-        2,
-      );
-    } finally {
-      state.originalUpdateContent = previous;
-      setInfoVisibilityHidden(false);
-    }
-  });
-});
