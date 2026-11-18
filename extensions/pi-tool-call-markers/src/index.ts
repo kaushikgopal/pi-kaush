@@ -129,12 +129,16 @@ type GroupingPatchState = {
   disabled?: boolean;
 };
 
+type GroupMemberSnapshot = {
+  readonly row: ToolExecutionRow;
+  readonly version: number;
+};
+
 type GroupRenderCache = {
   lines: string[];
   // The first member absorbs the leading blank; each member owns its line.
   heights: Array<{ component: ToolExecutionRow; height: number }>;
-  members: ToolExecutionRow[];
-  memberVersions: number[];
+  memberSnapshots: readonly GroupMemberSnapshot[];
   themeSample: string;
   width: number;
 };
@@ -1431,25 +1435,17 @@ function renderGroupedCallLines(
   return segments;
 }
 
-function sameMembers(
-  left: ToolExecutionRow[],
-  right: ToolExecutionRow[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((member, index) => member === right[index])
-  );
-}
-
-function sameMemberVersions(
+function sameMemberSnapshots(
+  snapshots: readonly GroupMemberSnapshot[],
   rows: ToolExecutionRow[],
-  versions: number[],
   state: PresentationPatchState,
 ): boolean {
   return (
-    rows.length === versions.length &&
-    rows.every(
-      (row, index) => (state.rowVersions.get(row) ?? 0) === versions[index],
+    snapshots.length === rows.length &&
+    snapshots.every(
+      (snapshot, index) =>
+        snapshot.row === rows[index] &&
+        snapshot.version === (state.rowVersions.get(snapshot.row) ?? 0),
     )
   );
 }
@@ -1480,8 +1476,7 @@ function renderGroupedToolRows(
     cached &&
     cached.width === width &&
     cached.themeSample === themeSample &&
-    sameMembers(cached.members, rows) &&
-    sameMemberVersions(rows, cached.memberVersions, state)
+    sameMemberSnapshots(cached.memberSnapshots, rows, state)
   ) {
     return { lines: cached.lines, heights: cached.heights };
   }
@@ -1511,8 +1506,10 @@ function renderGroupedToolRows(
     state.groupCache.set(row, {
       lines,
       heights,
-      members: [...rows],
-      memberVersions: rows.map((member) => state.rowVersions.get(member) ?? 0),
+      memberSnapshots: rows.map((member) => ({
+        row: member,
+        version: state.rowVersions.get(member) ?? 0,
+      })),
       themeSample,
       width,
     });
