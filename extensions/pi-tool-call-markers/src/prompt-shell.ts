@@ -158,7 +158,7 @@ export function renderRailedBlockLines(
   const margin = " ".repeat(inset);
   const leftPad = " ".repeat(padding.left);
   const rightPad = " ".repeat(padding.right);
-  const contentWidth = Math.max(1, bodyWidth - padding.left - padding.right);
+  const contentWidth = promptBlockContentWidth(width, inset, padding);
   const surfaceBg = promptSurfaceBg(theme);
   return lines.map((line) => {
     const { controls, content } = splitLeadingSemanticControls(line);
