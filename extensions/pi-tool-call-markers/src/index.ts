@@ -1086,15 +1086,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function defaultSubagentEmoji(args: unknown): string {
-  if (!isRecord(args)) return "👾";
+function subagentDisplayProfile(
+  args: Record<string, unknown>,
+  action: unknown,
+): string | undefined {
+  const { profile, model } = args;
+  if (typeof profile !== "string") return undefined;
+  // Blank model strings do not override launch profiles. Keep the existing
+  // rendering of controls, unknown actions, and malformed model values.
+  const launch =
+    action === undefined || action === "run" || action === "interactive";
   if (
-    typeof args.profile === "string" &&
-    args.profile.trim() === "coder" &&
-    args.model === undefined
+    model !== undefined &&
+    (!launch || typeof model !== "string" || model.trim() !== "")
   )
-    return "🧑‍💻";
-  return typeof args.action === "string" &&
+    return undefined;
+  return profile.trim() || undefined;
+}
+
+function defaultSubagentEmoji(
+  action: unknown,
+  profile: string | undefined,
+): string {
+  if (profile === "coder") return "🧑‍💻";
+  return typeof action === "string" &&
     [
       "interactive",
       "list",
@@ -1103,7 +1118,7 @@ function defaultSubagentEmoji(args: unknown): string {
       "wait",
       "stop",
       "resume",
-    ].includes(args.action)
+    ].includes(action)
     ? "🤖"
     : "👾";
 }
@@ -1114,13 +1129,12 @@ const SUBAGENT_EMOJI_TOKEN =
   /^(?:[#*0-9]\uFE0F?\u20E3|(?![#*0-9])\p{Emoji}[\uFE0E\uFE0F\u{E0020}-\u{E007F}]*\u200D?)+$/u;
 
 function subagentFallbackLabel(args: unknown, summary: string): string {
+  const input = isRecord(args) ? args : undefined;
   const match = /^(\S+)\s+(?=\S)/u.exec(summary);
   const icon = match?.[1] ?? "";
   const heading = match ? summary.slice(match[0].length) : "";
   const agent =
-    isRecord(args) && typeof args.agent === "string"
-      ? sanitizeInline(args.agent).trim()
-      : "";
+    typeof input?.agent === "string" ? sanitizeInline(input.agent).trim() : "";
   const startsWithAgent = (text: string) =>
     agent !== "" && (text === agent || text.startsWith(`${agent} `));
   // Subagents also accept configured Unicode symbols as icons. A token
@@ -1128,7 +1142,10 @@ function subagentFallbackLabel(args: unknown, summary: string): string {
   const assigned = startsWithAgent(heading)
     ? /[^\x00-\x7f]/u.test(icon)
     : !startsWithAgent(summary) && SUBAGENT_EMOJI_TOKEN.test(icon);
-  const prefix = assigned ? "" : `${defaultSubagentEmoji(args)} `;
+  const action = input?.action;
+  const prefix = assigned
+    ? ""
+    : `${defaultSubagentEmoji(action, input && subagentDisplayProfile(input, action))} `;
   return `subagent ${prefix}${summary}`.trimEnd();
 }
 
@@ -1144,8 +1161,9 @@ type SubagentPlan = {
   steps: readonly [SubagentStep, ...SubagentStep[]];
 };
 
-function parseSubagentArgs(args: unknown): SubagentPlan | undefined {
-  if (!isRecord(args)) return undefined;
+function parseSubagentArgs(
+  args: Record<string, unknown>,
+): SubagentPlan | undefined {
   const scope =
     args.agentScope === "project" || args.agentScope === "both"
       ? args.agentScope
@@ -1165,14 +1183,7 @@ function parseSubagentArgs(args: unknown): SubagentPlan | undefined {
         typeof item.agent === "string" && item.agent.trim()
           ? item.agent.trim()
           : "...",
-      // The subagent extension suppresses the profile badge when a model
-      // override is present; mirror that here.
-      profile:
-        typeof item.profile === "string" &&
-        item.profile.trim() &&
-        item.model === undefined
-          ? item.profile.trim()
-          : undefined,
+      profile: subagentDisplayProfile(item, args.action),
       task: item.task,
     };
   };
@@ -1330,6 +1341,8 @@ function renderSubagentPlan(
   width: number,
   theme: ThemeLike,
 ): string[] | undefined {
+  if (!isRecord(row.args)) return undefined;
+  const { action } = row.args;
   const plan = parseSubagentArgs(row.args);
   if (!plan || width < 12) return undefined;
 
@@ -1346,10 +1359,7 @@ function renderSubagentPlan(
       displayNames.get(step.agent) ?? sanitizeInline(step.agent);
     const { emoji, name } = splitEmojiName(displayName, step.agent);
     const accentPart = (text: string) => fgCollapsed(theme, nameColor, text);
-    const fallbackEmoji = defaultSubagentEmoji({
-      action: isRecord(row.args) ? row.args.action : undefined,
-      profile: step.profile,
-    });
+    const fallbackEmoji = defaultSubagentEmoji(action, step.profile);
     const emojiPart = `${accentPart(emoji || fallbackEmoji)} `;
     const profilePart = step.profile
       ? accentPart(`[${sanitizeInline(step.profile)}]`)

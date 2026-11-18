@@ -1659,6 +1659,62 @@ describe("tool-call-markers grouping", () => {
       expect(lines[0]).not.toContain("[ ");
     },
   );
+  test.each([
+    [
+      "omitted action and empty model",
+      { profile: "coder", model: "" },
+      "lucien",
+      "🧑‍💻 [coder][lucien]",
+    ],
+    [
+      "interactive and whitespace model",
+      { action: "interactive", profile: " coder ", model: " \t " },
+      "lucien",
+      "🧑‍💻 [coder][lucien]",
+    ],
+    [
+      "run and blank model with an assigned emoji",
+      { action: "run", profile: "quick", model: "" },
+      "🧪 lucien",
+      "🧪 [quick][lucien]",
+    ],
+  ] as const)(
+    "keeps the launch profile in a collapsed plan with %s",
+    (_case, options, name, identity) => {
+      const chat = new MockContainer();
+      const row = new MockToolExecutionComponent("subagent", "delegation");
+      row.args = { agent: "lucien", task: "Inspect it.", ...options };
+      row.updateResult({ isError: false, output: "child result" });
+      row.callRendererComponent = new MockText(
+        `subagent ${name} [user]\n  Inspect it.`,
+      );
+      chat.addChild(row);
+
+      expect(renderPlain(chat)).toBe(`  ▏  ${identity} Inspect it. → done`);
+    },
+  );
+  test.each([
+    ["empty", "", "lucien [coder] [user]"],
+    ["whitespace-only", " \t ", "lucien [user]"],
+  ])(
+    "keeps the coder default in an interactive fallback when the model is %s",
+    (_case, model, heading) => {
+      const chat = new MockContainer();
+      const row = new MockToolExecutionComponent("subagent", "delegation");
+      row.args = {
+        action: "interactive",
+        agent: "lucien",
+        profile: "coder",
+        model,
+        task: "",
+      };
+      row.updateResult({ isError: false, output: "worker launched" });
+      row.callRendererComponent = new MockText(`subagent ${heading}\n  ...`);
+      chat.addChild(row);
+
+      expect(renderPlain(chat)).toBe(`  ▏  subagent 🧑‍💻 ${heading} · ...`);
+    },
+  );
   test("uses per-task defaults in an interactive batch without replacing assigned emojis", () => {
     const chat = new MockContainer();
     const row = new MockToolExecutionComponent("subagent", "delegation");
