@@ -38,7 +38,6 @@ const SUBAGENT_LABEL_GAP = "  ";
 // to `*`. A single space separates the glyph from the call content: the
 // anchor is punctuation enough without a joining colon.
 const TOOL_CALL_GLYPHS: ReadonlyMap<string, string> = new Map([
-  ["read", "●"],
   ["write", "+"],
   ["edit", "±"],
   ["grep", "○"],
