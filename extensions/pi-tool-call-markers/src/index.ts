@@ -1136,8 +1136,14 @@ function parseSubagentArgs(args: unknown): SubagentPlan | undefined {
     };
   };
 
-  if (hasParallel) {
-    const parsedSteps = (args.tasks as unknown[]).map(parseStep);
+  const multiStepMode = hasParallel
+    ? { kind: "parallel" as const, input: args.tasks as unknown[] }
+    : hasChain
+      ? { kind: "chain" as const, input: args.chain as unknown[] }
+      : undefined;
+
+  if (multiStepMode) {
+    const parsedSteps = multiStepMode.input.map(parseStep);
     const steps: SubagentStep[] = [];
     for (const step of parsedSteps) {
       if (step === undefined) return undefined;
@@ -1149,22 +1155,7 @@ function parseSubagentArgs(args: unknown): SubagentPlan | undefined {
       firstStep,
       ...steps.slice(1),
     ];
-    return { kind: "parallel", scope, steps: nonEmptySteps };
-  }
-  if (hasChain) {
-    const parsedSteps = (args.chain as unknown[]).map(parseStep);
-    const steps: SubagentStep[] = [];
-    for (const step of parsedSteps) {
-      if (step === undefined) return undefined;
-      steps.push(step);
-    }
-    const firstStep = steps[0];
-    if (firstStep === undefined) return undefined;
-    const nonEmptySteps: readonly [SubagentStep, ...SubagentStep[]] = [
-      firstStep,
-      ...steps.slice(1),
-    ];
-    return { kind: "chain", scope, steps: nonEmptySteps };
+    return { kind: multiStepMode.kind, scope, steps: nonEmptySteps };
   }
 
   const single = parseStep(args);
