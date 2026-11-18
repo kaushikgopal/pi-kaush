@@ -1218,39 +1218,19 @@ function parseSubagentArgs(
   return { kind: "single", scope, steps: [single] };
 }
 
-// Splits scraped plan content into the emoji-capable display name and its bare lookup name.
-function parseStepContent(content: string): {
-  displayName: string;
-  bareName: string;
-} {
-  const tokens = content.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return { displayName: "", bareName: "" };
-  const first = tokens[0]!;
+// Extract the existing emoji-capable prefix and its bare lookup name.
+function parseStepContent(
+  content: string,
+): { emoji: string; bareName: string } | undefined {
+  const [first, bareName] = content.trim().split(/\s+/).filter(Boolean);
+  if (!first || !bareName) return undefined;
   const hasEmoji = [...first].some((char) => (char.codePointAt(0) ?? 0) > 0x7f);
-  const nameTokens = hasEmoji && tokens.length > 1 ? 2 : 1;
-  const displayName = tokens.slice(0, nameTokens).join(" ");
-  return {
-    displayName,
-    bareName: tokens[nameTokens - 1] ?? displayName,
-  };
+  return hasEmoji ? { emoji: first, bareName } : undefined;
 }
 
-// Splits a scraped "emoji name" display into its emoji prefix and bare name;
-// plain names pass through with no emoji.
-function splitEmojiName(
-  displayName: string,
-  bareName: string,
-): { emoji: string; name: string } {
-  const tokens = displayName.trim().split(/\s+/).filter(Boolean);
-  if (tokens.length > 1 && tokens[tokens.length - 1] === bareName) {
-    return { emoji: tokens.slice(0, -1).join(" "), name: bareName };
-  }
-  return { emoji: "", name: bareName };
-}
-
-// Agent display names (emoji + name) come from the subagent extension's own
-// call component when available; args only carry the bare agent name.
-function scrapeSubagentDisplayNames(
+// Assigned emojis come from the subagent extension's call component when
+// available; args only carry the bare agent name.
+function scrapeSubagentEmojis(
   row: ToolExecutionRow,
   kind: SubagentPlan["kind"],
 ): Map<string, string> {
@@ -1271,15 +1251,12 @@ function scrapeSubagentDisplayNames(
       // Single calls carry the agent name on their "subagent <name>" heading
       // line; stripping the heading word (and step numbers) lets both shapes
       // flow through the same parse. Heading remainders without an emoji
-      // (e.g. "chain (2 steps)") degrade to displayName === bareName and are
-      // skipped by the guard below.
+      // (e.g. "chain (2 steps)") are skipped.
       const content = line
         .replace(/^subagent\b\s*/, "")
         .replace(/^\d+\.\s*/, "");
-      const { displayName, bareName } = parseStepContent(content);
-      if (displayName && bareName && displayName !== bareName) {
-        names.set(bareName, displayName);
-      }
+      const identity = parseStepContent(content);
+      if (identity) names.set(identity.bareName, identity.emoji);
     }
   } catch {
     // Display-name scraping is cosmetic; args still carry the bare name.
@@ -1358,21 +1335,19 @@ function renderSubagentPlan(
   const color = failed ? "error" : "muted";
   const nameColor = failed ? "error" : "accent";
   const suffix = fgCollapsed(theme, color, "…");
-  const displayNames = scrapeSubagentDisplayNames(row, plan.kind);
+  const displayEmojis = scrapeSubagentEmojis(row, plan.kind);
   // Agent/profile/task values are model-supplied; sanitize them like every
   // other collapsed-row text so control bytes cannot reach the terminal.
   // Identity order: emoji, then the profile and agent-name badges.
   const identityOf = (step: SubagentStep) => {
-    const displayName =
-      displayNames.get(step.agent) ?? sanitizeInline(step.agent);
-    const { emoji, name } = splitEmojiName(displayName, step.agent);
+    const emoji = displayEmojis.get(step.agent);
     const accentPart = (text: string) => fgCollapsed(theme, nameColor, text);
     const fallbackEmoji = defaultSubagentEmoji(action, step.profile);
     const emojiPart = `${accentPart(emoji || fallbackEmoji)} `;
     const profilePart = step.profile
       ? accentPart(`[${sanitizeInline(step.profile)}]`)
       : "";
-    return `${emojiPart}${profilePart}${accentPart(`[${sanitizeInline(name)}]`)}`;
+    return `${emojiPart}${profilePart}${accentPart(`[${sanitizeInline(step.agent)}]`)}`;
   };
   const detailColor = failed ? "error" : "toolOutput";
   const previewOf = (step: SubagentStep) =>
