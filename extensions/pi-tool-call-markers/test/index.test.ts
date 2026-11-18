@@ -1670,13 +1670,31 @@ describe("tool-call-markers grouping", () => {
     expect(renderPlain(malformedChat)).not.toContain("▌");
 
     const narrowChat = new MockContainer();
-    const narrow = new MockToolExecutionComponent("subagent", "narrow");
-    narrow.args = { agent: "reviewer", task: "Inspect a narrow terminal." };
+    const narrow = new MockToolExecutionComponent("subagent", "x");
+    narrow.args = {
+      chain: [
+        { agent: "reviewer", profile: "fast", task: "Analyze the change." },
+        { agent: "tester", task: "Use {previous} and validate it." },
+      ],
+    };
     narrowChat.addChild(narrow);
-    const narrowLines = narrowChat.render(20).map(stripAnsi);
-    expect(narrowLines.some((line) => line.includes("▏"))).toBe(true);
-    expect(narrowLines.join("\n")).not.toContain("▌");
-    expect(narrowLines.every((line) => line.length <= 20)).toBe(true);
+
+    // The two-column inset leaves 11 columns at 15 and 12 at 16.
+    const genericLines = narrowChat.render(15).map(stripAnsi);
+    expect(genericLines).toHaveLength(2);
+    expect(genericLines[1]).toContain("subag");
+    expect(genericLines.join("\n")).not.toContain("1.");
+    expect(genericLines.some((line) => line.includes("▏"))).toBe(true);
+    expect(genericLines.join("\n")).not.toContain("▌");
+    expect(genericLines.every((line) => line.length <= 15)).toBe(true);
+
+    const planLines = narrowChat.render(16).map(stripAnsi);
+    expect(planLines).toHaveLength(4);
+    expect(planLines[2]).toContain("1. [fast]");
+    expect(planLines[3]).toContain("2. [teste");
+    expect(planLines.some((line) => line.includes("▏"))).toBe(true);
+    expect(planLines.join("\n")).not.toContain("▌");
+    expect(planLines.every((line) => line.length <= 16)).toBe(true);
   });
 
   test("keeps subagent errors clear and restores native details on expansion", () => {
