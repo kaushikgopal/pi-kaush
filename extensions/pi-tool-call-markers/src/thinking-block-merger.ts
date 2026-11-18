@@ -334,10 +334,16 @@ function restyleHiddenThinkingLabel(
   });
 }
 
-type ThinkingTiming = {
-  finishedAt?: number;
-  startedAt: number;
-};
+type ThinkingTiming =
+  | { readonly kind: "untimed" }
+  | { readonly kind: "live"; readonly startedAt: number }
+  | {
+      readonly kind: "settled";
+      readonly startedAt: number;
+      readonly finishedAt: number;
+    };
+
+const UNTIMED_THINKING_TIMING: ThinkingTiming = { kind: "untimed" };
 
 type ThinkingGroupingPatchState = {
   owners: number;
@@ -452,22 +458,6 @@ function thinkingSpinner(startedAt: number, now: number): string {
   return PI_SPINNER_FRAMES[frame % PI_SPINNER_FRAMES.length]!;
 }
 
-// A row is live while it streams, and stays live through un-flagged rebuilds
-// (resize, theme switch, /reload) until an explicit final update arrives.
-// Rows that never carry the flag — restored history, older runtimes — count
-// as settled.
-function thinkingStillLive(
-  streaming: boolean | undefined,
-  timing: ThinkingTiming | undefined,
-): boolean {
-  if (streaming === true) return true;
-  return (
-    streaming === undefined &&
-    timing !== undefined &&
-    timing.finishedAt === undefined
-  );
-}
-
 // Thinking ends when the answer starts: visible text or a tool call after
 // the last thinking block. Settling there keeps the duration honest and
 // keeps a live label as the transcript's last line, so its spinner never
@@ -487,15 +477,41 @@ function answerStarted(message: AssistantMessageLike): boolean {
   });
 }
 
-function timingLive(
+type ThinkingTimingUpdate =
+  | { readonly kind: "begin"; readonly now: number }
+  | { readonly kind: "rebuild" }
+  | { readonly kind: "finish"; readonly now: number };
+
+function classifyThinkingUpdate(
   streaming: boolean | undefined,
-  timing: ThinkingTiming | undefined,
-): boolean {
-  return (
-    streaming !== false &&
-    timing !== undefined &&
-    timing.finishedAt === undefined
-  );
+  answering: boolean,
+  now: number,
+): ThinkingTimingUpdate {
+  if (answering || streaming === false) return { kind: "finish", now };
+  if (streaming === true) return { kind: "begin", now };
+  return { kind: "rebuild" };
+}
+
+function transitionThinkingTiming(
+  previous: ThinkingTiming,
+  update: ThinkingTimingUpdate,
+): ThinkingTiming {
+  switch (update.kind) {
+    case "begin":
+      return previous.kind === "live"
+        ? previous
+        : { kind: "live", startedAt: update.now };
+    case "rebuild":
+      return previous;
+    case "finish":
+      return previous.kind === "live"
+        ? {
+            kind: "settled",
+            startedAt: previous.startedAt,
+            finishedAt: update.now,
+          }
+        : previous;
+  }
 }
 
 function lifecycleLabel(
@@ -503,32 +519,25 @@ function lifecycleLabel(
   message: AssistantMessageLike,
   streaming: boolean | undefined,
   timings: WeakMap<AssistantMessageRow, ThinkingTiming>,
-): string {
+): { label: string; timing: ThinkingTiming } {
   const now = Date.now();
-  const previous = timings.get(row);
-  const answering = answerStarted(message);
-  if (!answering && thinkingStillLive(streaming, previous)) {
-    const current =
-      previous && previous.finishedAt === undefined
-        ? previous
-        : { startedAt: now };
-    timings.set(row, current);
-    return liveThinkingLabel(current.startedAt, now);
-  }
+  const update = classifyThinkingUpdate(streaming, answerStarted(message), now);
+  const timing = transitionThinkingTiming(
+    timings.get(row) ?? UNTIMED_THINKING_TIMING,
+    update,
+  );
+  timings.set(row, timing);
 
-  if (
-    (streaming === false || answering) &&
-    previous &&
-    previous.finishedAt === undefined
-  ) {
-    previous.finishedAt = now;
+  let label = SETTLED_THOUGHT;
+  if (timing.kind === "live") {
+    label = liveThinkingLabel(timing.startedAt, now);
+  } else if (timing.kind === "settled") {
+    label = `${SETTLED_THOUGHT} · ${formatThoughtDuration(
+      timing.startedAt,
+      timing.finishedAt,
+    )}`;
   }
-
-  const settled = timings.get(row);
-  if (settled?.finishedAt !== undefined) {
-    return `${SETTLED_THOUGHT} · ${formatThoughtDuration(settled.startedAt, settled.finishedAt)}`;
-  }
-  return SETTLED_THOUGHT;
+  return { label, timing };
 }
 
 function stripThinkingBlocks(
@@ -570,20 +579,21 @@ function applyHiddenThinkingLabel(
   message: AssistantMessageLike,
   streaming: boolean | undefined,
   timings: WeakMap<AssistantMessageRow, ThinkingTiming>,
-): void {
+): ThinkingTiming {
   // Record the component's first streaming update even when the provider has
   // not emitted a non-empty thinking block yet.
-  const label = lifecycleLabel(row, message, streaming, timings);
-  if (!hasThinkingContent(message)) return;
+  const lifecycle = lifecycleLabel(row, message, streaming, timings);
+  if (!hasThinkingContent(message)) return lifecycle.timing;
   if (
     row.hideThinkingBlock !== true ||
     typeof row.hiddenThinkingLabel !== "string"
   ) {
-    return;
+    return lifecycle.timing;
   }
   // Assign the row-local field directly. The public UI setter relabels every
   // historical assistant row and would make earlier durations change.
-  row.hiddenThinkingLabel = label;
+  row.hiddenThinkingLabel = lifecycle.label;
+  return lifecycle.timing;
 }
 
 // TODO: Replace prototype patching with a public assistant-message rendering API.
@@ -640,30 +650,31 @@ function installThinkingGroupingPatch():
       } catch {
         // Preserve the original message intact.
       }
+      let timing = state.timings.get(this) ?? UNTIMED_THINKING_TIMING;
       try {
         // Visibility changes the display copy, not the thinking lifecycle.
-        applyHiddenThinkingLabel(this, message, streaming, state.timings);
+        timing = applyHiddenThinkingLabel(
+          this,
+          message,
+          streaming,
+          state.timings,
+        );
       } catch {
         // Preserve Pi's native label if its private row shape changes.
+        timing = state.timings.get(this) ?? timing;
       }
       Reflect.apply(state.originalUpdateContent, this, [combined, ...args]);
       try {
         if (hasThinkingContent(combined)) {
-          const timing = state.timings.get(this);
           const liveSince =
-            timing && timingLive(streaming, timing)
-              ? timing.startedAt
-              : undefined;
+            timing.kind === "live" ? timing.startedAt : undefined;
           restyleHiddenThinkingLabel(this, combined, liveSince);
         }
       } catch {
         // Keep Pi's native label styling if the row shape changes.
       }
       try {
-        if (
-          hasThinkingContent(combined) &&
-          !timingLive(streaming, state.timings.get(this))
-        ) {
+        if (hasThinkingContent(combined) && timing.kind !== "live") {
           unitalicizeSettledThinking(this);
         }
       } catch {
