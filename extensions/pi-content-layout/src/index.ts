@@ -480,7 +480,8 @@ function userDecorator(
   const inset = contentInset(width);
   const bodyWidth = width - inset * 2 - 1;
   if (inset === 0 || bodyWidth < 1) return original.call(row, width);
-  const lines = original.call(row, bodyWidth);
+  // Reserve the shell's one left and two right padding columns before wrapping.
+  const lines = original.call(row, Math.max(1, bodyWidth - 3));
   const cached = memo.hit(lines);
   if (cached) return cached;
   const decorated = renderSubmittedUserLines(lines, width, theme, inset);

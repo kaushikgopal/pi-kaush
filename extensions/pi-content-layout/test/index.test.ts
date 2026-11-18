@@ -316,6 +316,39 @@ describe("editor factory composition", () => {
 });
 
 describe("native transcript adapters", () => {
+  test("preserves every submitted character across native wrap boundaries", () => {
+    const user = new UserMessageComponent(
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+    );
+    const native = user.render(20);
+    const harness = createHarness();
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    const lines = user.render(20);
+    expect(lines.map(stripControls)).toEqual([
+      "  ▎                 ",
+      "  ▎  ABCDEFGHIJ     ",
+      "  ▎  KLMNOPQRST     ",
+      "  ▎  UVWXYZabcd     ",
+      "  ▎  efghijklmn     ",
+      "  ▎  opqrstuvwx     ",
+      "  ▎  yz             ",
+      "  ▎                 ",
+    ]);
+    expect(lines[0]?.startsWith("\x1b]133;A\x07  ")).toBe(true);
+    expect(lines.at(-1)?.startsWith("\x1b]133;B\x07\x1b]133;C\x07  ")).toBe(
+      true,
+    );
+    expect(user.render(20)).toEqual(lines);
+    user.render(40);
+    expect(user.render(20)).toEqual(lines);
+
+    harness.fire("session_shutdown");
+    activeHarnesses.pop();
+    expect(user.render(20)).toEqual(native);
+  });
+
   test("insets assistant rows and gives submitted user rows a darker rail block", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);
