@@ -192,7 +192,7 @@ describe("thinking block merger", () => {
     });
   });
 
-  test("labels a hidden streaming thought and freezes its final duration", () => {
+  test("freezes a settled thought and times a later streaming run", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const assistant = new MockAssistantMessageComponent();
@@ -218,6 +218,14 @@ describe("thinking block merger", () => {
     assistant.updateContent(message);
     expect(assistant.hiddenThinkingLabel).toBe("▏* Thought · 2.5s");
     expect(globalSetter).not.toHaveBeenCalled();
+
+    vi.setSystemTime(4_000);
+    assistant.updateContent(message, true);
+    expect(assistant.hiddenThinkingLabel).toBe("▏⠋ Thinking…");
+
+    vi.setSystemTime(4_500);
+    assistant.updateContent(message, false);
+    expect(assistant.hiddenThinkingLabel).toBe("▏* Thought · 0.5s");
   });
 
   test("timestamps the first stream update before thinking text arrives", () => {
@@ -232,10 +240,14 @@ describe("thinking block merger", () => {
     expect(assistant.hiddenThinkingLabel).toBe("▏* Thought · 2.0s");
   });
 
-  test("uses a timeless final label for restored and older-runtime rows", () => {
-    const assistant = new MockAssistantMessageComponent();
-    assistant.updateContent(thinkingMessage());
-    expect(assistant.hiddenThinkingLabel).toBe("▏* Thought");
+  test("uses timeless final labels without a recorded start", () => {
+    const restored = new MockAssistantMessageComponent();
+    restored.updateContent(thinkingMessage());
+    expect(restored.hiddenThinkingLabel).toBe("▏* Thought");
+
+    const finalWithoutStart = new MockAssistantMessageComponent();
+    finalWithoutStart.updateContent(thinkingMessage(), false);
+    expect(finalWithoutStart.hiddenThinkingLabel).toBe("▏* Thought");
   });
 
   test("keeps per-row timestamps isolated", () => {
