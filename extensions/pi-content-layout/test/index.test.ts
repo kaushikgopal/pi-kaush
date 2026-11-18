@@ -371,7 +371,19 @@ describe("native transcript adapters", () => {
   });
 
   test("insets assistant rows and gives submitted user rows a darker rail block", () => {
+    const user = new UserMessageComponent("hello from user");
+    const nativeUserLines = user.render(40);
+    let failRailColor = false;
     const harness = createHarness(() => new TestEditor());
+    harness.context.ui.theme = {
+      ...theme,
+      fg(color: ThemeColor, text: string) {
+        if (failRailColor && color === "borderAccent") {
+          throw new Error("unsupported color");
+        }
+        return theme.fg(color, text);
+      },
+    } as Theme;
     activeHarnesses.push(harness);
     harness.fire("session_start");
 
@@ -403,13 +415,23 @@ describe("native transcript adapters", () => {
       .find((line) => stripControls(line).includes("Reloaded keybindings"));
     expect(stripControls(statusLine ?? "")).toMatch(/^  Reloaded keybindings/);
 
-    const user = new UserMessageComponent("hello from user");
     const userLines = user.render(40);
     expect(userLines).toHaveLength(3);
     expect(userLines.every((line) => visibleWidth(line) === 40)).toBe(true);
     expect(stripControls(userLines[1] ?? "")).toContain("  ▎  hello from user");
     expect(userLines.every((line) => line.includes(SURFACE_BG))).toBe(true);
     expect(userLines[1]).toContain(`\x1b[35m▎\x1b[39m${SURFACE_BG}`);
+
+    failRailColor = true;
+    expect(user.render(40)).toEqual(nativeUserLines);
+    expect(nativeUserLines.map(stripControls).join("\n")).toContain(
+      "hello from user",
+    );
+    expect(nativeUserLines.every((line) => visibleWidth(line) === 40)).toBe(
+      true,
+    );
+    failRailColor = false;
+    expect(user.render(40)).toEqual(userLines);
   });
 
   test("styles queued Steering rows with the optional theme color", () => {
@@ -941,5 +963,51 @@ describe("native transcript adapters", () => {
     expect(UserMessageComponent.prototype.render).toBe(userRender);
     expect(containerPrototype.render).toBe(containerRender);
     expect(Loader.prototype.render).toBe(loaderRender);
+
+    const descriptor = Object.getOwnPropertyDescriptor(
+      AssistantMessageComponent.prototype,
+      "render",
+    );
+    if (!descriptor) throw new Error("missing assistant renderer descriptor");
+    const peerRender: typeof assistantRender = function (
+      this: AssistantMessageComponent,
+      width,
+    ) {
+      return assistantRender
+        .call(this, width)
+        .map((line) => line.replace("peer message", "PEER message"));
+    };
+    Object.defineProperty(AssistantMessageComponent.prototype, "render", {
+      ...descriptor,
+      value: peerRender,
+      writable: false,
+    });
+    const unsupported = createHarness();
+    let stopped = false;
+    try {
+      unsupported.fire("session_start");
+      const assistant = new AssistantMessageComponent({
+        role: "assistant",
+        content: [{ type: "text", text: "peer message" }],
+        stopReason: "stop",
+      } as never);
+      expect(AssistantMessageComponent.prototype.render).toBe(peerRender);
+      expect(stripControls(assistant.render(40).join("\n"))).toContain(
+        "PEER message",
+      );
+      unsupported.fire("session_shutdown");
+      stopped = true;
+      expect(AssistantMessageComponent.prototype.render).toBe(peerRender);
+    } finally {
+      try {
+        if (!stopped) unsupported.fire("session_shutdown");
+      } finally {
+        Object.defineProperty(
+          AssistantMessageComponent.prototype,
+          "render",
+          descriptor,
+        );
+      }
+    }
   });
 });
