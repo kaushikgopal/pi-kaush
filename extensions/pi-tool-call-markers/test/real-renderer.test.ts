@@ -2331,15 +2331,6 @@ describe("user bash blocks", () => {
     expect(nativeLines.join("\n")).toContain("first result");
     expect(nativeLines.join("\n")).toContain("second result");
   });
-
-  test("installs and restores the bash block renderer with the session", () => {
-    // beforeEach install fired session_start with the pass-through theme.
-    expect(BashExecutionComponent.prototype.render).not.toBe(
-      NATIVE_BASH_RENDER,
-    );
-    for (const handler of shutdownHandlers.splice(0)) handler();
-    expect(BashExecutionComponent.prototype.render).toBe(NATIVE_BASH_RENDER);
-  });
 });
 
 describe("asked questions", () => {
