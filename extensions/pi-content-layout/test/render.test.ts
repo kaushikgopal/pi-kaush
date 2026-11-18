@@ -52,6 +52,33 @@ describe("content inset", () => {
     const split = splitLeadingSemanticControls(`${controls}\x1b[31mtext`);
     expect(split.controls).toBe(controls);
     expect(split.content).toBe("\x1b[31mtext");
+
+    for (const prefix of [
+      "\x1b]osc\x1b\\",
+      "\x1b_apc\x1b\\",
+      "\x1bPdcs\x1b\\",
+      "\x1b^pm\x1b\\",
+      "\x1b]osc\x07\x1b_apc\x1b\\\x1bPdcs\x1b\\\x1b^pm\x07",
+    ]) {
+      const input = `${prefix}\x1b[31mtext`;
+      expect(splitLeadingSemanticControls(input)).toEqual({
+        controls: prefix,
+        content: "\x1b[31mtext",
+      });
+      expect(
+        insetLines([input], 20)[0]?.startsWith(`${prefix}  \x1b[31mtext`),
+      ).toBe(true);
+    }
+    expect(splitLeadingSemanticControls("\x1b]unfinished")).toEqual({
+      controls: "",
+      content: "\x1b]unfinished",
+    });
+    expect(
+      splitLeadingSemanticControls("\x1b]done\x07\x1b_unfinished"),
+    ).toEqual({
+      controls: "\x1b]done\x07",
+      content: "\x1b_unfinished",
+    });
   });
 
   test("drops the preferred inset at tiny widths", () => {
@@ -79,6 +106,15 @@ describe("submitted user block", () => {
     expect(lines.every((line) => line.includes(SURFACE_BG))).toBe(true);
     expect(stripControls(lines[1] ?? "")).toContain("  ▎  hello");
     expect(lines[1]).toContain(`\x1b[35m▎\x1b[39m${SURFACE_BG}`);
+
+    const mixed = "\x1b]133;A\x1b\\\x1b_pi:c\x07";
+    const [stLine] = renderSubmittedUserLines(
+      [`${mixed}\x1b[31mhello\x1b[39m`],
+      30,
+      theme,
+    );
+    expect(stLine?.startsWith(`${mixed}  \x1b[35m▎\x1b[39m`)).toBe(true);
+    expect(stLine).toContain("\x1b[31mhello\x1b[39m");
   });
 
   test("pads the submitted box one column left of the text, two columns right", () => {
