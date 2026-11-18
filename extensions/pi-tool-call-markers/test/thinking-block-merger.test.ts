@@ -21,10 +21,25 @@ class MockThinkingMarkdown {
     color: (text: string) => text,
     italic: true,
   };
-  invalidated = 0;
+  private cachedLines: string[];
+
+  constructor(private traceText = "work") {
+    this.cachedLines = this.renderCurrentStyle();
+  }
+
+  render(): string[] {
+    return this.cachedLines;
+  }
 
   invalidate() {
-    this.invalidated++;
+    this.cachedLines = this.renderCurrentStyle();
+  }
+
+  private renderCurrentStyle(): string[] {
+    const text = this.defaultTextStyle.italic
+      ? `\x1b[3m${this.traceText}\x1b[23m`
+      : this.traceText;
+    return [text];
   }
 }
 
@@ -393,12 +408,10 @@ describe("thinking block merger", () => {
     const assistant = new MockAssistantMessageComponent();
     assistant.hideThinkingBlock = false;
     assistant.updateContent(thinkingMessage(), true);
-    expect(assistant.markdownChild?.defaultTextStyle.italic).toBe(true);
+    expect(assistant.markdownChild?.render()).toEqual(["\x1b[3mwork\x1b[23m"]);
 
     assistant.updateContent(thinkingMessage(), false);
-    const settled = assistant.markdownChild;
-    expect(settled?.defaultTextStyle.italic).toBe(false);
-    expect(settled?.invalidated).toBe(1);
+    expect(assistant.markdownChild?.render()).toEqual(["work"]);
   });
 
   test("keeps a live trace italic through un-flagged rebuilds", () => {
