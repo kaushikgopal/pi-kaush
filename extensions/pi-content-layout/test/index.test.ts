@@ -81,7 +81,7 @@ type EditorFactory = (
 type Handler = (event: unknown, ctx: TestContext) => void;
 
 type TestContext = {
-  mode: "tui";
+  mode: "tui" | "print";
   ui: {
     theme: Theme;
     getEditorComponent(): EditorFactory | undefined;
@@ -726,6 +726,63 @@ describe("native transcript adapters", () => {
       .find((l) => l.includes(expected.trim()));
     expect(again?.trimEnd()).toBe(expected);
   });
+
+  test.each(["first started", "last started", "non-TUI", "never started"])(
+    "keeps system notices until the final content-layout owner shuts down (%s shuts down first)",
+    (order) => {
+      const first = createHarness();
+      const second = createHarness();
+      activeHarnesses.push(first, second);
+
+      const HostContainer = Object.getPrototypeOf(
+        AssistantMessageComponent.prototype,
+      ).constructor as typeof Container;
+      const chat = new HostContainer();
+      chat.addChild(
+        new AssistantMessageComponent({
+          role: "assistant",
+          content: [{ type: "text", text: "neighbor" }],
+          stopReason: "stop",
+        } as never),
+      );
+      chat.addChild(new Text(theme.fg("warning", "Warning: notice"), 1, 0));
+      chat.addChild(new Text(theme.fg("error", "Error: request failed"), 1, 0));
+      chat.addChild(new Text("Reloaded keybindings", 1, 0));
+      const systemRows = () =>
+        chat
+          .render(80)
+          .slice(-3)
+          .map((line) => stripControls(line).trimEnd());
+      const native = [
+        " Warning: notice",
+        " Error: request failed",
+        " Reloaded keybindings",
+      ];
+      const decorated = [
+        "  ! notice",
+        "  ✗ request failed",
+        "  Reloaded keybindings",
+      ];
+
+      if (order === "non-TUI") {
+        second.context.mode = "print";
+        second.fire("session_start");
+      }
+      expect(systemRows()).toEqual(native);
+      first.fire("session_start");
+      if (order === "first started" || order === "last started") {
+        second.fire("session_start");
+      }
+      expect(systemRows()).toEqual(decorated);
+
+      const leaving = order === "first started" ? first : second;
+      const remaining = leaving === first ? second : first;
+      leaving.fire("session_shutdown");
+      expect(systemRows()).toEqual(decorated);
+      remaining.fire("session_shutdown");
+      expect(systemRows()).toEqual(native);
+    },
+  );
 
   test("keeps system rows inset when an outer grouping wrapper composes through hooks", () => {
     const harness = createHarness(() => new TestEditor());

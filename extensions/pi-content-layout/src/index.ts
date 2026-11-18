@@ -307,6 +307,8 @@ function renderNotice(notice: NoticePresentation, width: number): string[] {
   return lines;
 }
 
+// Keep one hook in its original position until the last TUI owner leaves.
+const systemTextHookOwners = new Set<object>();
 let systemTextHookActive = 0;
 
 // Embedded status indicators call Loader.render() from inside the editor border.
@@ -579,6 +581,7 @@ export default function contentLayout(pi: ExtensionAPI): void {
     intercomMessageHook = (_container, children) =>
       interceptIntercomMessages(children, getTheme(), renderIntercom);
     chatContainerHooks().add(intercomMessageHook);
+    systemTextHookOwners.add(owner);
     chatContainerHooks().add(systemTextHook);
     systemContainerPatch = installRenderPatch(
       hostContainerPrototype,
@@ -619,7 +622,9 @@ export default function contentLayout(pi: ExtensionAPI): void {
       chatContainerHooks().delete(intercomMessageHook);
       intercomMessageHook = undefined;
     }
-    chatContainerHooks().delete(systemTextHook);
+    if (systemTextHookOwners.delete(owner) && systemTextHookOwners.size === 0) {
+      chatContainerHooks().delete(systemTextHook);
+    }
     if (
       editorRegistration &&
       ctx.ui.getEditorComponent() === editorRegistration.factory
