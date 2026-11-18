@@ -809,7 +809,7 @@ describe("tool-call-markers grouping", () => {
     expect(renderPlain(chat)).toContain("notes.md → 1 line");
   });
 
-  test("reuses the grouped render while the calls are unchanged", () => {
+  test("reuses an unchanged group and refreshes it when members change", () => {
     const chat = new MockContainer();
     const first = succeeded("read", "one.md");
     const second = succeeded("read", "two.md");
@@ -823,6 +823,9 @@ describe("tool-call-markers grouping", () => {
 
     expect(first.callRendererComponent?.renderCount).toBe(firstCount);
     expect(second.callRendererComponent?.renderCount).toBe(secondCount);
+
+    chat.addChild(succeeded("read", "three.md"));
+    expect(renderPlain(chat)).toContain("▏● three.md");
   });
 
   test("refreshes a cached group when any row display changes", () => {
