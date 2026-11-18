@@ -15,6 +15,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { PROMPT_RAIL } from "../src/bash-block.ts";
 import { renderRailedBlockLines } from "../src/prompt-shell.ts";
+import { renderQuestionBlock } from "../src/question-block.ts";
 
 // Captured at module load, before any beforeEach install patches it.
 const NATIVE_BASH_RENDER = BashExecutionComponent.prototype.render;
@@ -2478,6 +2479,48 @@ describe("asked questions", () => {
       false,
     );
   }
+
+  test.each([
+    { width: 80, lead: "a".repeat(63), continuation: "😀tail" },
+    { width: 20, lead: "aaa", continuation: "✌️z" },
+  ])(
+    "keeps a typed grapheme intact at the wrap boundary ($width columns)",
+    ({ width, lead, continuation }) => {
+      const lines =
+        renderQuestionBlock(
+          {
+            result: {
+              details: {
+                answers: [
+                  {
+                    question: "Why?",
+                    kind: "custom",
+                    answer: lead + continuation,
+                  },
+                ],
+              },
+            },
+          },
+          width,
+          questionTheme,
+        ) ?? [];
+
+      expect(lines.map((line) => stripControls(line).trimEnd())).toEqual([
+        "  ▎",
+        "  ▎ > Why?",
+        `  ▎   User: ${lead}`,
+        `  ▎         ${continuation}`,
+        "  ▎",
+      ]);
+      expect(lines.map(visibleWidth)).toEqual([
+        width,
+        width,
+        width,
+        width,
+        width,
+      ]);
+    },
+  );
 
   test.each([
     { source: "args", kind: "custom" },

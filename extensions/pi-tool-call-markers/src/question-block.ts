@@ -240,6 +240,8 @@ function italics(theme: QuestionTheme, text: string): string {
   }
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
 // Plain-text word wrap with a hanging indent, so a wrapped question stays
 // visually attached to its `> ` prefix. Wrapping before styling keeps the
 // width math exact and lets the shell's own fit pass stay a no-op.
@@ -261,15 +263,24 @@ function wrapPlain(text: string, width: number): string[] {
       return;
     }
     if (current !== "") lines.push(current);
-    // A single token wider than the line is hard-split rather than truncated.
-    let rest = word;
-    while (visibleWidth(rest) > max) {
-      let cut = rest.length;
-      while (cut > 1 && visibleWidth(rest.slice(0, cut)) > max) cut--;
-      lines.push(rest.slice(0, cut));
-      rest = rest.slice(cut);
+    if (visibleWidth(word) <= max) {
+      current = word;
+      return;
     }
-    current = rest;
+
+    current = "";
+    let columns = 0;
+    for (const { segment } of graphemes.segment(word)) {
+      const segmentWidth = visibleWidth(segment);
+      // Let the shell clip a grapheme wider than the whole line.
+      if (current !== "" && columns + segmentWidth > max) {
+        lines.push(current);
+        current = "";
+        columns = 0;
+      }
+      current += segment;
+      columns += segmentWidth;
+    }
   };
   for (const word of words) push(word);
   if (current !== "") lines.push(current);
