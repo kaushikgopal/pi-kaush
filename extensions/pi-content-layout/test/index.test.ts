@@ -341,7 +341,15 @@ describe("native transcript adapters", () => {
       true,
     );
     expect(user.render(20)).toEqual(lines);
-    user.render(40);
+    expect(user.render(20)).toBe(lines);
+    const wide = user.render(40);
+    expect(wide.map((line) => stripControls(line).trim())).toEqual([
+      "▎",
+      "▎  ABCDEFGHIJKLMNOPQRSTUVWXYZabcd",
+      "▎  efghijklmnopqrstuvwxyz",
+      "▎",
+    ]);
+    expect(user.render(40)).toBe(wide);
     expect(user.render(20)).toEqual(lines);
 
     harness.fire("session_shutdown");
@@ -362,12 +370,17 @@ describe("native transcript adapters", () => {
     harness.fire("session_start");
 
     const user = new UserMessageComponent("unchanged prompt");
-    expect(user.render(30)[1]).toContain("\x1b[38;2;255;0;0m▎\x1b[39m");
+    const red = user.render(30);
+    expect(red[1]).toContain("\x1b[38;2;255;0;0m▎\x1b[39m");
+    expect(user.render(30)).toBe(red);
 
     // Pi keeps the UI theme proxy while changing the colors it resolves.
     borderAccent = "\x1b[38;2;0;255;0m";
     user.invalidate();
-    expect(user.render(30)[1]).toContain("\x1b[38;2;0;255;0m▎\x1b[39m");
+    const green = user.render(30);
+    expect(green[1]).toContain("\x1b[38;2;0;255;0m▎\x1b[39m");
+    expect(green).not.toBe(red);
+    expect(user.render(30)).toBe(green);
   });
 
   test("insets assistant rows and gives submitted user rows a darker rail block", () => {
@@ -393,6 +406,7 @@ describe("native transcript adapters", () => {
       stopReason: "stop",
     } as never);
     const assistantLines = assistant.render(40);
+    expect(assistant.render(40)).toBe(assistantLines);
     const firstAssistantContent = assistantLines.find((line) =>
       stripControls(line).includes("hello from assistant"),
     );
@@ -432,6 +446,37 @@ describe("native transcript adapters", () => {
     );
     failRailColor = false;
     expect(user.render(40)).toEqual(userLines);
+
+    const narrower = assistant.render(32);
+    expect(narrower.every((line) => visibleWidth(line) === 32)).toBe(true);
+    expect(narrower.map(stripControls).join("\n")).toContain(
+      "hello from assistant",
+    );
+    expect(assistant.render(32)).toBe(narrower);
+    assistant.updateContent(
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "world from assistant" }],
+        stopReason: "stop",
+      } as never,
+      true,
+    );
+    expect(assistant.render(32).map(stripControls).join("\n")).toContain(
+      "world from assistant",
+    );
+    assistant.updateContent(
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "stream one\n\nstream two" }],
+        stopReason: "stop",
+      } as never,
+      true,
+    );
+    const updated = assistant.render(32);
+    expect(
+      updated.map((line) => stripControls(line).trim()).filter(Boolean),
+    ).toEqual(["stream one", "stream two"]);
+    expect(assistant.render(32)).toBe(updated);
   });
 
   test("styles queued Steering rows with the optional theme color", () => {
