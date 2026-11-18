@@ -1080,7 +1080,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(output).not.toContain("lint passed");
   });
 
-  test("publishes mouse accounting that matches the drawn grouped lines", () => {
+  test("routes grouped mouse clicks to the matching row before and after resize", () => {
     const chat = new Container();
     const first = createBashRow("npm test");
     const second = createBashRow("npm run lint");
@@ -1089,24 +1089,73 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(first, "tests passed");
     settle(second, "lint passed");
 
-    const width = 36;
-    const lines = chat.render(width);
-    const layout = (
-      chat as unknown as {
-        mouseLayout?: {
-          width: number;
-          children: Array<{ component: unknown; height: number }>;
-        };
-      }
-    ).mouseLayout;
-    // The grouping path bypasses Pi's native render that normally refreshes
-    // the container's mouse-layout cache; publish the drawn accounting so
-    // Pi's click-to-expand routes by the lines actually drawn.
-    expect(layout).toBeDefined();
-    expect(layout?.width).toBe(width);
-    const entries = layout?.children ?? [];
-    expect(entries.map((e) => e.component)).toEqual([first, second]);
-    expect(entries.reduce((sum, e) => sum + e.height, 0)).toBe(lines.length);
+    let width = 36;
+    let lines: string[] = [];
+    const render = () => {
+      lines = chat.render(width);
+      return lines;
+    };
+    const dispatchMouse = (
+      y: number,
+      type: "click" | "press" = "click",
+      button: "left" | "right" = "left",
+    ) =>
+      chat.handleMouse({
+        type,
+        button,
+        x: 5,
+        y,
+        screenX: 5,
+        screenY: y,
+        width,
+        height: lines.length,
+        shift: false,
+        alt: false,
+        ctrl: false,
+      });
+    const lineY = (rendered: string[], text: string) =>
+      rendered.findIndex((line) => line.replace(ANSI_RE, "").includes(text));
+
+    const firstY = lineY(render(), "npm test");
+    expect(firstY).toBeGreaterThan(0);
+    const expectCollapsed = () => {
+      const output = renderPlain(chat, width);
+      expect(output).not.toContain("FULL tests passed");
+      expect(output).not.toContain("FULL lint passed");
+    };
+    dispatchMouse(firstY, "click", "right");
+    expectCollapsed();
+    dispatchMouse(firstY, "press", "left");
+    expectCollapsed();
+
+    const assertClickRoutes = (
+      label: string,
+      result: string,
+      otherResult: string,
+    ) => {
+      const collapsedLines = render();
+      const y = lineY(collapsedLines, label);
+      expect(y).toBeGreaterThan(0);
+      dispatchMouse(y);
+      const expanded = renderPlain(chat, width);
+      expect(expanded).toContain(`FULL ${result}`);
+      expect(expanded).not.toContain(`FULL ${otherResult}`);
+
+      const expandedLines = render();
+      const resultY = lineY(expandedLines, `FULL ${result}`);
+      expect(resultY).toBeGreaterThanOrEqual(0);
+      dispatchMouse(resultY);
+      const collapsed = renderPlain(chat, width);
+      expect(collapsed).not.toContain(`FULL ${result}`);
+      expect(collapsed).not.toContain(`FULL ${otherResult}`);
+    };
+
+    assertClickRoutes("npm test", "tests passed", "lint passed");
+    assertClickRoutes("npm run lint", "lint passed", "tests passed");
+
+    width = 50;
+    assertClickRoutes("npm test", "tests passed", "lint passed");
+    assertClickRoutes("npm run lint", "lint passed", "tests passed");
   });
 
   test("runs chat container hooks during grouped renders and restores after", () => {
