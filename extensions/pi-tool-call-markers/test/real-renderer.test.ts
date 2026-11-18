@@ -2085,6 +2085,62 @@ describe("asked questions", () => {
     );
   }
 
+  test.each([
+    { source: "args", kind: "custom" },
+    { source: "result", kind: "option" },
+    { source: "args", kind: "multi" },
+  ])(
+    "sanitizes question and answer controls ($source/$kind)",
+    ({ source, kind }) => {
+      withTheme(() => {
+        const chat = new Container();
+        const question =
+          "Ship\x1b[2Jit?\x1b]0;hidden\x07\x00\x7f\x1b[31mready\x1b[0m";
+        const response =
+          "y\x1b[2Jes\x1b]8;;https://example.invalid\x1b\\\x02please\x1b]8;;\x1b\\";
+        const row = createQuestionRow(
+          "ask-controls",
+          "ask_user_question",
+          source === "args" ? { questions: [{ question }] } : {},
+        );
+        chat.addChild(row);
+        answer(row, {
+          answers: [
+            {
+              question,
+              kind,
+              answer: kind === "multi" ? null : response,
+              ...(kind === "multi" ? { selected: [response, "later"] } : {}),
+            },
+          ],
+        });
+
+        // Remove trusted SGR only: CSI/OSC from the input must remain observable.
+        const lines = chat.render(60);
+        expect(
+          lines
+            .map((line) => line.replace(/\x1b\[[0-9;]*m/g, "").trimEnd())
+            .filter(Boolean),
+        ).toEqual([
+          "  ▎",
+          "  ▎ > Shipit? ready",
+          kind === "multi"
+            ? "  ▎   User: yes please, later"
+            : "  ▎   User: yes please",
+          "  ▎",
+        ]);
+        expect(lines.join("")).not.toContain("\x1b[31m");
+        expect(lines[2]).toContain("\x1b[3m\x1b[37mShip");
+        expect(lines[3]).toContain("\x1b[37myes");
+        expect(lines[3]).not.toContain("\x1b[3m");
+        expect(lines[2]).toContain(SURFACE_BG);
+        expect(lines.filter(Boolean).map(visibleWidth)).toEqual([
+          60, 60, 60, 60,
+        ]);
+      });
+    },
+  );
+
   test("renders a settled question as a railed prompt block", () => {
     withTheme(() => {
       const chat = new Container();

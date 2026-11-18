@@ -245,7 +245,11 @@ function italics(theme: QuestionTheme, text: string): string {
 // width math exact and lets the shell's own fit pass stay a no-op.
 function wrapPlain(text: string, width: number): string[] {
   const max = Math.max(1, width);
-  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const words = sanitizeInline(text)
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
   if (words.length === 0) return [""];
 
   const lines: string[] = [];
