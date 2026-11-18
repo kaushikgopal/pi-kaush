@@ -187,6 +187,95 @@ describe("intercom message interception", () => {
     expect(render(chatWith(host))).toContain("FOREIGN BOX");
   });
 
+  test.each<[string, unknown]>([
+    ["sender object", { bodyText: "Body", from: 123 }],
+    ["sender array", { bodyText: "Body", from: [] }],
+    ["null sender", { bodyText: "Body", from: null }],
+    ["sender id", { bodyText: "Body", from: { id: 123 } }],
+    ["sender name", { bodyText: "Body", from: { name: 123 } }],
+    ["sender cwd", { bodyText: "Body", from: { cwd: 123 } }],
+    ["reply command", { bodyText: "Body", replyCommand: 123 }],
+    [
+      "null body override",
+      { bodyText: null, message: { content: { text: "Body" } } },
+    ],
+    ["message object", { bodyText: "Body", message: 123 }],
+    ["message array", { bodyText: "Body", message: [] }],
+    ["null message", { bodyText: "Body", message: null }],
+    ["reply target", { bodyText: "Body", message: { replyTo: 123 } }],
+    ["reply flag", { bodyText: "Body", message: { expectsReply: "false" } }],
+    ["content object", { bodyText: "Body", message: { content: 123 } }],
+    ["content array", { bodyText: "Body", message: { content: [] } }],
+    ["null content", { bodyText: "Body", message: { content: null } }],
+    [
+      "shadowed content text",
+      { bodyText: "Body", message: { content: { text: 123 } } },
+    ],
+    [
+      "attachment collection",
+      {
+        bodyText: "Body",
+        message: { content: { attachments: { length: 1 } } },
+      },
+    ],
+    [
+      "attachment string",
+      { bodyText: "Body", message: { content: { attachments: "file" } } },
+    ],
+    [
+      "null attachments",
+      { bodyText: "Body", message: { content: { attachments: null } } },
+    ],
+    [
+      "null attachment",
+      { bodyText: "Body", message: { content: { attachments: [null] } } },
+    ],
+    [
+      "scalar attachment",
+      { bodyText: "Body", message: { content: { attachments: [123] } } },
+    ],
+    [
+      "array attachment",
+      { bodyText: "Body", message: { content: { attachments: [[]] } } },
+    ],
+    [
+      "sparse attachments",
+      { bodyText: "Body", message: { content: { attachments: Array(1) } } },
+    ],
+    [
+      "attachment name",
+      {
+        bodyText: "Body",
+        message: { content: { attachments: [{ name: 123 }] } },
+      },
+    ],
+  ])("uses the existing host fallback for malformed %s", (_name, malformed) => {
+    const harness = sessionHarness();
+    const registered = harness.renderers.get("intercom_message");
+    if (!registered) throw new Error("expected registered intercom renderer");
+
+    for (const expanded of [false, true]) {
+      expect(renderIntercomMessage(malformed, expanded, theme)).toBeUndefined();
+      for (const renderer of [registered, foreignRenderer]) {
+        const host = new CustomMessageComponent(
+          { ...message, content: "Native fallback", details: malformed },
+          renderer,
+        );
+        host.setExpanded(expanded);
+        expect(
+          render(chatWith(host), 60)
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean),
+        ).toEqual(
+          renderer === registered
+            ? ["[intercom_message]", "Native fallback"]
+            : ["FOREIGN BOX"],
+        );
+      }
+    }
+  });
+
   test("stops intercepting after session shutdown", () => {
     const harness = sessionHarness();
     const chat = chatWith(new CustomMessageComponent(message, foreignRenderer));

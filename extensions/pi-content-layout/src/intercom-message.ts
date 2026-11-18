@@ -169,16 +169,67 @@ class IntercomMessageComponent implements Component {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+function isIntercomMessageDetails(
+  details: unknown,
+): details is IntercomMessageDetails {
+  if (!isRecord(details)) return false;
+  if (
+    !isOptionalString(details.bodyText) ||
+    !isOptionalString(details.replyCommand)
+  )
+    return false;
+
+  const from = details.from;
+  if (
+    from !== undefined &&
+    (!isRecord(from) || ![from.id, from.name, from.cwd].every(isOptionalString))
+  )
+    return false;
+
+  const message = details.message;
+  if (message !== undefined) {
+    if (!isRecord(message)) return false;
+    if (
+      !isOptionalString(message.replyTo) ||
+      (message.expectsReply !== undefined &&
+        typeof message.expectsReply !== "boolean")
+    )
+      return false;
+
+    const content = message.content;
+    if (content !== undefined) {
+      if (!isRecord(content)) return false;
+      if (!isOptionalString(content.text)) return false;
+      const attachments = content.attachments;
+      if (attachments !== undefined) {
+        if (!Array.isArray(attachments)) return false;
+        for (const attachment of attachments) {
+          if (!isRecord(attachment) || !isOptionalString(attachment.name))
+            return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 export function renderIntercomMessage(
   details: unknown,
   expanded: boolean,
   theme: Theme,
 ): Component | undefined {
-  if (!details || typeof details !== "object") return undefined;
-  const intercom = details as IntercomMessageDetails;
-  const text = intercom.bodyText ?? intercom.message?.content?.text;
+  if (!isIntercomMessageDetails(details)) return undefined;
+  const text = details.bodyText ?? details.message?.content?.text;
   if (typeof text !== "string") return undefined;
-  return new IntercomMessageComponent(intercom, expanded, theme);
+  return new IntercomMessageComponent(details, expanded, theme);
 }
 
 // Structural mirror of Pi's CustomMessageComponent: the fields this package
