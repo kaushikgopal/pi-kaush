@@ -2675,6 +2675,79 @@ describe("asked questions", () => {
 });
 
 describe("lifecycle hardening", () => {
+  test("reloaded thinking owner supplies the theme through a buried wrapper from an older module instance", async () => {
+    vi.useFakeTimers();
+    const proto = AssistantMessageComponent.prototype;
+    const buried = proto.updateContent;
+    const starts: Array<(event: unknown, ctx: unknown) => void> = [];
+    const stops: Array<() => void> = [];
+    const message = {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "ponder" }],
+    } as never;
+    proto.updateContent = function (...args) {
+      return buried.apply(this, args);
+    };
+    try {
+      for (const handler of shutdownHandlers.splice(0)) handler();
+      // Pi reloads entrypoints with moduleCache: false. The old wrapper must
+      // use the new instance's context, not its own cleared module globals.
+      vi.resetModules();
+      const { default: reloadedThinkingMarkers } = await import(
+        "../src/thinking-block-merger.ts"
+      );
+      reloadedThinkingMarkers({
+        on(event: string, handler: never) {
+          if (event === "session_start") starts.push(handler);
+          if (event === "session_shutdown") stops.push(handler);
+        },
+        getThinkingLevel: () => "high",
+      } as unknown as ExtensionAPI);
+      for (const start of starts) {
+        start(
+          {},
+          {
+            mode: "tui",
+            ui: {
+              theme: {
+                ...extensionTheme,
+                getFgAnsi: (color: string) =>
+                  fgAnsiStrict(
+                    {
+                      thinkingHigh: "\x1b[38;5;201m",
+                      muted: "\x1b[38;5;244m",
+                    },
+                    color,
+                  ),
+              },
+            },
+          },
+        );
+      }
+      vi.setSystemTime(1_000);
+      const assistant = new AssistantMessageComponent(undefined, true);
+      const update = assistant.updateContent as unknown as (
+        message: unknown,
+        streaming: boolean,
+      ) => void;
+      update.call(assistant, message, true);
+      expect
+        .soft(assistant.render(80).join("\n"))
+        .toContain("\x1b[23m\x1b[38;5;201m\x1b[1m⠋\x1b[22m Thinking…\x1b[39m");
+      vi.setSystemTime(2_000);
+      update.call(assistant, message, false);
+      expect
+        .soft(assistant.render(80).join("\n"))
+        .toContain(
+          "\x1b[23m\x1b[38;5;244m\x1b[2m▏\x1b[22m\x1b[1m*\x1b[22m Thought · 1.0s\x1b[39m",
+        );
+    } finally {
+      for (const stop of stops) stop();
+      proto.updateContent = buried;
+      vi.useRealTimers();
+    }
+  });
+
   test("goes inert when a later wrapper buries every patch", () => {
     // Simulate another extension wrapping the same prototypes after this one
     // installed: markers can no longer restore them at shutdown, so each

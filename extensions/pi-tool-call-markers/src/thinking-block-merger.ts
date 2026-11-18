@@ -7,7 +7,8 @@ import {
   withFaintCollapsedRail,
 } from "./muted.ts";
 
-const THINKING_GROUPING_PATCHED = Symbol.for("kg.pi.thinkingGrouping.v2");
+// v2 wrappers close over module-local providers and cannot adopt shared contexts.
+const THINKING_GROUPING_PATCHED = Symbol.for("kg.pi.thinkingGrouping.v3");
 const PI_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS = 80;
 
@@ -49,10 +50,18 @@ type ThemeDetail = {
   getColorMode?(): "truecolor" | "256color" | string;
 };
 
-// Live reference into the UI context: reading .theme per check keeps label
-// styles current across mid-session theme switches, which fire no event.
-let themeProvider: (() => ThemeDetail | undefined) | undefined;
-let activeLevel: (() => string) | undefined;
+type ThinkingStylingContext = {
+  theme(): ThemeDetail | undefined;
+  level(): string;
+};
+
+// Entrypoints load uncached. A buried wrapper and every new owner must read
+// the same contexts; the last session to start supplies live theme/level getters.
+let stylingContexts = new Map<object, ThinkingStylingContext>();
+
+function currentStylingContext(): ThinkingStylingContext | undefined {
+  return [...stylingContexts.values()].at(-1);
+}
 // Pi builds both thinking labels italic. The default treatment replaces that
 // with a plain row: italic-off always leads — the TUI diff renderer can skip
 // bytes shared with the previous italic frame, which would leave the terminal
@@ -65,7 +74,10 @@ type LabelStyle = { prefix: string; suffix: string };
 // The package styles labels only inside a session it can read the theme from.
 // `inherit` is the other native case: it keeps Pi's italic labels.
 function stylesThinkingLabels(): boolean {
-  return themeProvider !== undefined && thoughtLabelColorChoice() !== "inherit";
+  return (
+    currentStylingContext() !== undefined &&
+    thoughtLabelColorChoice() !== "inherit"
+  );
 }
 
 function styledWith(
@@ -105,7 +117,8 @@ function labelStyle(
   const token =
     choice === "mdheading"
       ? "mdHeading"
-      : (LEVEL_TOKEN[activeLevel?.() ?? "off"] ?? "thinkingOff");
+      : (LEVEL_TOKEN[currentStylingContext()?.level() ?? "off"] ??
+        "thinkingOff");
   return styledWith(token, theme);
 }
 
@@ -144,7 +157,7 @@ function styledAnchoredLabel(
 export function visibleThoughtLabel(label: string): string {
   if (!stylesThinkingLabels()) return label;
   const raw = label.replace(/\x1b\[[0-9;]*m/g, "");
-  const theme = themeProvider?.();
+  const theme = currentStylingContext()?.theme();
   const settled = isSettledThoughtLabel(raw);
   const style = theme ? labelStyle(settled, theme) : undefined;
   // A theme that cannot resolve a color still drops Pi's italics.
@@ -328,6 +341,7 @@ type ThinkingTiming = {
 
 type ThinkingGroupingPatchState = {
   owners: number;
+  stylingContexts: Map<object, ThinkingStylingContext>;
   // Set at the final owner's shutdown. A wrapper another extension has buried
   // cannot be uninstalled, so it delegates instead of outliving its owner; a
   // later install re-enables it.
@@ -591,12 +605,14 @@ function installThinkingGroupingPatch():
     if (existing) {
       existing.owners++;
       existing.rows ??= new Map();
+      stylingContexts = existing.stylingContexts;
       existing.disabled = false;
       return existing;
     }
 
     const state: ThinkingGroupingPatchState = {
       owners: 1,
+      stylingContexts,
       originalUpdateContent: proto.updateContent,
       timings: new WeakMap(),
       rows: new Map(),
@@ -695,9 +711,10 @@ function uninstallThinkingGroupingPatch(
 
 export default function (pi: ExtensionAPI) {
   const patch = installThinkingGroupingPatch();
+  const owner = {};
   let released = false;
   pi.on("session_start", (_event, ctx) => {
-    if (ctx.mode !== "tui") return;
+    if (released || ctx.mode !== "tui") return;
     try {
       const proto = AssistantMessageComponent?.prototype as unknown as {
         [THINKING_GROUPING_PATCHED]?: ThinkingGroupingPatchState;
@@ -707,20 +724,22 @@ export default function (pi: ExtensionAPI) {
       // Best effort; stale rows would only linger until the process exits.
     }
     const uiCtx = ctx;
-    themeProvider = () => uiCtx.ui?.theme as unknown as ThemeDetail;
-    activeLevel = () => {
-      try {
-        return pi.getThinkingLevel();
-      } catch {
-        return "off";
-      }
-    };
+    stylingContexts.delete(owner);
+    stylingContexts.set(owner, {
+      theme: () => uiCtx.ui?.theme as unknown as ThemeDetail,
+      level: () => {
+        try {
+          return pi.getThinkingLevel();
+        } catch {
+          return "off";
+        }
+      },
+    });
   });
   pi.on("session_shutdown", () => {
     if (released) return;
     released = true;
-    if (patch && !uninstallThinkingGroupingPatch(patch)) return;
-    themeProvider = undefined;
-    activeLevel = undefined;
+    stylingContexts.delete(owner);
+    uninstallThinkingGroupingPatch(patch);
   });
 }

@@ -350,7 +350,7 @@ describe("thinking stripping", () => {
     > & {
       updateContent(message: unknown, ...args: unknown[]): void;
     };
-    const state = proto[Symbol.for("kg.pi.thinkingGrouping.v2")] as {
+    const state = proto[Symbol.for("kg.pi.thinkingGrouping.v3")] as {
       originalUpdateContent: (message: unknown, ...args: unknown[]) => void;
     };
 
