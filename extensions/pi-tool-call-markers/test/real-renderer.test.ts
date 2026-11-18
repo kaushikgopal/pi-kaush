@@ -2209,11 +2209,20 @@ describe("user bash blocks", () => {
 
   test("falls back to the native shell on very narrow widths", () => {
     withTheme(() => {
-      const bash = createBashBlock("ls");
-      bash.setComplete(0, false);
-      const lines = bash.render(4);
-      expect(lines.length).toBeGreaterThan(0);
-      expect(stripControls(lines.join("\n"))).not.toContain(PROMPT_RAIL);
+      for (const width of [4, 12]) {
+        const bash = createBashBlock("ls");
+        bash.appendOutput("ok");
+        bash.setComplete(0, false);
+        const nativeLines = NATIVE_BASH_RENDER.call(bash, width);
+        const lines = bash.render(width);
+        const output = stripControls(lines.join("\n"));
+
+        expect(lines).toEqual(nativeLines);
+        expect(lines.length).toBeGreaterThan(0);
+        expect(output).not.toContain(PROMPT_RAIL);
+        expect(output).toContain("ls");
+        expect(output).toContain("ok");
+      }
     });
   });
 
