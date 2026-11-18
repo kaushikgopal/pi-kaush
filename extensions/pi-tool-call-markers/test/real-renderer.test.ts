@@ -2776,26 +2776,22 @@ describe("asked questions", () => {
         expect(line).toContain(SURFACE_BG);
         expect(visibleWidth(line!)).toBe(60);
       }
+      const bodyWithResets = "a\x1b[0mb\x1b[mc\x1b[49md";
+      const continuousSurface = renderRailedBlockLines(
+        [bodyWithResets],
+        20,
+        {
+          fg: (_color, text) => text,
+          getBgAnsi: () => SURFACE_BG,
+        },
+        2,
+        "muted",
+        { left: 1, right: 2 },
+      );
+      expect(continuousSurface).toEqual([
+        `  ${PROMPT_RAIL}${SURFACE_BG} a\x1b[0m${SURFACE_BG}b\x1b[m${SURFACE_BG}c\x1b[49m${SURFACE_BG}d${" ".repeat(10)}\x1b[49m  `,
+      ]);
     });
-  });
-
-  test("reapplies the prompt surface after inner resets", () => {
-    const body = "a\x1b[0mb\x1b[mc\x1b[49md";
-    const lines = renderRailedBlockLines(
-      [body],
-      20,
-      {
-        fg: (_color, text) => text,
-        getBgAnsi: () => SURFACE_BG,
-      },
-      2,
-      "muted",
-      { left: 1, right: 2 },
-    );
-
-    expect(lines).toEqual([
-      `  ${PROMPT_RAIL}${SURFACE_BG} a\x1b[0m${SURFACE_BG}b\x1b[m${SURFACE_BG}c\x1b[49m${SURFACE_BG}d${" ".repeat(10)}\x1b[49m  `,
-    ]);
   });
 
   test("matches pi-content-layout's submitted-prompt geometry", () => {
