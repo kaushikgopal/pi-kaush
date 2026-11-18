@@ -105,6 +105,18 @@ describe("intercom message frame", () => {
     // Body preview and meta line are muted, not default text or dim.
     expect(lines[1]).toContain("\x1b[94mDetailed Atomic audit");
     expect(lines[2]).toContain("\x1b[94mTo reply:");
+
+    for (const expanded of [false, true]) {
+      const unnamed = renderIntercomMessage(
+        { from: { id: "12345678-unnamed" }, bodyText: "hello" },
+        expanded,
+        theme,
+      );
+      const unnamedLines = unnamed?.render(100) ?? [];
+      expect(unnamedLines[0]).toContain("\x1b[33m12345678\x1b[39m");
+      expect(stripAnsi(unnamedLines[0] ?? "")).toContain("From: 12345678");
+      expect(stripAnsi(unnamedLines.join("\n"))).toContain("hello");
+    }
   });
 
   test("keeps the expand hint out of the title and inside the meta line", () => {
