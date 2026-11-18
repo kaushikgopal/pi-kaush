@@ -156,7 +156,7 @@ function styledAnchoredLabel(
 
 export function visibleThoughtLabel(label: string): string {
   if (!stylesThinkingLabels()) return label;
-  const raw = label.replace(/\x1b\[[0-9;]*m/g, "");
+  const raw = plainText(label);
   const theme = currentStylingContext()?.theme();
   const settled = isSettledThoughtLabel(raw);
   const style = theme ? labelStyle(settled, theme) : undefined;
