@@ -1479,8 +1479,8 @@ describe("tool-call-markers grouping", () => {
     expect(lines).toHaveLength(3);
     expect(lines[0]).toMatch(/^  ▏  subagent chain \(2 steps\) \[user\]/);
     expect(lines[0]).toContain("→ done");
-    expect(lines[1]).toBe("     1. [fast][reviewer] Analyze the change.");
-    expect(lines[2]).toBe("     2. [tester] Use and validate it.");
+    expect(lines[1]).toBe("     1. 👾 [fast][reviewer] Analyze the change.");
+    expect(lines[2]).toBe("     2. 👾 [tester] Use and validate it.");
     expect(lines.join("\n")).not.toContain("▌");
     expect(lines.join("\n")).not.toContain("view subagents");
   });
@@ -1505,8 +1505,8 @@ describe("tool-call-markers grouping", () => {
       .filter((line) => line.trim());
     expect(lines).toHaveLength(5);
     expect(lines[0]).toContain("▏  subagent parallel (4 tasks) [user]");
-    expect(lines[1]).toBe("     [alpha] First task.");
-    expect(lines[3]).toBe("     [gamma] Third task.");
+    expect(lines[1]).toBe("     👾 [alpha] First task.");
+    expect(lines[3]).toBe("     👾 [gamma] Third task.");
     expect(lines[4]).toBe("     ... +1 more");
   });
 
@@ -1531,8 +1531,8 @@ describe("tool-call-markers grouping", () => {
       .render(100)
       .map(stripAnsi)
       .filter((line) => line.trim());
-    expect(lines[1]).toBe("     [alpha] First task.");
-    expect(lines[2]).toBe("     [thorough][beta] Second task.");
+    expect(lines[1]).toBe("     👾 [alpha] First task.");
+    expect(lines[2]).toBe("     👾 [thorough][beta] Second task.");
   });
 
   test("renders a single subagent as a one-line tool row", () => {
@@ -1547,7 +1547,7 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("▏  [reviewer] Inspect the renderer.");
+    expect(lines[0]).toContain("▏  👾 [reviewer] Inspect the renderer.");
     expect(lines[0]).toContain("→ done");
   });
 
@@ -1595,23 +1595,123 @@ describe("tool-call-markers grouping", () => {
     expect(lines[0]).toContain("▏  🤖 [coder][c3po] Implement the fix.");
   });
 
-  test("omits the emoji slot for plain-named single calls", () => {
+  test.each([
+    {
+      action: undefined,
+      profile: undefined,
+      model: undefined,
+      identity: "👾 [lucien]",
+    },
+    {
+      action: "run",
+      profile: undefined,
+      model: undefined,
+      identity: "👾 [lucien]",
+    },
+    {
+      action: "interactive",
+      profile: undefined,
+      model: undefined,
+      identity: "🤖 [lucien]",
+    },
+    {
+      action: "run",
+      profile: "coder",
+      model: undefined,
+      identity: "🧑‍💻 [coder][lucien]",
+    },
+    {
+      action: "interactive",
+      profile: "coder",
+      model: undefined,
+      identity: "🧑‍💻 [coder][lucien]",
+    },
+    {
+      action: "interactive",
+      profile: "coder",
+      model: "provider/model",
+      identity: "🤖 [lucien]",
+    },
+  ])(
+    "defaults plain-named single calls to $identity ($action)",
+    ({ action, profile, model, identity }) => {
+      const chat = new MockContainer();
+      const row = new MockToolExecutionComponent("subagent", "delegation");
+      row.args = {
+        action,
+        agent: "lucien",
+        profile,
+        model,
+        task: "Consolidate the notes",
+      };
+      row.updateResult({ isError: false, output: "child result" });
+      row.callRendererComponent = new MockText(
+        "subagent lucien [user]\n  Consolidate the notes",
+      );
+      chat.addChild(row);
+
+      const lines = chat
+        .render(100)
+        .map(stripAnsi)
+        .filter((line) => line.trim());
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain(`▏  ${identity} Consolidate the notes`);
+      expect(lines[0]).not.toContain("[ ");
+    },
+  );
+  test("uses per-task defaults in an interactive batch without replacing assigned emojis", () => {
     const chat = new MockContainer();
     const row = new MockToolExecutionComponent("subagent", "delegation");
-    row.args = { agent: "lucien", task: "Consolidate the notes" };
-    row.updateResult({ isError: false, output: "child result" });
+    row.args = {
+      action: "interactive",
+      tasks: [
+        { agent: "reviewer", task: "Review it." },
+        { agent: "builder", profile: "coder", task: "Build it." },
+        { agent: "tester", profile: "coder", task: "Test it." },
+      ],
+    };
+    row.updateResult({ isError: false, output: "workers launched" });
     row.callRendererComponent = new MockText(
-      "subagent lucien [user]\n  Consolidate the notes",
+      "subagent parallel (3 tasks) [user]\n" +
+        "  reviewer Review it.\n" +
+        "  builder [coder] Build it.\n" +
+        "  🧪 tester [coder] Test it.",
     );
     chat.addChild(row);
 
-    const lines = chat
-      .render(100)
-      .map(stripAnsi)
-      .filter((line) => line.trim());
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("▏  [lucien] Consolidate the notes");
-    expect(lines[0]).not.toContain("[ ");
+    const lines = renderRawLines(chat).filter((line) => line.trim());
+    expect(lines.slice(1)).toEqual([
+      "     🤖 [reviewer] Review it.",
+      "     🧑‍💻 [coder][builder] Build it.",
+      "     🧪 [coder][tester] Test it.",
+    ]);
+  });
+
+  test.each(["list", "status", "send", "wait", "stop", "resume"])(
+    "defaults generic interactive %s calls to the robot emoji",
+    (action) => {
+      const chat = new MockContainer();
+      const row = new MockToolExecutionComponent("subagent", "control");
+      row.args = { action, handle: "worker-1" };
+      row.updateResult({ isError: false, output: "worker control result" });
+      row.callRendererComponent = new MockText("subagent ... [user]\n  ...");
+      chat.addChild(row);
+
+      const output = renderPlain(chat);
+      expect(output).toBe("  ▏  subagent 🤖 ... [user] · ...");
+    },
+  );
+
+  test("keeps the assigned emoji when a launch falls back to generic rendering", () => {
+    const chat = new MockContainer();
+    const row = new MockToolExecutionComponent("subagent", "future");
+    row.args = { action: "interactive", agent: "tester" };
+    row.updateResult({ isError: false, output: "worker result" });
+    row.callRendererComponent = new MockText("subagent 🧪 tester [user]");
+    chat.addChild(row);
+
+    expect(renderPlain(chat)).toContain("▏  subagent 🧪 tester [user]");
+    expect(renderPlain(chat)).not.toContain("🤖");
   });
 
   test("keeps a live subagent plan in its warning state", () => {
@@ -1622,7 +1722,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain("▏  [reviewer] Inspect the live result.");
+    expect(output).toContain("▏  👾 [reviewer] Inspect the live result.");
     expect(output).toMatch(/Inspect the live result\. …$/);
     expect(output).not.toContain("→");
     expect(output).not.toContain("→ done");
@@ -1638,7 +1738,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain("▏  [reviewer] Inspect the image result.");
+    expect(output).toContain("▏  👾 [reviewer] Inspect the image result.");
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
   });
@@ -1667,7 +1767,7 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      "▏  [reviewer] Inspect the live result. → 1 turn · instacart-openai/gpt-5.6-luna",
+      "▏  👾 [reviewer] Inspect the live result. → 1 turn · instacart-openai/gpt-5.6-luna",
     );
     expect(output).not.toContain("→ done");
   });
@@ -1732,7 +1832,7 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output.match(/▏  \[/g)).toHaveLength(2);
+    expect(output.match(/▏  👾 \[/g)).toHaveLength(2);
     expect(output).not.toContain("▌");
   });
 
@@ -1768,8 +1868,8 @@ describe("tool-call-markers grouping", () => {
 
     const planLines = narrowChat.render(16).map(stripAnsi);
     expect(planLines).toHaveLength(4);
-    expect(planLines[2]).toContain("1. [fast]");
-    expect(planLines[3]).toContain("2. [teste");
+    expect(planLines[2]).toContain("1. 👾 [fa");
+    expect(planLines[3]).toContain("2. 👾 [te");
     expect(planLines.some((line) => line.includes("▏"))).toBe(true);
     expect(planLines.join("\n")).not.toContain("▌");
     expect(planLines.every((line) => line.length <= 16)).toBe(true);
