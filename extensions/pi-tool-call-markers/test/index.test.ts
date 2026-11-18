@@ -1099,9 +1099,30 @@ describe("tool-call-markers grouping", () => {
     const failed = new MockToolExecutionComponent("read", "broken.md");
     failed.updateResult({ isError: true, output: "error detail" });
     chat.addChild(failed);
-    chat.addChild(new MockToolExecutionComponent("read", "pending.md"));
+    const pending = new MockToolExecutionComponent("read", "pending.md");
+    chat.addChild(pending);
 
-    expect(renderPlain(chat).match(/▏/g)).toHaveLength(4);
+    const rawLines = () => chat.render(100).map(stripAnsi);
+    const pendingLines = rawLines();
+    expect(pendingLines).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+      "  ▏● broken.md → error detail",
+      "  ▏● pending.md …",
+    ]);
+    const pendingHeight = pendingLines.length;
+
+    pending.updateResult({ isError: false, output: "result:pending.md" });
+    const settledLines = rawLines();
+    expect(settledLines).toEqual([
+      "",
+      "  ▏● one.md → 1 line",
+      "  ▏● two.md → 1 line",
+      "  ▏● broken.md → error detail",
+      "  ▏● pending.md → 1 line",
+    ]);
+    expect(settledLines).toHaveLength(pendingHeight);
   });
 
   test("caps in-progress rows to their header line", () => {
