@@ -1013,7 +1013,7 @@ function collapsedSeam(
   // labels still carry it; a subagent fallback keeps `subagent` as its own
   // heading, which the scrape dropped.
   const text = isSubagent
-    ? `subagent${plain ? ` ${plain}` : ""}`
+    ? subagentFallbackLabel(row.args, plain)
     : selfRendered
       ? dropCallToken(plain, row.toolName ?? "tool")
       : plain;
@@ -1084,6 +1084,35 @@ function collapsedRowLine(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function defaultSubagentEmoji(args: unknown): string {
+  if (!isRecord(args)) return "👾";
+  if (
+    typeof args.profile === "string" &&
+    args.profile.trim() === "coder" &&
+    args.model === undefined
+  )
+    return "🧑‍💻";
+  return typeof args.action === "string" &&
+    [
+      "interactive",
+      "list",
+      "status",
+      "send",
+      "wait",
+      "stop",
+      "resume",
+    ].includes(args.action)
+    ? "🤖"
+    : "👾";
+}
+
+function subagentFallbackLabel(args: unknown, summary: string): string {
+  const { displayName, bareName } = parseStepContent(summary);
+  const prefix =
+    displayName === bareName ? `${defaultSubagentEmoji(args)} ` : "";
+  return `subagent ${prefix}${summary}`.trimEnd();
 }
 
 type SubagentStep = {
@@ -1300,7 +1329,11 @@ function renderSubagentPlan(
       displayNames.get(step.agent) ?? sanitizeInline(step.agent);
     const { emoji, name } = splitEmojiName(displayName, step.agent);
     const accentPart = (text: string) => fgCollapsed(theme, nameColor, text);
-    const emojiPart = emoji ? `${accentPart(emoji)} ` : "";
+    const fallbackEmoji = defaultSubagentEmoji({
+      action: isRecord(row.args) ? row.args.action : undefined,
+      profile: step.profile,
+    });
+    const emojiPart = `${accentPart(emoji || fallbackEmoji)} `;
     const profilePart = step.profile
       ? accentPart(`[${sanitizeInline(step.profile)}]`)
       : "";

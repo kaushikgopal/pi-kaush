@@ -415,6 +415,38 @@ describe("tool-call-markers with Pi's real renderer", () => {
   });
 
   test.each([
+    { action: "run", profile: undefined, identity: "👾 [lucien]" },
+    { action: "interactive", profile: undefined, identity: "🤖 [lucien]" },
+    { action: "interactive", profile: "coder", identity: "🧑‍💻 [coder][lucien]" },
+  ])(
+    "keeps default emoji $identity width-safe and preserves expansion",
+    ({ action, profile, identity }) => {
+      const row = createMcpRow(
+        "subagent-default-emoji",
+        { action, agent: "lucien", profile, task: "Inspect it." },
+        "subagent",
+      );
+      const chat = new Container();
+      chat.addChild(row);
+      expect(renderPlain(chat)).toBe(`  ▏  ${identity} Inspect it. …`);
+
+      settle(row, "child result");
+      expect(renderPlain(chat)).toBe(`  ▏  ${identity} Inspect it. → done`);
+      for (const width of [8, 12, 16, 20, 40, 100]) {
+        for (const line of chat.render(width)) {
+          expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+        }
+      }
+
+      row.setExpanded(true);
+      const expanded = renderPlain(chat);
+      expect(expanded).toContain("FULL child result");
+      expect(expanded).not.toContain("▏");
+      expect(expanded).not.toContain(identity);
+    },
+  );
+
+  test.each([
     ["default", "bash", false],
     ["self", "glean_search", false],
     ["self", "subagent", false],
@@ -450,7 +482,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
         chat.addChild(sibling);
         const neighbor = "\n  ▏$ neighbor → done";
         const head = isSubagent
-          ? "  ▏  [bee] Inspect image."
+          ? "  ▏  👾 [bee] Inspect image."
           : shell === "default"
             ? "  ▏$ render image"
             : '  ▏* {"query":"preview"}';
