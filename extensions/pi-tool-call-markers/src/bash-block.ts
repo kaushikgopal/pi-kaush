@@ -59,20 +59,25 @@ function renderBashBlockLines(
   theme: ThemeLike,
   status: string | undefined,
   inset = promptBlockInset(width),
-): string[] {
-  const [spacer, ...rest] = lines;
-  const topRule = isRuleLine(rest[0]) ? rest[0] : undefined;
-  const inner = topRule !== undefined ? rest.slice(1) : rest.slice();
-  if (isRuleLine(inner[inner.length - 1])) inner.pop();
-  const railColor = bashBlockRailColor(status, topRule, theme);
-  const block = renderRailedBlockLines(
-    ["", ...inner, ""],
-    width,
-    theme,
-    inset,
-    railColor,
-  );
-  return [fitLine(spacer ?? "", width), ...block];
+): string[] | undefined {
+  try {
+    const [spacer, ...rest] = lines;
+    const topRule = isRuleLine(rest[0]) ? rest[0] : undefined;
+    const inner = topRule !== undefined ? rest.slice(1) : rest.slice();
+    if (isRuleLine(inner[inner.length - 1])) inner.pop();
+    const railColor = bashBlockRailColor(status, topRule, theme);
+    const block = renderRailedBlockLines(
+      ["", ...inner, ""],
+      width,
+      theme,
+      inset,
+      railColor,
+    );
+    return [fitLine(spacer ?? "", width), ...block];
+  } catch {
+    // Decoration is optional; the caller retries Pi's native full-width render.
+    return undefined;
+  }
 }
 
 type BashRow = { status?: unknown };
@@ -154,6 +159,7 @@ function installBashBlockPatch(): BashBlockPatchState | undefined {
         typeof status === "string" ? status : undefined,
         inset,
       );
+      if (!decorated) return state.originalRender.call(this, width);
       state.cache.set(this, { width, src: lines, lines: decorated, palette });
       return decorated;
     };

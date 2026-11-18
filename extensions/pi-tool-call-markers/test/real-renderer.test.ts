@@ -1953,6 +1953,74 @@ describe("user bash blocks", () => {
     });
   });
 
+  test.each(["▎", "─"])(
+    "falls back to full-width native bash output when styling %s fails",
+    (failureText) => {
+      const bash = createBashBlock(
+        "printf 1234567890123456789012345678901234567890",
+      );
+      bash.appendOutput("hello\n");
+      bash.setComplete(0, false);
+      const native = NATIVE_BASH_RENDER.call(bash, 40);
+      expect(native.map((line) => stripControls(line).trimEnd())).toEqual([
+        "",
+        "────────────────────────────────────────",
+        " $ printf",
+        " 12345678901234567890123456789012345678",
+        " 90",
+        "",
+        " hello",
+        "",
+        "────────────────────────────────────────",
+      ]);
+      let rejectStyle = true;
+      const theme = {
+        ...ansiTheme,
+        fg(color: string, text: string) {
+          if (rejectStyle && text === failureText)
+            throw new Error("injected cosmetic failure");
+          return ansiTheme.fg(color, text);
+        },
+      };
+      for (const handler of sessionHandlers) {
+        handler({}, { ui: { theme, setToolsExpanded() {} } });
+      }
+
+      expect(bash.render(40)).toEqual(native);
+      expect(bash.render(40)).toEqual(native);
+
+      rejectStyle = false;
+      const recovered = bash.render(40);
+      expect(recovered.map((line) => stripControls(line).trimEnd())).toEqual([
+        "",
+        "  ▎",
+        "  ▎  $ printf",
+        "  ▎  123456789012345678901234567890123",
+        "  ▎  4567890",
+        "  ▎",
+        "  ▎  hello",
+        "  ▎",
+        "  ▎",
+      ]);
+      expect(bash.render(40)).toEqual(recovered);
+    },
+  );
+
+  test("keeps native bash rendering failures visible", () => {
+    const bash = createBashBlock("printf hello");
+    bash.setComplete(0, false);
+    bash.addChild({
+      render() {
+        throw new TypeError("native bash render failure");
+      },
+      invalidate() {},
+    });
+
+    expect(() => bash.render(40)).toThrowError(
+      new TypeError("native bash render failure"),
+    );
+  });
+
   test("repaints a user bash block after a mid-session theme switch", () => {
     const theme = switchableTheme();
     for (const handler of sessionHandlers) {
