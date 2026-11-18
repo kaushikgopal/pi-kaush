@@ -204,15 +204,25 @@ describe("info filter hook", () => {
     harness.start();
 
     const withTool: unknown[] = [new Text("a", 0, 0), toolRow()];
+    const originalWithTool = [...withTool];
     const restoreVisible = runChatContainerHooks(new Container(), withTool, 80);
+    expect(withTool).toHaveLength(2);
+    expect(withTool[0]).toBe(originalWithTool[0]);
+    expect(withTool[1]).toBe(originalWithTool[1]);
     restoreVisible();
     expect(withTool).toHaveLength(2);
+    expect(withTool[0]).toBe(originalWithTool[0]);
+    expect(withTool[1]).toBe(originalWithTool[1]);
 
     setInfoVisibilityHidden(true);
     const proseOnly: unknown[] = [new Text("a", 0, 0)];
+    const originalProse = [...proseOnly];
     const restoreEmpty = runChatContainerHooks(new Container(), proseOnly, 80);
+    expect(proseOnly).toHaveLength(1);
+    expect(proseOnly[0]).toBe(originalProse[0]);
     restoreEmpty();
     expect(proseOnly).toHaveLength(1);
+    expect(proseOnly[0]).toBe(originalProse[0]);
   });
 });
 
