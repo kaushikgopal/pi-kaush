@@ -123,13 +123,33 @@ function chatWith(host: CustomMessageComponent): Container {
 // test drives the same seam directly, because a bare Container's prototype is
 // not the one this package patches and pi-tui resolves to a second copy under
 // vitest.
-function render(chat: Container, width = 40): string {
+function render(chat: Container, width = 40, strip = stripAnsi): string {
   const restore = runChatContainerHooks(chat, chat.children, width);
   try {
-    return chat.render(width).map(stripAnsi).join("\n");
+    return chat.render(width).map(strip).join("\n");
   } finally {
     restore();
   }
+}
+
+function intercomBoxes(payload: unknown, expanded: boolean) {
+  const harness = sessionHarness();
+  const registered = harness.renderers.get("intercom_message");
+  if (!registered) throw new Error("expected registered intercom renderer");
+  const input = { ...message, details: payload };
+  const component = registered(input, { expanded, outputPad: 1 }, theme);
+  if (!component) throw new Error("expected registered intercom box");
+  const host = new CustomMessageComponent(input, foreignRenderer);
+  host.setExpanded(expanded);
+  const chat = chatWith(host);
+  return {
+    render(width = 100) {
+      return [
+        component.render(width).join("\n"),
+        render(chat, width, (text) => text),
+      ];
+    },
+  };
 }
 
 beforeEach(() => {
@@ -143,6 +163,199 @@ afterEach(() => {
 });
 
 describe("intercom message interception", () => {
+  const clean = {
+    from: { name: "peer1234", id: "peer12345678", cwd: "/repo" },
+    replyCommand: "/reply",
+    message: {
+      replyTo: "12345678-more",
+      content: {
+        text: "helloworld\nnext",
+        attachments: [{ name: "audit.md" }],
+      },
+    },
+  };
+  const attack = (text: string) =>
+    `\x1b[2J\x9b2J\x1b]0;spoof\x07\x1b[31m\x1b]8;;file:///tmp/probe\x1b\\${text}\x1b]8;;\x1b\\\x1b[0m`;
+
+  test.each([
+    ["body override", { ...clean, bodyText: `hello${attack("world")}\nnext` }],
+    [
+      "content body",
+      {
+        ...clean,
+        message: {
+          ...clean.message,
+          content: {
+            ...clean.message.content,
+            text: `hello${attack("world")}\nnext`,
+          },
+        },
+      },
+    ],
+    [
+      "sender name",
+      { ...clean, from: { ...clean.from, name: attack("peer1234") } },
+    ],
+    [
+      "sender id",
+      {
+        ...clean,
+        from: { ...clean.from, name: "", id: attack("peer12345678") },
+      },
+    ],
+    ["cwd", { ...clean, from: { ...clean.from, cwd: attack("/repo") } }],
+    ["reply command", { ...clean, replyCommand: attack("/reply") }],
+    [
+      "reply target",
+      {
+        ...clean,
+        message: { ...clean.message, replyTo: attack("12345678-more") },
+      },
+    ],
+    [
+      "attachment name",
+      {
+        ...clean,
+        message: {
+          ...clean.message,
+          content: {
+            ...clean.message.content,
+            attachments: [{ name: attack("audit.md") }],
+          },
+        },
+      },
+    ],
+  ])(
+    "keeps external %s controls out of both intercom routes",
+    (_field, payload) => {
+      for (const expanded of [false, true]) {
+        const boxes = intercomBoxes(payload, expanded);
+        for (const width of [11, 100]) {
+          for (const raw of boxes.render(width)) {
+            // Allow our fixture's colors and truncateToWidth's reset, not
+            // arbitrary SGR or terminal commands from the message.
+            const output = raw.replace(/\x1b\[(?:0|33|94|39)m/g, "");
+            expect(output).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/);
+            const lines = output.split("\n").filter(Boolean);
+            if (width === 11) {
+              expect(lines).toEqual(["  From: p  "]);
+              continue;
+            }
+            expect(raw).toContain("\x1b[33m╭");
+            expect(raw).toContain("\x1b[94mhelloworld");
+            expect(lines[0]).toContain("From: peer1234 (/repo)");
+            expect(
+              lines
+                .filter((line) => line.includes("│"))
+                .map((line) => line.slice(4, -4).trimEnd()),
+            ).toEqual(
+              expanded
+                ? [
+                    "helloworld",
+                    "next",
+                    "",
+                    "To reply: /reply",
+                    "",
+                    "Attachment: audit.md",
+                    "",
+                    "Reply to 12345678",
+                  ]
+                : [
+                    "helloworld next",
+                    "To reply: /reply · 1 attachment · Reply to 12345678 · Ctrl+O to expand",
+                  ],
+            );
+          }
+        }
+      }
+    },
+  );
+
+  test("keeps body line feeds but flattens other external intercom controls", () => {
+    const payload = {
+      from: { name: "pe\ner", cwd: "/re\tpo" },
+      bodyText: "one\x00\ttwo\nthree\r\b\x7ffour\x80\x9fend",
+      replyCommand: "/re\nply",
+      message: {
+        replyTo: "ab\ncd\refgh",
+        content: { attachments: [{ name: "au\vdit\f.md" }] },
+      },
+    };
+    for (const expanded of [false, true]) {
+      for (const raw of intercomBoxes(payload, expanded).render()) {
+        const output = raw.replace(/\x1b\[(?:33|94|39)m/g, "");
+        expect(output).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/);
+        const lines = output.split("\n");
+        expect(lines.find((line) => line.includes("╭"))).toContain(
+          "From: pe er (/re po)",
+        );
+        expect(
+          lines
+            .filter((line) => line.includes("│"))
+            .map((line) => line.slice(4, -4).trimEnd()),
+        ).toEqual(
+          expanded
+            ? [
+                "one  two",
+                "three   four  end",
+                "",
+                "To reply: /re ply",
+                "",
+                "Attachment: au dit .md",
+                "",
+                "Reply to ab cd ef",
+              ]
+            : [
+                "one two three four end",
+                "To reply: /re ply · 1 attachment · Reply to ab cd ef · Ctrl+O to expand",
+              ],
+        );
+      }
+    }
+  });
+
+  test("sanitizes changed intercom metadata without freezing live details", () => {
+    for (const expanded of [false, true]) {
+      const payload = structuredClone(clean);
+      const boxes = intercomBoxes(payload, expanded);
+      boxes.render();
+      payload.from.name = attack("renamed");
+      payload.from.cwd = attack("/changed");
+      payload.replyCommand = attack("/changed");
+      payload.message.replyTo = attack("changed12345");
+      payload.message.content.attachments = [{ name: attack("changed.md") }];
+      for (const raw of boxes.render()) {
+        const output = raw.replace(/\x1b\[(?:33|94|39)m/g, "");
+        expect(output).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/);
+        const lines = output.split("\n");
+        expect(lines.find((line) => line.includes("╭"))).toContain(
+          "From: renamed (/changed)",
+        );
+        expect(
+          lines
+            .filter((line) => line.includes("│"))
+            .map((line) => line.slice(4, -4).trimEnd()),
+        ).toEqual(
+          expanded
+            ? [
+                "helloworld",
+                "next",
+                "",
+                "To reply: /changed",
+                "",
+                "Attachment: changed.md",
+                "",
+                "Reply to changed1",
+              ]
+            : [
+                "helloworld next",
+                "To reply: /changed · 1 attachment · Reply to changed1 · Ctrl+O to expand",
+              ],
+        );
+      }
+    }
+  });
+
   test("restyles a box Pi built with another extension's renderer", () => {
     sessionHarness();
     const chat = chatWith(new CustomMessageComponent(message, foreignRenderer));

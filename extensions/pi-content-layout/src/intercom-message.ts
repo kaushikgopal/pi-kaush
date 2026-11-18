@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import {
@@ -41,7 +42,10 @@ class IntercomMessageComponent implements Component {
     private readonly expanded: boolean,
     private readonly theme: Theme,
   ) {
-    this.bodyText = details.bodyText ?? details.message?.content?.text ?? "";
+    this.bodyText = sanitizeIntercomText(
+      details.bodyText ?? details.message?.content?.text ?? "",
+      true,
+    );
   }
 
   invalidate(): void {}
@@ -50,8 +54,13 @@ class IntercomMessageComponent implements Component {
     const inset = contentInset(width);
     const boxWidth = Math.max(1, width - inset * 2);
     const margin = " ".repeat(inset);
+    // Metadata stays live on cached boxes; sanitize reads, not a snapshot.
     const from = this.details.from ?? {};
-    const senderName = from.name || from.id?.slice(0, 8) || "unknown";
+    const senderName =
+      sanitizeIntercomText(from.name ?? "") ||
+      sanitizeIntercomText(from.id ?? "").slice(0, 8) ||
+      "unknown";
+    const cwd = sanitizeIntercomText(from.cwd ?? "");
 
     if (boxWidth < MIN_BOX_WIDTH) {
       const text = truncateToWidth(`From: ${senderName}`, boxWidth, "");
@@ -76,7 +85,7 @@ class IntercomMessageComponent implements Component {
     // The sender name alone rides customMessageLabel — Pi's token for the
     // label of an extension message (orange in cobalt2).
     const titlePrefix = "From: ";
-    const title = `${titlePrefix}${senderName}${from.cwd ? ` (${from.cwd})` : ""}`;
+    const title = `${titlePrefix}${senderName}${cwd ? ` (${cwd})` : ""}`;
     const titleText = truncateToWidth(title, Math.max(1, innerWidth - 1), "");
     const nameEnd = Math.min(
       titleText.length,
@@ -108,8 +117,9 @@ class IntercomMessageComponent implements Component {
     const lines = [frameLine(bodyColor(this.collapsedPreview))];
 
     const meta: string[] = [];
-    if (this.details.replyCommand) {
-      meta.push(`To reply: ${this.details.replyCommand}`);
+    const replyCommand = sanitizeIntercomText(this.details.replyCommand ?? "");
+    if (replyCommand) {
+      meta.push(`To reply: ${replyCommand}`);
     }
     const attachments = this.details.message?.content?.attachments;
     if (attachments?.length) {
@@ -117,7 +127,7 @@ class IntercomMessageComponent implements Component {
         `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}`,
       );
     }
-    const replyTo = this.details.message?.replyTo;
+    const replyTo = sanitizeIntercomText(this.details.message?.replyTo ?? "");
     if (replyTo && !this.details.message?.expectsReply) {
       meta.push(`Reply to ${replyTo.slice(0, 8)}`);
     }
@@ -141,10 +151,11 @@ class IntercomMessageComponent implements Component {
       frameLine(bodyColor(line)),
     );
 
-    if (this.details.replyCommand) {
+    const replyCommand = sanitizeIntercomText(this.details.replyCommand ?? "");
+    if (replyCommand) {
       lines.push(frameLine(""));
       const replyLines = wrapTextWithAnsi(
-        bodyColor(`To reply: ${this.details.replyCommand}`),
+        bodyColor(`To reply: ${replyCommand}`),
         innerWidth,
       );
       for (const line of replyLines) {
@@ -156,11 +167,12 @@ class IntercomMessageComponent implements Component {
     if (attachments?.length) {
       lines.push(frameLine(""));
       for (const attachment of attachments) {
-        lines.push(frameLine(bodyColor(`Attachment: ${attachment.name}`)));
+        const name = sanitizeIntercomText(`${attachment.name}`);
+        lines.push(frameLine(bodyColor(`Attachment: ${name}`)));
       }
     }
 
-    const replyTo = this.details.message?.replyTo;
+    const replyTo = sanitizeIntercomText(this.details.message?.replyTo ?? "");
     if (replyTo && !this.details.message?.expectsReply) {
       lines.push(frameLine(""));
       lines.push(frameLine(bodyColor(`Reply to ${replyTo.slice(0, 8)}`)));
@@ -219,6 +231,15 @@ function isIntercomMessageDetails(
     }
   }
   return true;
+}
+
+// Details carry text, not terminal output. Strip external ANSI before adding
+// our own theme styling; only message bodies may retain literal line feeds.
+function sanitizeIntercomText(text: string, multiline = false): string {
+  return stripVTControlCharacters(text).replace(
+    /[\x00-\x1f\x7f-\x9f]/g,
+    (control) => (multiline && control === "\n" ? "\n" : " "),
+  );
 }
 
 export function renderIntercomMessage(
