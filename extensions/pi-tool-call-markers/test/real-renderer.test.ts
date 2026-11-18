@@ -2562,6 +2562,51 @@ describe("asked questions", () => {
     });
   });
 
+  test("matches reversed indexed entries to their questions", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const args = {
+        questions: [
+          { ...DEFAULT_ARGS.questions[0]!, question: "First question?" },
+          { ...DEFAULT_ARGS.questions[0]!, question: "Second question?" },
+        ],
+      };
+      const row = createQuestionRow(
+        "ask-pair-reversed",
+        "ask_user_question",
+        args,
+      );
+      chat.addChild(row);
+      answer(row, {
+        answers: [
+          {
+            questionIndex: 1,
+            question: "Second question?",
+            kind: "custom",
+            answer: "typed by hand",
+          },
+          {
+            questionIndex: 0,
+            question: "First question?",
+            kind: "option",
+            answer: "Alpha",
+          },
+        ],
+        cancelled: false,
+      });
+
+      expect(renderPlain(chat).split("\n")).toEqual([
+        "  ▎",
+        "  ▎ > First question?",
+        "  ▎   User: Alpha",
+        "  ▎",
+        "  ▎ > Second question?",
+        "  ▎   User: typed by hand",
+        "  ▎",
+      ]);
+    });
+  });
+
   test("reads a decline as the canonical rpiv text", () => {
     withTheme(() => {
       const chat = new Container();
