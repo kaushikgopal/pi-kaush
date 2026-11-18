@@ -264,27 +264,6 @@ afterEach(() => {
 });
 
 describe("tool-call-markers grouping", () => {
-  test("renders adjacent successful calls on a continuous tool-name rail", () => {
-    const chat = new MockContainer();
-    chat.addChild(succeeded("read", "one.md"));
-    chat.addChild(succeeded("read", "two.md"));
-    chat.addChild(succeeded("read", "three.md"));
-
-    expect(renderRawLines(chat)).toEqual([
-      "",
-      "  ▏● one.md → 1 line",
-      "  ▏● two.md → 1 line",
-      "  ▏● three.md → 1 line",
-    ]);
-    const output = renderPlain(chat);
-    expect(output).not.toContain("%");
-    expect(output.match(/▏/g)).toHaveLength(3);
-    expect(output).not.toContain("  ▏  read");
-    expect(output).toContain("  ▏● one.md");
-    expect(output).toContain("  ▏● two.md");
-    expect(output).toContain("  ▏● three.md");
-    expect(output).not.toContain("result:");
-  });
   test("marks grouped children by tool and uses a generic fallback", () => {
     const chat = new MockContainer();
     const calls = [
@@ -529,17 +508,6 @@ describe("tool-call-markers grouping", () => {
     row.setExpanded(true);
     expect(renderPlain(chat)).toContain("result:script");
     expect(renderPlain(chat)).not.toContain("▏¢");
-  });
-
-  test("omits tool-name headers and separators between tool types", () => {
-    const chat = new MockContainer();
-    chat.addChild(succeeded("fffind", "AGENTS.local.md"));
-    chat.addChild(succeeded("ffgrep", "tool call"));
-
-    const output = chat.render(100).map(stripAnsi).join("\n");
-    expect(output).toMatch(/  ▏○ AGENTS\.local\.md[^\n]*\n  ▏○ tool call/);
-    expect(output).not.toContain("fffind");
-    expect(output).not.toContain("ffgrep");
   });
 
   test("strips carriage returns and control bytes from collapsed rows", () => {
@@ -912,9 +880,11 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(succeeded("read", "two.md"));
     chat.addChild(succeeded("write", "one.md"));
     chat.addChild(succeeded("write", "two.md"));
+    chat.addChild(succeeded("fffind", "AGENTS.local.md"));
+    chat.addChild(succeeded("ffgrep", "tool call"));
 
     const renderedLines = chat.render(100).map(stripAnsi);
-    expect(renderedLines).toEqual([
+    expect(renderedLines.slice(0, 5)).toEqual([
       "",
       "  ▏● one.md → 1 line",
       "  ▏● two.md → 1 line",
@@ -923,7 +893,11 @@ describe("tool-call-markers grouping", () => {
     ]);
     const output = renderedLines.filter((line) => line.trim()).join("\n");
     expect(output).not.toContain("%");
-    expect(output.match(/▏/g)).toHaveLength(4);
+    expect(output.match(/▏/g)).toHaveLength(6);
+    expect(output).not.toContain("result:");
+    expect(output).toMatch(/  ▏○ AGENTS\.local\.md[^\n]*\n  ▏○ tool call/);
+    expect(output).not.toContain("fffind");
+    expect(output).not.toContain("ffgrep");
     expect(output).toMatch(
       /  ▏● one\.md → 1 line\n  ▏● two\.md → 1 line\n  ▏\+ one\.md → written\n  ▏\+ two\.md → written/,
     );
