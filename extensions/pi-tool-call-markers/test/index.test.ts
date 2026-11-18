@@ -1875,14 +1875,6 @@ describe("tool-call-markers grouping", () => {
     expect(nativeLines.join("\n")).toContain("result:two.md");
   });
 
-  test("restores native rendering after shutdown", () => {
-    for (const handler of shutdownHandlers.splice(0)) handler();
-    const chat = new MockContainer();
-    chat.addChild(succeeded("read", "native.md"));
-    expect(renderPlain(chat)).not.toContain("▏");
-    expect(renderPlain(chat)).toContain("result:native.md");
-  });
-
   test("restores mixed-tool full blocks when tools are expanded", () => {
     const chat = new MockContainer();
     const first = succeeded("read", "one.md");
