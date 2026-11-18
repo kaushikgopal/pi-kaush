@@ -1100,7 +1100,7 @@ type SubagentStep = {
 type SubagentPlan = {
   kind: "single" | "parallel" | "chain";
   scope: string;
-  steps: SubagentStep[];
+  steps: readonly [SubagentStep, ...SubagentStep[]];
 };
 
 function parseSubagentArgs(args: unknown): SubagentPlan | undefined {
@@ -1137,15 +1137,36 @@ function parseSubagentArgs(args: unknown): SubagentPlan | undefined {
   };
 
   if (hasParallel) {
-    const steps = (args.tasks as unknown[]).map(parseStep);
-    if (steps.some((step) => step === undefined)) return undefined;
-    return { kind: "parallel", scope, steps: steps as SubagentStep[] };
+    const parsedSteps = (args.tasks as unknown[]).map(parseStep);
+    const steps: SubagentStep[] = [];
+    for (const step of parsedSteps) {
+      if (step === undefined) return undefined;
+      steps.push(step);
+    }
+    const firstStep = steps[0];
+    if (firstStep === undefined) return undefined;
+    const nonEmptySteps: readonly [SubagentStep, ...SubagentStep[]] = [
+      firstStep,
+      ...steps.slice(1),
+    ];
+    return { kind: "parallel", scope, steps: nonEmptySteps };
   }
   if (hasChain) {
-    const steps = (args.chain as unknown[]).map(parseStep);
-    if (steps.some((step) => step === undefined)) return undefined;
-    return { kind: "chain", scope, steps: steps as SubagentStep[] };
+    const parsedSteps = (args.chain as unknown[]).map(parseStep);
+    const steps: SubagentStep[] = [];
+    for (const step of parsedSteps) {
+      if (step === undefined) return undefined;
+      steps.push(step);
+    }
+    const firstStep = steps[0];
+    if (firstStep === undefined) return undefined;
+    const nonEmptySteps: readonly [SubagentStep, ...SubagentStep[]] = [
+      firstStep,
+      ...steps.slice(1),
+    ];
+    return { kind: "chain", scope, steps: nonEmptySteps };
   }
+
   const single = parseStep(args);
   if (!single) return undefined;
   return { kind: "single", scope, steps: [single] };
@@ -1317,7 +1338,7 @@ function renderSubagentPlan(
       : fitSummary(label, budget, suffix));
 
   if (plan.kind === "single") {
-    const step = plan.steps[0]!;
+    const step = plan.steps[0];
     return [headline(identityOf(step) + previewOf(step))];
   }
 
