@@ -4,7 +4,7 @@ import {
   collapsedThinkingAnsi,
   collapsedToolAnsi,
   fgCollapsed,
-  fgCollapsedRail,
+  withFaintCollapsedRail,
 } from "../src/muted.ts";
 
 // Pi's Theme throws on unknown tokens; themes without getFgAnsi have no
@@ -96,9 +96,11 @@ describe("fgCollapsed", () => {
   });
 });
 
-describe("fgCollapsedRail", () => {
-  test("keeps the rail muted and faint so it recedes on every row", () => {
+describe("withFaintCollapsedRail", () => {
+  test("keeps the rail faint and leaves spacing around it", () => {
     const theme = themeWith({ dim: DIM });
-    expect(fgCollapsedRail(theme, "│")).toBe(`\x1b[2m${DIM}│\x1b[39m\x1b[22m`);
+    expect(
+      withFaintCollapsedRail((rail) => fgCollapsed(theme, "muted", rail)),
+    ).toBe(` \x1b[2m${DIM}▏\x1b[39m\x1b[22m `);
   });
 });

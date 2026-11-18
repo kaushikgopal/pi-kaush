@@ -1,7 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
 import { infoVisibilityHidden } from "./info-visibility-state.ts";
-import { collapsedThinkingAnsi } from "./muted.ts";
+import {
+  COLLAPSED_RAIL_PREFIX,
+  collapsedThinkingAnsi,
+  withFaintCollapsedRail,
+} from "./muted.ts";
 
 const THINKING_GROUPING_PATCHED = Symbol.for("kg.pi.thinkingGrouping.v2");
 const PI_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -10,7 +14,7 @@ const SPINNER_INTERVAL_MS = 80;
 // Visual treatment for the collapsed thinking label. The live "Thinking…"
 // spinner tints with the session's active thinking-level color
 // (thinkingOff…thinkingMax), so progress reads as activity; the settled
-// "│ * Thought" row drops to the muted token collapsed tool calls use, so
+// "Thought" row drops to the muted token collapsed tool calls use, so
 // finished reasoning stops advertising the level. "inherit" keeps Pi's
 // native styling (italic + thinkingText) for both states, and "mdheading"
 // rides the theme's mdHeading token for both. The env var overrides the
@@ -109,10 +113,12 @@ function labelStyle(
 // so reasoning reads like the tool calls around it. The live spinner holds
 // the glyph slot and settles into `*` in place: the rail and the label text
 // keep their columns, and only the glyph, the words, and the tint change.
-const THOUGHT_RAIL = "│";
 const THOUGHT_GLYPH = "*";
-const SETTLED_THOUGHT = `${THOUGHT_RAIL} ${THOUGHT_GLYPH} Thought`;
-const ANCHORED_LABEL_RE = /^│ (\S) (.*)$/su;
+const SETTLED_THOUGHT = `${COLLAPSED_RAIL_PREFIX}${THOUGHT_GLYPH} Thought`;
+const ANCHORED_LABEL_RE = new RegExp(
+  String.raw`^${COLLAPSED_RAIL_PREFIX}(\S) (.*)$`,
+  "su",
+);
 
 function isSettledThoughtLabel(label: string): boolean {
   return label.startsWith(SETTLED_THOUGHT);
@@ -128,8 +134,8 @@ function styledAnchoredLabel(
   const match = ANCHORED_LABEL_RE.exec(raw);
   if (!match) return `${style.prefix}${raw}${style.suffix}`;
   const rail = settledMutedStyle(theme) ?? style;
-  const railText = `\x1b[2m${THOUGHT_RAIL}\x1b[22m`;
-  const body = ` \x1b[1m${match[1]}\x1b[22m ${match[2]}${style.suffix}`;
+  const railText = withFaintCollapsedRail((marker) => marker);
+  const body = `\x1b[1m${match[1]}\x1b[22m ${match[2]}${style.suffix}`;
   return rail.prefix === style.prefix
     ? `${style.prefix}${railText}${body}`
     : `${rail.prefix}${railText}${rail.suffix}${style.prefix}${body}`;
@@ -424,7 +430,7 @@ function formatThoughtDuration(startedAt: number, finishedAt: number): string {
 }
 
 function liveThinkingLabel(startedAt: number, now: number): string {
-  return `${THOUGHT_RAIL} ${thinkingSpinner(startedAt, now)} Thinking…`;
+  return `${COLLAPSED_RAIL_PREFIX}${thinkingSpinner(startedAt, now)} Thinking…`;
 }
 
 function thinkingSpinner(startedAt: number, now: number): string {

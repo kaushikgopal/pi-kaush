@@ -1,6 +1,6 @@
 // Collapsed-row color policy.
 //
-// Collapsed blocks (tool calls, settled "│ * Thought" labels, subagent rows)
+// Collapsed blocks (tool calls, settled thinking labels, subagent rows)
 // default to the theme's `dim` token — it ships with every Pi theme and sits
 // below `muted` — instead of the louder muted/toolTitle/toolOutput split.
 // Pi's generated `system` theme solves `syntaxComment` to the same contrast
@@ -9,6 +9,20 @@
 // `collapsedToolCall` or `collapsedThinkingCall` color token.
 //
 // Failures always fall back to the historical tokens.
+
+const COLLAPSED_RAIL = "▏";
+// The rail starts at the prompt background; the label starts at the prompt text.
+export const COLLAPSED_RAIL_PREFIX = ` ${COLLAPSED_RAIL} `;
+
+// Faint keeps the rail quieter than the label, even on failed rows.
+export function withFaintCollapsedRail(
+  style: (rail: string) => string,
+): string {
+  return COLLAPSED_RAIL_PREFIX.replace(
+    COLLAPSED_RAIL,
+    () => `\x1b[2m${style(COLLAPSED_RAIL)}\x1b[22m`,
+  );
+}
 
 const TOOL_OVERRIDE_TOKEN = "collapsedToolCall";
 const THINKING_OVERRIDE_TOKEN = "collapsedThinkingCall";
@@ -93,13 +107,4 @@ export function fgCollapsed(
     }
   }
   return theme.fg(color, bold && theme.bold ? theme.bold(text) : text);
-}
-
-// Decoration rails recede further than collapsed text. No palette token is
-// guaranteed lighter than the collapsed `dim` color, so apply the terminal's
-// faint attribute: it lightens toward the background on light themes and
-// darkens on dark ones. The rail keeps this muted weight even on failed
-// rows, where only the row's text turns error-colored.
-export function fgCollapsedRail(theme: CollapsedTheme, text: string): string {
-  return `\x1b[2m${fgCollapsed(theme, "muted", text)}\x1b[22m`;
 }

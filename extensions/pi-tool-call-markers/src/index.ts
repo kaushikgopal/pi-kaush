@@ -21,12 +21,16 @@ import {
   installInfoVisibility,
   uninstallInfoVisibility,
 } from "./info-visibility.ts";
-import { fgCollapsed, fgCollapsedRail, paletteSample } from "./muted.ts";
+import {
+  COLLAPSED_RAIL_PREFIX,
+  fgCollapsed,
+  paletteSample,
+  withFaintCollapsedRail,
+} from "./muted.ts";
 import { isQuestionToolCall, renderQuestionBlock } from "./question-block.ts";
 import { sanitizeInline } from "./sanitize.ts";
 
 const OUTER_INSET = 2;
-const TOOL_RAIL_MARKER = "│";
 // Collapsed rows anchor with a glyph instead of repeating the tool name;
 // tools that read as one family share a glyph, and unmapped tools fall back
 // to `*`. A single space separates the glyph from the call content: the
@@ -953,16 +957,14 @@ function codemodeCallLabel(row: ToolExecutionRow): string | undefined {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-// One anchor builder for every collapsed row: the faint rail, then the
-// row's bold glyph when it has one — `│ ● src/a.ts`, `│ $ npm test`. A
-// subagent row anchors on the rail alone and keeps its `│ subagent …`
-// reading instead of a glyph.
 function collapsedAnchor(
   theme: ThemeLike,
   color: string,
   glyph: string | undefined,
 ): string {
-  const rail = `${fgCollapsedRail(theme, TOOL_RAIL_MARKER)} `;
+  const rail = withFaintCollapsedRail((marker) =>
+    fgCollapsed(theme, "muted", marker),
+  );
   return glyph === undefined
     ? rail
     : `${rail}${fgCollapsed(theme, color, glyph, true)} `;
@@ -1280,11 +1282,9 @@ function subagentPlanOutcome(
   return theme.fg("warning", "…");
 }
 
-// Subagents render as an ordinary unboxed tool block: a `│` heading with the
-// plan kind/count/scope, then the numbered chain steps or parallel tasks with
-// agent identities (emoji, profile badge, name badge) in accent. Single calls
-// collapse to one row: `│ <emoji> [<profile>][<name>] <task preview>`. Everything
-// else stays muted (or error on failure), matching the shared tool-row aesthetic.
+// Subagents use the collapsed rail with no separate glyph. A single call
+// starts with its agent identity; a multi-step plan starts with a heading.
+// Agent identities use accent, and failures use error colors.
 function renderSubagentPlan(
   row: ToolExecutionRow,
   width: number,
@@ -1343,6 +1343,7 @@ function renderSubagentPlan(
         fgCollapsed(theme, failed ? "error" : "toolOutput", ` [${plan.scope}]`),
     ),
   ];
+  const stepIndent = " ".repeat(visibleWidth(COLLAPSED_RAIL_PREFIX));
   const shown = plan.steps.slice(0, 3);
   for (let index = 0; index < shown.length; index++) {
     const step = shown[index]!;
@@ -1350,11 +1351,11 @@ function renderSubagentPlan(
       plan.kind === "chain"
         ? `${fgCollapsed(theme, color, `${index + 1}.`)} `
         : "";
-    lines.push(`  ${number}${identityOf(step)}${previewOf(step)}`);
+    lines.push(`${stepIndent}${number}${identityOf(step)}${previewOf(step)}`);
   }
   if (plan.steps.length > shown.length) {
     lines.push(
-      `  ${fgCollapsed(theme, color, `... +${plan.steps.length - shown.length} more`)}`,
+      `${stepIndent}${fgCollapsed(theme, color, `... +${plan.steps.length - shown.length} more`)}`,
     );
   }
   return lines;
@@ -1610,7 +1611,12 @@ function installGroupingPatch(
     if (!proto || typeof proto.render !== "function") return undefined;
 
     const existing = proto[GROUPING_PATCHED];
-    if (existing) {
+    if (existing?.disabled && proto.render === existing.patchedRender) {
+      // A later wrapper may have restored ours after we shut down. Replace
+      // it now so reload uses the new module's renderer, not the old closure.
+      proto.render = existing.originalRender;
+      delete proto[GROUPING_PATCHED];
+    } else if (existing) {
       existing.owners++;
       existing.presentation = presentation;
       existing.disabled = false;
