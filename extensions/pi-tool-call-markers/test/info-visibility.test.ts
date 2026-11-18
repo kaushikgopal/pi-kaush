@@ -96,17 +96,110 @@ beforeEach(() => {
 });
 
 describe("toggle-info command", () => {
-  test("flips visibility, restores on a second toggle, and notifies", async () => {
+  test("repaints the existing transcript on each toggle and notifies", async () => {
+    const { AssistantMessageComponent } = await import(
+      "@earendil-works/pi-coding-agent"
+    );
     const harness = createHarness().install();
+    const mergerStarts = installMerger();
     harness.start();
+    for (const handler of mergerStarts) {
+      handler({}, { mode: "tui", ui: { theme: {} } });
+    }
+
+    const transcript = new Container();
+    transcript.addChild(new Text("Opening prose", 0, 0));
+    transcript.addChild(
+      new AssistantMessageComponent(
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "First answer." },
+            { type: "thinking", thinking: "First private thought." },
+          ],
+          stopReason: "stop",
+        } as never,
+        true,
+      ),
+    );
+    const firstExecution = new BashExecutionComponent("printf first", {
+      requestRender() {},
+    } as never);
+    firstExecution.appendOutput("first command output");
+    firstExecution.setComplete(0, false);
+    transcript.addChild(firstExecution);
+    transcript.addChild(new Text("Middle prose", 0, 0));
+    transcript.addChild(
+      new AssistantMessageComponent(
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Second answer." },
+            { type: "thinking", thinking: "Second private thought." },
+          ],
+          stopReason: "stop",
+        } as never,
+        true,
+      ),
+    );
+    const secondExecution = new BashExecutionComponent("printf second", {
+      requestRender() {},
+    } as never);
+    secondExecution.appendOutput("second command output");
+    secondExecution.setComplete(0, false);
+    transcript.addChild(secondExecution);
+    transcript.addChild(new Text("Closing prose", 0, 0));
+
+    const renderTranscript = () => {
+      const restore = runChatContainerHooks(
+        transcript,
+        transcript.children,
+        80,
+      );
+      try {
+        return transcript
+          .render(80)
+          .map((line) => stripVTControlCharacters(line).trim())
+          .filter(Boolean);
+      } finally {
+        restore();
+      }
+    };
+    const visibleBefore = renderTranscript();
+    expect(visibleBefore).toContain("Opening prose");
+    expect(visibleBefore).toContain("Middle prose");
+    expect(visibleBefore).toContain("Closing prose");
+    expect(visibleBefore).toContain("First answer.");
+    expect(visibleBefore).toContain("Second answer.");
+    expect(
+      visibleBefore.filter((line) => line.includes("Thought")),
+    ).toHaveLength(2);
+    expect(visibleBefore.join(" ")).toContain("first command output");
+    expect(visibleBefore.join(" ")).toContain("second command output");
 
     expect(infoVisibilityHidden()).toBe(false);
     await harness.toggle();
     expect(infoVisibilityHidden()).toBe(true);
     expect(harness.notifications[0]).toContain("hidden");
+    const hidden = renderTranscript();
+    expect(hidden).toContain("Opening prose");
+    expect(hidden).toContain("Middle prose");
+    expect(hidden).toContain("Closing prose");
+    expect(hidden).toContain("First answer.");
+    expect(hidden).toContain("Second answer.");
+    expect(hidden.some((line) => line.includes("Thought"))).toBe(false);
+    expect(hidden.join(" ")).not.toContain("first command output");
+    expect(hidden.join(" ")).not.toContain("second command output");
+
     await harness.toggle();
     expect(infoVisibilityHidden()).toBe(false);
     expect(harness.notifications[1]).toContain("visible");
+    const visibleAfter = renderTranscript();
+    expect(
+      visibleAfter.filter((line) => line.includes("Thought")),
+    ).toHaveLength(2);
+    expect(visibleAfter.join(" ")).toContain("first command output");
+    expect(visibleAfter.join(" ")).toContain("second command output");
   });
 
   test("resets to visible on session start", async () => {
