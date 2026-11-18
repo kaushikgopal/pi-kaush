@@ -948,7 +948,22 @@ describe("native transcript adapters", () => {
     ) as { render: unknown };
     const containerRender = containerPrototype.render;
     const loaderRender = Loader.prototype.render;
+    const steeringRender = TruncatedText.prototype.render;
+    const steering = new TruncatedText(
+      theme.fg("dim", "Steering: restored native color"),
+      1,
+      0,
+    );
+    const nativeSteering = steering.render(40);
     const harness = createHarness(() => new TestEditor());
+    harness.context.ui.theme = {
+      ...theme,
+      getFgAnsi(color: ThemeColor) {
+        return color === ("steeringMessage" as ThemeColor)
+          ? "\x1b[34m"
+          : theme.getFgAnsi(color);
+      },
+    } as Theme;
 
     harness.fire("session_start");
     expect(AssistantMessageComponent.prototype.render).not.toBe(
@@ -957,12 +972,18 @@ describe("native transcript adapters", () => {
     expect(UserMessageComponent.prototype.render).not.toBe(userRender);
     expect(containerPrototype.render).not.toBe(containerRender);
     expect(Loader.prototype.render).not.toBe(loaderRender);
+    expect(TruncatedText.prototype.render).not.toBe(steeringRender);
+    expect(steering.render(40)[0]).toContain(
+      "\x1b[34mSteering: restored native color",
+    );
 
     harness.fire("session_shutdown");
     expect(AssistantMessageComponent.prototype.render).toBe(assistantRender);
     expect(UserMessageComponent.prototype.render).toBe(userRender);
     expect(containerPrototype.render).toBe(containerRender);
     expect(Loader.prototype.render).toBe(loaderRender);
+    expect(TruncatedText.prototype.render).toBe(steeringRender);
+    expect(steering.render(40)).toEqual(nativeSteering);
 
     const descriptor = Object.getOwnPropertyDescriptor(
       AssistantMessageComponent.prototype,
