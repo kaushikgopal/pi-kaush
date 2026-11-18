@@ -51,7 +51,8 @@ const DECLINE_TEXT = "User declined to answer questions";
 const AWAITING_TEXT = "awaiting your answer…";
 const NO_ANSWER_TEXT = "(no answer)";
 const QUESTION_PREFIX = "> ";
-const ANSWER_PREFIX = "User: ";
+// Start the answer label under the question text, not its quote marker.
+const ANSWER_PREFIX = `${" ".repeat(visibleWidth(QUESTION_PREFIX))}User: `;
 
 // Question tools keep the ask-tool vocabulary in their name even when they
 // invent their own result shape. The result-shape check is the primary signal;

@@ -94,10 +94,10 @@ A call that asks the user something is a user-input moment, not an execution row
 ```text
   ▎
   ▎ > Which call-site shape should `notifications:` use?
-  ▎ User: Nested within subagent (Recommended)
+  ▎   User: Nested within subagent (Recommended)
   ▎
   ▎ > Which tier should the flag read at runtime?
-  ▎ User: Client only, Client and server
+  ▎   User: Client only, Client and server
   ▎
 ```
 

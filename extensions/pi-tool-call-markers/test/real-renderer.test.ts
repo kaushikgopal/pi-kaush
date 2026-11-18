@@ -2174,10 +2174,10 @@ describe("asked questions", () => {
       expect(renderPlain(chat).split("\n")).toEqual([
         "  ▎",
         "  ▎ > First question?",
-        "  ▎ User: Alpha",
+        "  ▎   User: Alpha",
         "  ▎",
         "  ▎ > Second question?",
-        "  ▎ User: typed by hand",
+        "  ▎   User: typed by hand",
         "  ▎",
       ]);
     });
@@ -2381,7 +2381,7 @@ describe("asked questions", () => {
       // submitted-prompt renderer = the same shell columns.
       const reference = stripControls(
         renderSubmittedUserLines(
-          [`User: ${long}`],
+          [`  User: ${long}`],
           width,
           questionTheme as never,
           contentInset(width),
@@ -2397,16 +2397,16 @@ describe("asked questions", () => {
         ],
         cancelled: false,
       });
-      const answerLine = stripControls(
-        chat
-          .render(width)
-          .find((line) => stripControls(line).includes("User: xxx"))!,
-      );
+      const lines = chat.render(width).map(stripControls);
+      const answerIndex = lines.findIndex((line) => line.includes("User: xxx"));
+      const answerLine = lines[answerIndex]!;
+      const continuation = lines[answerIndex + 1]!;
 
       const runLength = (line: string) =>
         (line.match(/x+/g) ?? []).join("").length;
       const runStart = (line: string) => line.indexOf("x");
       const runEnd = (line: string) => line.lastIndexOf("x");
+      expect(runStart(continuation)).toBe(runStart(reference));
       expect(runStart(answerLine)).toBe(runStart(reference));
       expect(runLength(answerLine)).toBe(runLength(reference));
       expect(runEnd(answerLine)).toBe(runEnd(reference));
@@ -2440,13 +2440,13 @@ describe("asked questions", () => {
       expect(renderPlain(chat).split("\n")).toEqual([
         "  ▎",
         "  ▎ > One?",
-        `  ▎ User: ${content}`,
+        `  ▎   User: ${content}`,
         "  ▎",
         "  ▎ > Two?",
-        `  ▎ User: ${content}`,
+        `  ▎   User: ${content}`,
         "  ▎",
         "  ▎ > Three?",
-        `  ▎ User: ${content}`,
+        `  ▎   User: ${content}`,
         "  ▎",
       ]);
       // Every spacer is a fully painted body row, not a bare blank line.
