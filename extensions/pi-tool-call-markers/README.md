@@ -15,14 +15,14 @@ Restart Pi or run `/reload`.
 Collapsed tool rows use semantic theme colors with no gear, background fill, box padding, or filled blank rows:
 
 ```text
-   ▏ § writing-prose/SKILL.md           42 lines
-   ▏ ≡ .pi/prompts/review.md            18 lines
-   ▏ ● src/a.ts                         42 lines
-   ▏ $ npm test → done
+  ▏§ writing-prose/SKILL.md           42 lines
+  ▏≡ .pi/prompts/review.md            18 lines
+  ▏● src/a.ts                         42 lines
+  ▏$ npm test → done
 ```
 
 - **Two-column outer inset.** Tool markers and image output align with an inset conversation surface. Very narrow terminals reduce the decoration before useful content.
-- **`▏` tool-call rail.** Collapsed calls use a bold glyph instead of repeating the tool name. The thin rail lines up with the start of the submitted prompt background, and the glyph lines up with the first character of the prompt. A single space separates the glyph from the call text. Grouped rows flow directly across tool types. See [Tool-call glyphs](#tool-call-glyphs) for the full list.
+- **`▏` tool-call rail.** Collapsed calls use a bold glyph instead of repeating the tool name. The thin rail lines up with the left edge of the submitted prompt bar, and the call text lines up with the first character of the prompt. A single space separates the glyph from the call text. Grouped rows flow directly across tool types. See [Tool-call glyphs](#tool-call-glyphs) for the full list.
 - **Semantic, low-contrast status.** The anchor and the call content share the collapsed mute, pending state is warning-colored, and failures remain error-colored. Ordinary tool states have no background.
 - **Width-safe outcome tails.** Long summaries truncate before useful tails such as `→ done`, `→ 42 lines`, `→ +2/-1`, or a `bash` duration.
 - **Stable running groups.** Adjacent calls group as they appear, including settled failures, which stay error-colored inside the group. Pending state and elapsed `bash` time settle into the final outcome without changing the row count.
@@ -57,8 +57,8 @@ Subagent calls use the `▏` rail without a glyph. Recognized question calls use
 Collapsed codemode rows include bash command previews instead of only tool names:
 
 ```text
-   ▏ ¢ bash ×1 npm test
-   ▏ ¢ bash ×2 git status --short, bash npm test
+  ▏¢ bash ×1 npm test
+  ▏¢ bash ×2 git status --short, bash npm test
 ```
 
 The first preview for each tool shows its total call count, including ×1.
@@ -76,16 +76,16 @@ native script, nested call status, and result details.
 A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic, using the same `▏` tool-call rail:
 
 ```text
-   ▏ subagent chain (3 steps) [repo-review]
+  ▏  subagent chain (3 steps) [repo-review]
      1. 🐝 bee [workhorse] Challenge the compatibility conclusion…
      2. 🐝 bee …
 ```
 
-Single calls stay on one `▏ [<emoji>] [<profile>][<agent>] <task preview>` row — no tool label. Chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers), with each step ordered emoji, profile badge, name badge. Agent display names (emoji + name) are scraped from the native plan component — including the single-call heading — with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
+Single calls stay on one `▏  [<emoji>] [<profile>][<agent>] <task preview>` row — no tool label. Chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers), with each step ordered emoji, profile badge, name badge. Agent display names (emoji + name) are scraped from the native plan component — including the single-call heading — with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
 
 While a subagent runs, the plan headline's tail shows live progress from the streamed result details — `→ 1 turn · provider/model` in the warning tone — and a settled call keeps the same `→ N turns · provider/model` summary in muted (turns aggregate across tasks; the model shows only when every task used the same one).
 
-Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `▏ subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
+Malformed, ambiguous, future, or too-narrow shapes fall back to the generic `▏  subagent …` collapsed row rather than dropping information, and `Ctrl+O` still exposes the native subagent renderer.
 
 ## Asked questions
 
@@ -137,11 +137,11 @@ The second package entrypoint, `src/thinking-block-merger.ts`, combines only dir
 When Pi exposes its per-row hidden-thinking and streaming fields, hidden reasoning uses these native-themed labels:
 
 ```text
-   ▏ ⠋ Thinking…  →   ▏ ⠙ Thinking…  →  …
-   ▏ * Thought · 2.5s
+  ▏⠋ Thinking…  →  ▏⠙ Thinking…  →  …
+  ▏* Thought · 2.5s
 ```
 
-The live label samples Pi's native braille spinner sequence from the clock each time the TUI draws it, so it steps with the redraws Pi's working indicator already drives instead of freezing between bursty thinking deltas. It does not add a timer; with the working indicator hidden, the spinner advances on each content update. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `▏ * Thought`. Both labels keep a faint `▏` rail and a bold glyph. The spinner holds the glyph slot and settles into `*` in place: the rail and the label text keep their columns, and the rail keeps the settled tone throughout. There is no interval, timeout, render request, model call, or network work.
+The live label samples Pi's native braille spinner sequence from the clock each time the TUI draws it, so it steps with the redraws Pi's working indicator already drives instead of freezing between bursty thinking deltas. It does not add a timer; with the working indicator hidden, the spinner advances on each content update. The adapter stores the first local streaming timestamp per assistant row in a `WeakMap`. A restored message or an older runtime with no streaming argument uses `▏* Thought`. Both labels keep a faint `▏` rail and a bold glyph. The spinner holds the glyph slot and settles into `*` in place: the rail and the label text keep their columns, and the rail keeps the settled tone throughout. There is no interval, timeout, render request, model call, or network work.
 
 Pi renders thinking labels and traces italic. This package drops those italics: both labels read as plain collapsed rows (the live spinner keeps its thinking-level tint, the settled row the muted tone, and a theme that resolves no color still loses the italics), and a visible trace stays italic only while it streams, then settles into ordinary transcript text. `PI_TOOL_CALL_MARKERS_THOUGHT_COLOR=inherit` is the opt-out that keeps Pi's native italic `thinkingText` styling.
 
@@ -175,7 +175,7 @@ Names are comma-separated and matched exactly. Listed rows never join a group, a
 
 ### Collapsed-row colors
 
-Collapsed rows (tool calls, `▏ * Thought`, subagents) default to the theme's `dim` color — it ships with every Pi theme and sits below `muted`, including in the generated `system` theme — with the row's anchor and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
+Collapsed rows (tool calls, `▏* Thought`, subagents) default to the theme's `dim` color — it ships with every Pi theme and sits below `muted`, including in the generated `system` theme — with the row's anchor and the call content sharing it. Failures stay error-colored and live spinners keep their existing tints.
 
 A theme can override each collapsed kind independently with optional color tokens:
 

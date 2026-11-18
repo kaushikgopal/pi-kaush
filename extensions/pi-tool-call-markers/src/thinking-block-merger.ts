@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
 import { infoVisibilityHidden } from "./info-visibility-state.ts";
 import {
-  COLLAPSED_RAIL_PREFIX,
+  COLLAPSED_RAIL,
   collapsedThinkingAnsi,
   withFaintCollapsedRail,
 } from "./muted.ts";
@@ -114,9 +114,9 @@ function labelStyle(
 // the glyph slot and settles into `*` in place: the rail and the label text
 // keep their columns, and only the glyph, the words, and the tint change.
 const THOUGHT_GLYPH = "*";
-const SETTLED_THOUGHT = `${COLLAPSED_RAIL_PREFIX}${THOUGHT_GLYPH} Thought`;
+const SETTLED_THOUGHT = `${COLLAPSED_RAIL}${THOUGHT_GLYPH} Thought`;
 const ANCHORED_LABEL_RE = new RegExp(
-  String.raw`^${COLLAPSED_RAIL_PREFIX}(\S) (.*)$`,
+  String.raw`^${COLLAPSED_RAIL}(\S) (.*)$`,
   "su",
 );
 
@@ -430,7 +430,7 @@ function formatThoughtDuration(startedAt: number, finishedAt: number): string {
 }
 
 function liveThinkingLabel(startedAt: number, now: number): string {
-  return `${COLLAPSED_RAIL_PREFIX}${thinkingSpinner(startedAt, now)} Thinking…`;
+  return `${COLLAPSED_RAIL}${thinkingSpinner(startedAt, now)} Thinking…`;
 }
 
 function thinkingSpinner(startedAt: number, now: number): string {

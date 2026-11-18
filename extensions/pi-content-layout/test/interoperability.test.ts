@@ -269,12 +269,12 @@ describe.each(["inline-first", "layout-first"] as const)(
       const thinkingLine = assistant
         .render(50)
         .find((line) => stripControls(line).includes("Thinking"));
-      expect(stripControls(thinkingLine ?? "")).toMatch(/^   ▏ \S Thinking…/);
+      expect(stripControls(thinkingLine ?? "")).toMatch(/^  ▏\S Thinking…/);
       assistant.updateContent(thinkingMessage as never, false);
       const thoughtLine = assistant
         .render(50)
         .find((line) => stripControls(line).includes("Thought"));
-      expect(stripControls(thoughtLine ?? "")).toMatch(/^   ▏ \* Thought/);
+      expect(stripControls(thoughtLine ?? "")).toMatch(/^  ▏\* Thought/);
 
       const chat = new Container();
       chat.addChild(new UserMessageComponent("submitted prompt"));
@@ -286,7 +286,7 @@ describe.each(["inline-first", "layout-first"] as const)(
       const tool = transcript.find((line) => line.includes("src/file.ts"));
       expect(stripControls(prompt?.split(SURFACE_BG)[0] ?? "")).toBe("  ▎");
       expect(stripControls(prompt ?? "")).toMatch(/^  ▎  submitted prompt/);
-      expect(stripControls(tool ?? "")).toMatch(/^   ▏ ● /);
+      expect(stripControls(tool ?? "")).toMatch(/^  ▏● src\/file\.ts/);
 
       const footer = harness.footerFactory?.(
         { requestRender() {} } as unknown as TUI,
@@ -337,6 +337,6 @@ test.each([true, false])(
     expect(lines.find((line) => line.includes("Cache miss"))?.trimEnd()).toBe(
       "  ! Cache miss: 32k tokens re-billed ($0.16)",
     );
-    expect(lines.find((line) => line.includes("▏"))).toMatch(/^   ▏ ● /);
+    expect(lines.find((line) => line.includes("▏"))).toMatch(/^  ▏● /);
   },
 );

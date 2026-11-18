@@ -22,7 +22,7 @@ import {
   uninstallInfoVisibility,
 } from "./info-visibility.ts";
 import {
-  COLLAPSED_RAIL_PREFIX,
+  COLLAPSED_RAIL,
   fgCollapsed,
   paletteSample,
   withFaintCollapsedRail,
@@ -31,6 +31,8 @@ import { isQuestionToolCall, renderQuestionBlock } from "./question-block.ts";
 import { sanitizeInline } from "./sanitize.ts";
 
 const OUTER_INSET = 2;
+// Glyphless rows leave room for the glyph and its trailing space.
+const SUBAGENT_LABEL_GAP = "  ";
 // Collapsed rows anchor with a glyph instead of repeating the tool name;
 // tools that read as one family share a glyph, and unmapped tools fall back
 // to `*`. A single space separates the glyph from the call content: the
@@ -966,7 +968,7 @@ function collapsedAnchor(
     fgCollapsed(theme, "muted", marker),
   );
   return glyph === undefined
-    ? rail
+    ? `${rail}${SUBAGENT_LABEL_GAP}`
     : `${rail}${fgCollapsed(theme, color, glyph, true)} `;
 }
 
@@ -1343,7 +1345,9 @@ function renderSubagentPlan(
         fgCollapsed(theme, failed ? "error" : "toolOutput", ` [${plan.scope}]`),
     ),
   ];
-  const stepIndent = " ".repeat(visibleWidth(COLLAPSED_RAIL_PREFIX));
+  const stepIndent = " ".repeat(
+    visibleWidth(COLLAPSED_RAIL + SUBAGENT_LABEL_GAP),
+  );
   const shown = plan.steps.slice(0, 3);
   for (let index = 0; index < shown.length; index++) {
     const step = shown[index]!;

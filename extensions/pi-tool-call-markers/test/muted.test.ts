@@ -97,10 +97,10 @@ describe("fgCollapsed", () => {
 });
 
 describe("withFaintCollapsedRail", () => {
-  test("keeps the rail faint and leaves spacing around it", () => {
+  test("keeps the rail faint without adding spacing", () => {
     const theme = themeWith({ dim: DIM });
     expect(
       withFaintCollapsedRail((rail) => fgCollapsed(theme, "muted", rail)),
-    ).toBe(` \x1b[2m${DIM}▏\x1b[39m\x1b[22m `);
+    ).toBe(`\x1b[2m${DIM}▏\x1b[39m\x1b[22m`);
   });
 });

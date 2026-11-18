@@ -377,7 +377,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       true,
     );
     expect(row.render(100).join("\n").replace(ANSI_RE, "")).toContain(
-      "▏ ¢ bash ×1 " + command,
+      "▏¢ bash ×1 " + command,
     );
     row.updateResult({
       isError: false,
@@ -401,7 +401,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const expanded = row.render(100).join("\n").replace(ANSI_RE, "");
     expect(expanded).toContain("FULL SCRIPT");
     expect(expanded).toContain("FULL RESULT");
-    expect(expanded).not.toContain("▏ ¢");
+    expect(expanded).not.toContain("▏¢");
   });
 
   test("separates codemode image result text from the collapsed call header", () => {
@@ -434,7 +434,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     for (const width of [24, 80]) {
       const rendered = row.render(width);
       const lines = rendered.map((line) => line.replace(ANSI_RE, "").trimEnd());
-      expect(lines[1]).toContain("▏ ¢ bash ×1");
+      expect(lines[1]).toContain("▏¢ bash ×1");
       expect(lines[2]).toBe("");
       expect(lines[3]).toBe("  Script completed");
       for (const line of rendered)
@@ -467,7 +467,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     // The label Text node is swapped for a self-styled one: italic-off plus
     // the muted tool-row color, with no italic-on anywhere on the line.
     expect(line).toContain(
-      "\x1b[23m\x1b[38;2;110;118;129m \x1b[2m▏\x1b[22m \x1b[1m*\x1b[22m Thought",
+      "\x1b[23m\x1b[38;2;110;118;129m\x1b[2m▏\x1b[22m\x1b[1m*\x1b[22m Thought",
     );
     expect(line).not.toContain("\x1b[3m");
   });
@@ -488,7 +488,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       update.call(assistant, message, true);
       const frame = () =>
         renderPlain(assistant as unknown as Container).match(
-          /▏ (\S) Thinking…/,
+          /▏(\S) Thinking…/,
         )?.[1];
       expect(frame()).toBe("⠋");
 
@@ -502,7 +502,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       update.call(assistant, { ...message, stopReason: "stop" }, false);
       vi.setSystemTime(13_000);
       expect(renderPlain(assistant as unknown as Container)).toMatch(
-        /▏ \* Thought · 2\.5s/,
+        /▏\* Thought · 2\.5s/,
       );
     } finally {
       vi.useRealTimers();
@@ -533,10 +533,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
     // Prose quoting the settled label on a row that also thought.
     const withThinking = render([
       { type: "thinking", thinking: "ponder" },
-      { type: "text", text: "It now reads `▏ * Thought` instead." },
+      { type: "text", text: "It now reads `▏* Thought` instead." },
     ]);
     expect(withThinking).toContain("It now reads");
-    expect(withThinking).toMatch(/^ *▏ \* Thought *$/m);
+    expect(withThinking).toMatch(/^ *▏\* Thought *$/m);
 
     // Prose quoting Pi's native label on a row with no thinking at all.
     const proseOnly = render([
@@ -563,7 +563,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
         content: [thinking, { type: "text", text: "Here is the answer." }],
       };
       update.call(assistant, answering, true);
-      const settled = /▏ \* Thought · 2\.0s/;
+      const settled = /▏\* Thought · 2\.0s/;
       expect(renderPlain(assistant as unknown as Container)).toMatch(settled);
 
       // Later redraws and deltas leave the settled label alone, so a label
@@ -592,7 +592,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       const labels = () =>
         renderPlain(assistant as unknown as Container)
           .split("\n")
-          .filter((line) => /▏ \S Thought|Thinking/.test(line))
+          .filter((line) => /▏\S Thought|Thinking/.test(line))
           .map((line) => line.slice(line.indexOf("▏")).trim());
 
       // Interleaved thinking: Pi gives every run the same row label.
@@ -603,9 +603,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
         true,
       );
       const first = labels();
-      expect(first).toEqual(["▏ * Thought", "▏ ⠋ Thinking…"]);
+      expect(first).toEqual(["▏* Thought", "▏⠋ Thinking…"]);
       vi.setSystemTime(10_080);
-      expect(labels()).toEqual(["▏ * Thought", "▏ ⠙ Thinking…"]);
+      expect(labels()).toEqual(["▏* Thought", "▏⠙ Thinking…"]);
 
       // A tool call renders below the message, so its label is not last:
       // neither redraws nor later deltas may change it before it settles.
@@ -620,7 +620,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       vi.setSystemTime(20_000);
       update.call(tooling, toolingMessage, true);
       const before = renderPlain(tooling as unknown as Container);
-      expect(before).toContain("▏ ⠋ Thinking…");
+      expect(before).toContain("▏⠋ Thinking…");
       vi.setSystemTime(20_080);
       expect(renderPlain(tooling as unknown as Container)).toBe(before);
       vi.setSystemTime(20_160);
@@ -641,7 +641,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       ) => void;
       const message = {
         role: "assistant",
-        content: [{ type: "thinking", thinking: "▏ ⠋ Thinking…" }],
+        content: [{ type: "thinking", thinking: "▏⠋ Thinking…" }],
       };
       vi.setSystemTime(10_000);
       update.call(assistant, message, true);
@@ -655,7 +655,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
       vi.setSystemTime(10_080);
       const output = renderPlain(assistant as unknown as Container);
-      expect(output).toContain("▏ ⠋ Thinking…");
+      expect(output).toContain("▏⠋ Thinking…");
       expect(output).not.toContain("⠙");
     } finally {
       vi.useRealTimers();
@@ -779,7 +779,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "all tests passed");
 
     const output = renderPlain(chat);
-    expect(output).toContain("▏ $ npm test → done");
+    expect(output).toContain("▏$ npm test → done");
     expect(output).not.toContain("all tests passed");
   });
 
@@ -825,7 +825,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const collapsed = renderPlain(chat);
     expect(collapsed).toContain(
-      "▏ $ printf one · printf two · printf three · … → done",
+      "▏$ printf one · printf two · printf three · … → done",
     );
     expect(collapsed.split("\n")).toHaveLength(1);
     expect(collapsed).not.toContain("printf four");
@@ -857,7 +857,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const settled = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(settled).toContain(
-      "▏ $ sleep 1 · printf finished (timeout 30s) → done",
+      "▏$ sleep 1 · printf finished (timeout 30s) → done",
     );
     expect(settled.split("\n")).toHaveLength(1);
   });
@@ -941,7 +941,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     chat.addChild(first);
     settle(first, "tests passed");
     const singletonHeight = chat.render(100).length;
-    expect(renderPlain(chat)).toContain("▏ $ npm test → done");
+    expect(renderPlain(chat)).toContain("▏$ npm test → done");
 
     chat.addChild(new AssistantMessageComponent());
     const second = createBashRow("npm run lint");
@@ -950,15 +950,15 @@ describe("tool-call-markers with Pi's real renderer", () => {
     expect(liveHeight).toBeGreaterThanOrEqual(singletonHeight);
     expect(renderPlain(chat)).not.toContain("%");
     expect(renderPlain(chat).match(/▏/g)).toHaveLength(2);
-    expect(renderPlain(chat)).toContain("▏ $ npm run lint");
+    expect(renderPlain(chat)).toContain("▏$ npm run lint");
 
     settle(second, "lint passed");
     const output = renderPlain(chat);
     expect(chat.render(100)).toHaveLength(liveHeight);
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(2);
-    expect(output).toContain("▏ $ npm test → done");
-    expect(output).toContain("▏ $ npm run lint → done");
+    expect(output).toContain("▏$ npm test → done");
+    expect(output).toContain("▏$ npm run lint → done");
   });
 
   test("groups real settled rows with one-line outcome bullets", () => {
@@ -973,8 +973,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat, 36);
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(2);
-    expect(output).toContain("▏ $ npm test → done");
-    expect(output).toContain("▏ $ npm run lint → done");
+    expect(output).toContain("▏$ npm test → done");
+    expect(output).toContain("▏$ npm run lint → done");
     expect(output).not.toContain("tests passed");
     expect(output).not.toContain("lint passed");
   });
@@ -1030,7 +1030,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       const output = renderPlain(chat);
       expect(output).not.toContain("%");
       expect(output.match(/▏/g)).toHaveLength(2);
-      expect(output).toContain("▏ $ npm test → done");
+      expect(output).toContain("▏$ npm test → done");
       expect(calls).toEqual([{ container: chat, width: 100 }]);
       expect(restores).toBe(1);
     } finally {
@@ -1053,8 +1053,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     try {
       // Without the rollback the row would be gone from the child list for
       // this render and every later one.
-      expect(renderPlain(chat)).toContain("▏ $ npm test → done");
-      expect(renderPlain(chat)).toContain("▏ $ npm test → done");
+      expect(renderPlain(chat)).toContain("▏$ npm test → done");
+      expect(renderPlain(chat)).toContain("▏$ npm test → done");
     } finally {
       chatContainerHooks().delete(destructiveHook);
     }
@@ -1077,7 +1077,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       const output = renderPlain(chat);
       expect(output).not.toContain("%");
       expect(output.match(/▏/g)).toHaveLength(2);
-      expect(output).toContain("▏ $ npm test → done");
+      expect(output).toContain("▏$ npm test → done");
     } finally {
       chatContainerHooks().delete(badHook);
     }
@@ -1186,7 +1186,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(visible, "tests passed");
 
     const output = renderPlain(chat);
-    expect(output).toContain("▏ $ npm test → done");
+    expect(output).toContain("▏$ npm test → done");
     // The row that opted out of the transcript stays out of the group too.
     expect(output).not.toContain("quiet");
     expect(output.match(/▏/g)).toHaveLength(1);
@@ -1199,7 +1199,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "# Search Results (1 found)\n\n## 1. vibecheck");
 
     const output = renderPlain(chat);
-    expect(output).toContain('▏ * {"query":"vibecheck"} → done');
+    expect(output).toContain('▏* {"query":"vibecheck"} → done');
     expect(output.split("\n")).toHaveLength(1);
     expect(output).not.toContain("Search Results");
   });
@@ -1244,9 +1244,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output).not.toContain("▏ edit");
-    expect(output).toContain("▏ ± a.ts → +1/-1");
-    expect(output).toContain("▏ ± b.ts → +1/-1");
+    expect(output).not.toContain("▏  edit");
+    expect(output).toContain("▏± a.ts → +1/-1");
+    expect(output).toContain("▏± b.ts → +1/-1");
     expect(output).not.toContain("  +x");
     expect(output).not.toContain("  -y");
     expect(output).not.toContain("edited");
@@ -1277,7 +1277,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
       const output = renderPlain(chat);
       expect(output).toContain("FULL edited a.ts");
-      expect(output).not.toContain("▏ ±");
+      expect(output).not.toContain("▏±");
 
       // The list stays authoritative: a global collapse re-expands the row.
       row.setExpanded(false);
@@ -1315,29 +1315,29 @@ describe("tool-call-markers with Pi's real renderer", () => {
     }
     let output = renderPlain(chat);
     expect(output).toContain(
-      "▏ § /home/user/.agents/skills/writing-prose/SKILL.md",
+      "▏§ /home/user/.agents/skills/writing-prose/SKILL.md",
     );
-    expect(output).toContain("▏ ≡ custom-templates/review.md");
-    expect(output).toContain("▏ ● custom-templates/extension.ts");
+    expect(output).toContain("▏≡ custom-templates/review.md");
+    expect(output).toContain("▏● custom-templates/extension.ts");
     expect(output).toContain(
-      "▏ ● /home/user/.agents/skills/writing-prose/references/style.md",
+      "▏● /home/user/.agents/skills/writing-prose/references/style.md",
     );
-    expect(output).toContain("▏ $ npm test");
+    expect(output).toContain("▏$ npm test");
 
     for (const row of [skill, prompt, ordinary, reference, bash])
       settle(row, "output");
     output = renderPlain(chat);
     expect(output).toContain(
-      "▏ § /home/user/.agents/skills/writing-prose/SKILL.md",
+      "▏§ /home/user/.agents/skills/writing-prose/SKILL.md",
     );
-    expect(output).toContain("▏ ≡ custom-templates/review.md");
+    expect(output).toContain("▏≡ custom-templates/review.md");
     for (const width of [8, 20, 80]) {
       for (const line of chat.render(width))
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
     }
     skill.setExpanded(true);
     expect(renderPlain(chat)).toContain("FULL output");
-    expect(renderPlain(chat)).not.toContain("▏ §");
+    expect(renderPlain(chat)).not.toContain("▏§");
   });
 
   test.each([
@@ -1353,7 +1353,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const row = createReadRow(path);
     settle(row, "output");
     const output = row.render(120).join("\n").replace(ANSI_RE, "");
-    expect(output).toContain(`▏ ${glyph} ${path}`);
+    expect(output).toContain(`▏${glyph} ${path}`);
   });
 
   test("preserves a read path wrapped in an OSC 8 hyperlink", () => {
@@ -1363,8 +1363,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "alpha\nbeta\ngamma\n");
 
     const output = renderPlain(chat);
-    expect(output).toContain("▏ ● tools/kb_mcp/README.md:1-400 → 3 lines");
-    expect(output).not.toContain("▏ ● :1-400");
+    expect(output).toContain("▏● tools/kb_mcp/README.md:1-400 → 3 lines");
+    expect(output).not.toContain("▏● :1-400");
     expect(output).not.toMatch(/\x1b\]/);
   });
 
@@ -1375,8 +1375,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     settle(row, "one\ntwo\n");
 
     const output = renderPlain(chat);
-    expect(output).toContain("▏ ● package.json:1-400 → 2 lines");
-    expect(output).not.toContain("▏ ● :1-400");
+    expect(output).toContain("▏● package.json:1-400 → 2 lines");
+    expect(output).not.toContain("▏● :1-400");
   });
 
   test("collapses a failed self-rendered MCP row to an error line", () => {
@@ -1577,9 +1577,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output).not.toContain("(details omitted)");
-    expect(output).not.toContain("▏ glean_search");
-    expect(output).toContain('▏ * {"query":"alpha"}');
-    expect(output).toContain('▏ * {"query":"beta"}');
+    expect(output).not.toContain("▏  glean_search");
+    expect(output).toContain('▏* {"query":"alpha"}');
+    expect(output).toContain('▏* {"query":"beta"}');
     expect(output).toContain("→ done");
     expect(output).not.toContain("alpha results");
   });
@@ -1594,16 +1594,16 @@ describe("tool-call-markers with Pi's real renderer", () => {
     second.markExecutionStarted();
 
     const output = renderPlain(chat);
-    expect(output).toContain('▏ * {"query":"alpha"}');
-    expect(output).toContain('▏ * {"query":"beta"}');
+    expect(output).toContain('▏* {"query":"alpha"}');
+    expect(output).toContain('▏* {"query":"beta"}');
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
 
     settle(first, "alpha results");
     settle(second, "beta results");
     const settled = renderPlain(chat);
-    expect(settled).toContain('▏ * {"query":"alpha"}');
-    expect(settled).toContain('▏ * {"query":"beta"}');
+    expect(settled).toContain('▏* {"query":"alpha"}');
+    expect(settled).toContain('▏* {"query":"beta"}');
     expect(settled).toContain("→ done");
   });
 
@@ -1627,9 +1627,9 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
     const output = renderPlain(chat);
     expect(output.match(/▏/g)).toHaveLength(2);
-    expect(output).toContain('▏ * {"query":"x"} → done');
+    expect(output).toContain('▏* {"query":"x"} → done');
     expect(output).toContain(
-      '▏ * {"query":"y"} → Error: not connected to server "glean"',
+      '▏* {"query":"y"} → Error: not connected to server "glean"',
     );
   });
 
@@ -1647,8 +1647,8 @@ describe("tool-call-markers with Pi's real renderer", () => {
     const output = renderPlain(chat);
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(2);
-    expect(output).toContain('▏ * {"query":"alpha"}');
-    expect(output).toContain('▏ * {"query":"beta"}');
+    expect(output).toContain('▏* {"query":"alpha"}');
+    expect(output).toContain('▏* {"query":"beta"}');
   });
 
   test("keeps the glyph anchor when the error line is long", () => {
@@ -1668,7 +1668,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       // The row keeps its glyph anchor and the error tail keeps its arrow
       // even at tiny widths; only label and tail text beyond the budget gets
       // cut.
-      expect(output).toMatch(/^\s*▏ \*/);
+      expect(output).toMatch(/^\s*▏\*/);
       expect(output).toContain("→");
       expect(output).not.toContain("glean_employee_search");
       expect(output.length).toBeLessThanOrEqual(width);
@@ -2108,7 +2108,7 @@ describe("asked questions", () => {
       expect(plain).toContain(`> ${ASKED}`);
       expect(plain).toContain("User: Nested within subagent");
       // The tool glyph and the raw argument JSON are gone.
-      expect(plain).not.toContain("▏ *");
+      expect(plain).not.toContain("▏*");
       expect(plain).not.toContain('{"questions"');
       expect(
         lines
@@ -2247,7 +2247,7 @@ describe("asked questions", () => {
 
       const plain = renderPlain(chat);
       expect(plain).not.toContain(PROMPT_RAIL);
-      expect(plain).toContain("▏ *");
+      expect(plain).toContain("▏*");
     });
   });
 
@@ -2274,7 +2274,7 @@ describe("asked questions", () => {
 
         const plain = renderPlain(chat);
         expect(plain, "details case " + index).not.toContain(PROMPT_RAIL);
-        expect(plain, "details case " + index).toContain("▏ *");
+        expect(plain, "details case " + index).toContain("▏*");
       });
     });
   });
@@ -2569,7 +2569,7 @@ describe("lifecycle hardening", () => {
       settle(row, "tests passed");
       const collapsed = renderPlain(chat);
       expect(collapsed).toContain("npm test");
-      expect(collapsed).not.toContain("▏ $ npm test");
+      expect(collapsed).not.toContain("▏$ npm test");
 
       const bash = new BashExecutionComponent("ls", {
         requestRender() {},
@@ -2675,8 +2675,8 @@ describe("composition with pi-content-layout", () => {
   function expectGroupedAndInset(output: string): void {
     expect(output).not.toContain("%");
     expect(output.match(/▏/g)).toHaveLength(2);
-    expect(output).toContain("▏ $ npm test → done");
-    expect(output).toContain("▏ $ npm run lint → done");
+    expect(output).toContain("▏$ npm test → done");
+    expect(output).toContain("▏$ npm run lint → done");
     expect(output).toMatch(/^ {2}Reloaded keybindings/m);
   }
 
@@ -2715,7 +2715,7 @@ describe("composition with pi-content-layout", () => {
     install();
     expect(Container.prototype.render).not.toBe(previousRender);
     expect(renderPlain(buildTranscript())).toMatch(
-      /^   ▏ \$ npm test → done\n   ▏ \$ npm run lint → done$/m,
+      /^  ▏\$ npm test → done\n  ▏\$ npm run lint → done$/m,
     );
   });
 
@@ -2726,8 +2726,8 @@ describe("composition with pi-content-layout", () => {
       // content-layout and cannot be uninstalled, so it must go inert.
       shutdownNext();
       const output = renderPlain(buildTranscript());
-      expect(output).not.toContain("▏ bash");
-      expect(output).not.toContain("▏ $ npm test");
+      expect(output).not.toContain("▏  bash");
+      expect(output).not.toContain("▏$ npm test");
 
       // Content-layout's shutdown then restores the wrapper it captured —
       // the now-inert grouping wrapper — so system text loses its inset too.

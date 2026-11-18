@@ -10,18 +10,14 @@
 //
 // Failures always fall back to the historical tokens.
 
-const COLLAPSED_RAIL = "▏";
-// The rail starts at the prompt background; the label starts at the prompt text.
-export const COLLAPSED_RAIL_PREFIX = ` ${COLLAPSED_RAIL} `;
+// The thin rail shares the submitted prompt bar's left edge.
+export const COLLAPSED_RAIL = "▏";
 
 // Faint keeps the rail quieter than the label, even on failed rows.
 export function withFaintCollapsedRail(
   style: (rail: string) => string,
 ): string {
-  return COLLAPSED_RAIL_PREFIX.replace(
-    COLLAPSED_RAIL,
-    () => `\x1b[2m${style(COLLAPSED_RAIL)}\x1b[22m`,
-  );
+  return `\x1b[2m${style(COLLAPSED_RAIL)}\x1b[22m`;
 }
 
 const TOOL_OVERRIDE_TOKEN = "collapsedToolCall";
