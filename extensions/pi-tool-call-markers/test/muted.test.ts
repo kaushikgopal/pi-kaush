@@ -85,14 +85,13 @@ describe("fgCollapsed", () => {
 
   test("without dim or overrides, the historical token split applies", () => {
     const theme = themeWith();
-    fgCollapsed(theme, "muted", "x");
-    fgCollapsed(theme, "toolTitle", "x", true);
-    fgCollapsed(theme, "toolOutput", "x");
-    expect(theme.calls.map(([token]) => token)).toEqual([
-      "muted",
-      "toolTitle",
-      "toolOutput",
-    ]);
+    expect(fgCollapsed(theme, "muted", "x")).toBe("\x1b[38;2;5mx\x1b[39m");
+    expect(fgCollapsed(theme, "toolTitle", "x", true)).toBe(
+      "\x1b[38;2;9m\x1b[1mx\x1b[22m\x1b[39m",
+    );
+    expect(fgCollapsed(theme, "toolOutput", "x")).toBe(
+      "\x1b[38;2;10mx\x1b[39m",
+    );
   });
 });
 
