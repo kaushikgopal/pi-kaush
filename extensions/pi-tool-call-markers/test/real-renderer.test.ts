@@ -2094,6 +2094,7 @@ describe("asked questions", () => {
     userMessageText: 37,
     muted: 90,
     warning: 33,
+    error: 31,
   };
   const questionTheme = {
     bold: (text: string) => text,
@@ -2372,6 +2373,32 @@ describe("asked questions", () => {
       const plain = renderPlain(chat);
       expect(plain).not.toContain(PROMPT_RAIL);
       expect(plain).toContain("▏*");
+    });
+  });
+
+  test("keeps native question failures visible in the error tone", () => {
+    withTheme(() => {
+      const chat = new Container();
+      const row = createQuestionRow("ask-native-error", "ask_user_question", {
+        questions: [{ question: "Ship it?" }],
+      });
+      chat.addChild(row);
+      row.updateResult(
+        {
+          isError: true,
+          content: [{ type: "text", text: "Question service unavailable" }],
+        },
+        false,
+      );
+
+      const lines = chat.render(100);
+      const plain = stripControls(lines.join("\n"));
+      expect(plain).toContain("→ Question service unavailable");
+      expect(plain).not.toContain("User: (no answer)");
+      expect(plain).not.toContain(PROMPT_RAIL);
+      expect(lines.join("\n")).toContain(
+        "\x1b[31mQuestion service unavailable\x1b[0m",
+      );
     });
   });
 

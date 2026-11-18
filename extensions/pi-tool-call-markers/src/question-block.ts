@@ -330,6 +330,7 @@ export function renderQuestionBlock(
 ): string[] | undefined {
   const details = row.result?.details;
   if (!isQuestionToolCall(row)) return undefined;
+  if (row.result?.isError) return undefined;
   if (isRecord(details) && typeof details.error === "string") return undefined;
 
   const lines = questionLines(row, details);
