@@ -1067,6 +1067,49 @@ describe("native transcript adapters", () => {
     }
   });
 
+  test("restores a removed transcript row when a chat hook undo throws", () => {
+    const harness = createHarness();
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    const HostContainer = Object.getPrototypeOf(
+      AssistantMessageComponent.prototype,
+    ).constructor as typeof Container;
+    const chat = new HostContainer();
+    const removed = new Text("original row", 0, 0);
+    chat.addChild(removed);
+    chat.addChild(new Text("remaining row", 0, 0));
+    const children = chat.children;
+    const peer = new Text("peer row", 0, 0);
+    const appendPeer = (container: object, rows: unknown[]) => {
+      if (container !== chat) return;
+      rows.push(peer);
+      return () => {
+        rows.splice(rows.indexOf(peer), 1);
+      };
+    };
+    const removeRow = (container: object, rows: unknown[]) => {
+      if (container !== chat) return;
+      rows.splice(rows.indexOf(removed), 1);
+      return () => {
+        throw new Error("chat hook undo failed");
+      };
+    };
+    const hooks = chatContainerHooks();
+    hooks.add(appendPeer);
+    hooks.add(removeRow);
+    const renderRows = () => chat.render(40).map((line) => line.trimEnd());
+    try {
+      expect(renderRows()).toEqual(["remaining row", "peer row"]);
+    } finally {
+      hooks.delete(removeRow);
+      hooks.delete(appendPeer);
+    }
+
+    expect(chat.children).toBe(children);
+    expect(renderRows()).toEqual(["original row", "remaining row"]);
+  });
+
   test("unregisters its chat container hooks on shutdown", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);

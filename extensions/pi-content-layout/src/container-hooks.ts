@@ -33,29 +33,31 @@ export function runChatContainerHooks(
   children: unknown,
   width: number,
 ): () => void {
-  const restores: Array<() => void> = [];
-  if (Array.isArray(children)) {
-    for (const hook of chatContainerHooks()) {
-      // A hook rewrites `children` and hands back its own undo. Snapshot first:
-      // a hook that throws after splicing rows out would otherwise leave them
-      // missing from every later render, with nothing left to restore them.
-      const before = [...children];
-      try {
-        const restore = hook(container, children, width);
-        if (typeof restore === "function") restores.push(restore);
-      } catch {
-        // Hooks are cosmetic; one failing hook must not break rendering.
-        children.length = 0;
-        children.push(...before);
-      }
+  if (!Array.isArray(children)) return () => {};
+
+  const restores: Array<{ restore: () => void; before: unknown[] }> = [];
+  for (const hook of chatContainerHooks()) {
+    // A hook rewrites `children` and hands back its own undo. Keep the
+    // pre-hook list so a failed apply or undo cannot leave transcript rows
+    // missing from later renders.
+    const before = [...children];
+    try {
+      const restore = hook(container, children, width);
+      if (typeof restore === "function") restores.push({ restore, before });
+    } catch {
+      // Hooks are cosmetic; one failing hook must not break rendering.
+      children.length = 0;
+      children.push(...before);
     }
   }
   return () => {
-    for (const restore of restores.reverse()) {
+    for (const { restore, before } of restores.reverse()) {
       try {
         restore();
       } catch {
-        // Best-effort restore; rendering already completed.
+        // Preserve earlier hooks' changes until their own undos run.
+        children.length = 0;
+        for (const child of before) children.push(child);
       }
     }
   };
