@@ -445,6 +445,41 @@ describe("intercom message interception", () => {
     ).toEqual(["", "FOREIGN BOX", "DECORATED BOX"]);
   });
 
+  test("keeps original intercom renderers when a later non-extensible host rejects restyling", () => {
+    sessionHarness();
+    const wrapped = new CustomMessageComponent(message, foreignRenderer);
+    const original = wrapped.render.bind(wrapped);
+    wrapped.render = (width) => [...original(width), `WRAPPED ${width}`];
+    const inherited = new CustomMessageComponent(message, foreignRenderer);
+    const rejected = Object.preventExtensions(
+      new CustomMessageComponent(message, () => new Text("REJECTED", 0, 0)),
+    );
+    const chat = chatWith(wrapped);
+    chat.addChild(inherited);
+    chat.addChild(rejected);
+
+    expect({
+      frame: render(chat, 11).split("\n"),
+      standalone: [wrapped, inherited].map((host) =>
+        host.render(11).map(stripAnsi),
+      ),
+    }).toEqual({
+      frame: [
+        "",
+        "FOREIGN BOX",
+        "WRAPPED 11",
+        "",
+        "FOREIGN BOX",
+        "",
+        "REJECTED   ",
+      ],
+      standalone: [
+        ["", "FOREIGN BOX", "WRAPPED 11"],
+        ["", "FOREIGN BOX"],
+      ],
+    });
+  });
+
   test("follows the host's expansion state", () => {
     const harness = sessionHarness();
     const input = { ...message, details: details as unknown };

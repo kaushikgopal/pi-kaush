@@ -355,8 +355,8 @@ export function interceptIntercomMessages(
 ): (() => void) | undefined {
   if (!theme || !Array.isArray(children)) return undefined;
   const restores: Array<() => void> = [];
-  for (const child of children) {
-    if (!isIntercomMessageHost(child, ownRenderer)) continue;
+  const substitute = (child: unknown) => {
+    if (!isIntercomMessageHost(child, ownRenderer)) return;
     const ownRender = Object.getOwnPropertyDescriptor(child, "render");
     const originalRender = child.render;
     child.render = (width: number): string[] => {
@@ -377,9 +377,17 @@ export function interceptIntercomMessages(
       if (ownRender) Object.defineProperty(child, "render", ownRender);
       else delete (child as Partial<IntercomMessageHost>).render;
     });
-  }
-  if (restores.length === 0) return undefined;
-  return () => {
+  };
+  const restoreRenderers = () => {
     for (const restore of restores.reverse()) restore();
   };
+
+  try {
+    for (const child of children) substitute(child);
+  } catch (error) {
+    // The shared runner can restore the child list, but not instance renderers.
+    restoreRenderers();
+    throw error;
+  }
+  return restores.length === 0 ? undefined : restoreRenderers;
 }
