@@ -344,8 +344,8 @@ function systemTextHook(
 
   const targetInset = contentInset(width);
   const restores: Array<() => void> = [];
-  for (const child of children) {
-    if (!isSystemTextChild(child)) continue;
+  const substitute = (child: unknown) => {
+    if (!isSystemTextChild(child)) return;
     const extraInset = Math.max(0, targetInset - (child.paddingX ?? 0));
     const ownRender = Object.getOwnPropertyDescriptor(child, "render");
     const originalRender = child.render;
@@ -378,12 +378,23 @@ function systemTextHook(
       if (ownRender) Object.defineProperty(child, "render", ownRender);
       else delete (child as Partial<NativeTextRow>).render;
     });
+  };
+  const restoreRenderers = () => {
+    for (const restore of restores.reverse()) restore();
+  };
+
+  try {
+    for (const child of children) substitute(child);
+  } catch (error) {
+    // The shared runner can restore the child list, but not instance renderers.
+    restoreRenderers();
+    throw error;
   }
   if (restores.length === 0) return undefined;
   systemTextHookActive = 1;
   return () => {
     systemTextHookActive = 0;
-    for (const restore of restores.reverse()) restore();
+    restoreRenderers();
   };
 }
 

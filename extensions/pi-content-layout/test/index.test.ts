@@ -954,6 +954,32 @@ describe("native transcript adapters", () => {
     },
   );
 
+  test("falls back to native system text when a later non-extensible Text rejects decoration", () => {
+    const harness = createHarness();
+    activeHarnesses.push(harness);
+    harness.fire("session_start");
+
+    const HostContainer = Object.getPrototypeOf(
+      AssistantMessageComponent.prototype,
+    ).constructor as typeof Container;
+    const chat = new HostContainer();
+    chat.addChild(new UserMessageComponent("neighbor"));
+    const warning = new Text("Warning: notice", 1, 0);
+    chat.addChild(warning);
+    chat.addChild(
+      Object.preventExtensions(new Text("Reloaded keybindings", 1, 0)),
+    );
+
+    const plain = (line: string) => stripControls(line).trimEnd();
+    expect({
+      frame: chat.render(40).slice(-2).map(plain),
+      standalone: warning.render(40).map(plain),
+    }).toEqual({
+      frame: [" Warning: notice", " Reloaded keybindings"],
+      standalone: [" Warning: notice"],
+    });
+  });
+
   test("keeps system rows inset when an outer grouping wrapper composes through hooks", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);
