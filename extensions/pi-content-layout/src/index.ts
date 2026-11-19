@@ -31,9 +31,11 @@ import {
 import {
   contentInset,
   insetLines,
+  PROMPT_RAIL,
   renderSubmittedUserLines,
   type RenderColors,
   type RenderMemo,
+  submittedPromptContentWidth,
 } from "./render.ts";
 
 const ASSISTANT_RENDER_PATCH = Symbol.for(
@@ -498,10 +500,10 @@ function userDecorator(
   memo: RenderMemo,
 ): string[] {
   const inset = contentInset(width);
-  const bodyWidth = width - inset * 2 - 1;
+  const bodyWidth = width - inset * 2 - visibleWidth(PROMPT_RAIL);
   if (inset === 0 || bodyWidth < 1) return original.call(row, width);
   // Reserve the shell's one left and two right padding columns before wrapping.
-  const wrapWidth = Math.max(1, bodyWidth - 3);
+  const wrapWidth = submittedPromptContentWidth(bodyWidth);
   const lines = original.call(row, wrapWidth);
   // Pi can emit native padding beyond its wrap width. In a one-cell body,
   // even the shell's own left padding leaves no room for the native text.

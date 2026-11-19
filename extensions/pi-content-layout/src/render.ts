@@ -26,6 +26,10 @@ export function contentInset(width: number): number {
   return width > OUTER_INSET * 2 ? OUTER_INSET : 0;
 }
 
+export function submittedPromptContentWidth(bodyWidth: number): number {
+  return Math.max(1, bodyWidth - (SUBMITTED_SIDE_PADDING * 2 + 1));
+}
+
 function semanticControlEnd(text: string, offset: number): number | undefined {
   if (text[offset] !== "\x1b") return undefined;
   const kind = text[offset + 1];
@@ -139,9 +143,9 @@ export function renderSubmittedUserLines(
     // Give the right edge two columns so both sides of the text read equal.
     const leftPadding = " ".repeat(SUBMITTED_SIDE_PADDING);
     const rightPadding = " ".repeat(SUBMITTED_SIDE_PADDING + 1);
-    const innerWidth = Math.max(1, bodyWidth - SUBMITTED_SIDE_PADDING * 2 - 1);
+    const submittedContentWidth = submittedPromptContentWidth(bodyWidth);
     const body = paintBackground(
-      `${leftPadding}${fitLine(recolored, innerWidth)}${rightPadding}`,
+      `${leftPadding}${fitLine(recolored, submittedContentWidth)}${rightPadding}`,
       bodyWidth,
       surfaceBg,
     );
