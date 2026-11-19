@@ -384,13 +384,17 @@ describe("native transcript adapters", () => {
     expect(user.render(20)).toEqual(native);
   });
 
-  test("refreshes an existing submitted rail after a borderAccent-only theme switch", () => {
+  test("refreshes an existing submitted prompt after rail-only and background-only theme switches", () => {
     let borderAccent = "\x1b[38;2;255;0;0m";
+    let surfaceBg = SURFACE_BG;
     const harness = createHarness();
     harness.context.ui.theme = {
       ...theme,
       getFgAnsi(color: ThemeColor) {
         return color === "borderAccent" ? borderAccent : theme.getFgAnsi(color);
+      },
+      getBgAnsi(color: string) {
+        return color === "userMessageBg" ? surfaceBg : bgAnsiFor(color);
       },
     } as Theme;
     activeHarnesses.push(harness);
@@ -408,6 +412,15 @@ describe("native transcript adapters", () => {
     expect(green[1]).toContain("\x1b[38;2;0;255;0m▎\x1b[39m");
     expect(green).not.toBe(red);
     expect(user.render(30)).toBe(green);
+
+    surfaceBg = "\x1b[48;5;52m";
+    const repainted = user.render(30);
+    expect(repainted).not.toBe(green);
+    expect(repainted[1]).toContain("\x1b[38;2;0;255;0m▎\x1b[39m\x1b[48;5;52m ");
+    expect(repainted[1]).toContain("unchanged prompt");
+    expect(repainted[1]).toContain("\x1b[48;5;52m  \x1b[49m  ");
+    expect(repainted[1]).not.toContain("\x1b[48;5;22m");
+    expect(user.render(30)).toBe(repainted);
   });
 
   test("insets assistant rows and gives submitted user rows a darker rail block", () => {
