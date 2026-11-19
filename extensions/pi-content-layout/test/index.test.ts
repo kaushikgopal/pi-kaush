@@ -379,6 +379,15 @@ describe("native transcript adapters", () => {
     expect(user.render(40)).toBe(wide);
     expect(user.render(20)).toEqual(lines);
 
+    const narrow = new UserMessageComponent("ABC", undefined, 0);
+    expect(narrow.render(7).map(stripControls)).toEqual([
+      "  ▎    ",
+      "  ▎ A  ",
+      "  ▎ B  ",
+      "  ▎ C  ",
+      "  ▎    ",
+    ]);
+
     harness.fire("session_shutdown");
     activeHarnesses.pop();
     expect(user.render(20)).toEqual(native);
