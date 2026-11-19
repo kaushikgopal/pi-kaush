@@ -356,6 +356,55 @@ describe("intercom message interception", () => {
     }
   });
 
+  test.each([
+    ["registered", false],
+    ["registered", true],
+    ["intercepted", false],
+    ["intercepted", true],
+  ] as const)(
+    "falls back for an in-place malformed reply command (%s, expanded: %s)",
+    (route, expanded) => {
+      const harness = sessionHarness();
+      const registered = harness.renderers.get("intercom_message");
+      if (!registered) throw new Error("expected registered intercom renderer");
+      const payload = structuredClone(clean);
+      const host = new CustomMessageComponent(
+        { ...message, details: payload },
+        route === "registered" ? registered : foreignRenderer,
+      );
+      host.setExpanded(expanded);
+      const chat = chatWith(host);
+      expect(render(chat, 100)).toContain("│ To reply: /reply");
+      expect(render(chat, 11)).toBe("\n  From: p  ");
+
+      Object.assign(payload, { bodyText: 456 });
+      Object.assign(payload.message.content, { text: 789 });
+      expect(render(chat, 100)).toContain(
+        expanded ? "│ helloworld " : "│ helloworld next ",
+      );
+
+      Object.assign(payload, { replyCommand: 123 });
+      for (const width of [100, 11]) {
+        expect(
+          render(chat, width)
+            .split("\n")
+            .map((line) => line.trimEnd()),
+        ).toEqual(
+          route === "registered"
+            ? ["", "helloworld", "next"]
+            : ["", "FOREIGN BOX"],
+        );
+      }
+
+      payload.replyCommand = "/recovered";
+      const recovered = render(chat, 100);
+      expect(recovered).toContain("│ To reply: /recovered");
+      expect(recovered).toContain(
+        expanded ? "│ helloworld " : "│ helloworld next ",
+      );
+    },
+  );
+
   test("restyles a box Pi built with another extension's renderer", () => {
     sessionHarness();
     const chat = chatWith(new CustomMessageComponent(message, foreignRenderer));

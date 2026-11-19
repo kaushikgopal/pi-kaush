@@ -51,10 +51,23 @@ class IntercomMessageComponent implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
+    // Pi only chooses its default box at rebuild time. Until then the
+    // registered component can still display the body it already captured.
+    return (
+      this.renderFrame(width) ??
+      wrapTextWithAnsi(this.bodyText, Math.max(1, width)).map((line) =>
+        truncateToWidth(line, width, ""),
+      )
+    );
+  }
+
+  renderFrame(width: number): string[] | undefined {
+    // Metadata stays live, so the construction check cannot protect these reads.
+    if (!hasValidIntercomFields(this.details, "live")) return undefined;
+
     const inset = contentInset(width);
     const boxWidth = Math.max(1, width - inset * 2);
     const margin = " ".repeat(inset);
-    // Metadata stays live on cached boxes; sanitize reads, not a snapshot.
     const from = this.details.from ?? {};
     const senderName =
       sanitizeIntercomText(from.name ?? "") ||
@@ -189,15 +202,13 @@ function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === "string";
 }
 
-function isIntercomMessageDetails(
+function hasValidIntercomFields(
   details: unknown,
-): details is IntercomMessageDetails {
+  phase: "initial" | "live",
+): boolean {
   if (!isRecord(details)) return false;
-  if (
-    !isOptionalString(details.bodyText) ||
-    !isOptionalString(details.replyCommand)
-  )
-    return false;
+  if (phase === "initial" && !isOptionalString(details.bodyText)) return false;
+  if (!isOptionalString(details.replyCommand)) return false;
 
   const from = details.from;
   if (
@@ -219,7 +230,7 @@ function isIntercomMessageDetails(
     const content = message.content;
     if (content !== undefined) {
       if (!isRecord(content)) return false;
-      if (!isOptionalString(content.text)) return false;
+      if (phase === "initial" && !isOptionalString(content.text)) return false;
       const attachments = content.attachments;
       if (attachments !== undefined) {
         if (!Array.isArray(attachments)) return false;
@@ -231,6 +242,12 @@ function isIntercomMessageDetails(
     }
   }
   return true;
+}
+
+function isIntercomMessageDetails(
+  details: unknown,
+): details is IntercomMessageDetails {
+  return hasValidIntercomFields(details, "initial");
 }
 
 // Details carry text, not terminal output. Strip external ANSI before adding
@@ -247,6 +264,14 @@ export function renderIntercomMessage(
   expanded: boolean,
   theme: Theme,
 ): Component | undefined {
+  return intercomBox(details, expanded, theme);
+}
+
+function intercomBox(
+  details: unknown,
+  expanded: boolean,
+  theme: Theme,
+): IntercomMessageComponent | undefined {
   if (!isIntercomMessageDetails(details)) return undefined;
   const text = details.bodyText ?? details.message?.content?.text;
   if (typeof text !== "string") return undefined;
@@ -285,7 +310,7 @@ const intercomBoxes = new WeakMap<
     theme: Theme;
     details: unknown;
     expanded: boolean;
-    component: Component;
+    component: IntercomMessageComponent;
   }
 >();
 
@@ -294,7 +319,7 @@ function intercomBoxFor(
   details: unknown,
   expanded: boolean,
   theme: Theme,
-): Component | undefined {
+): IntercomMessageComponent | undefined {
   const cached = intercomBoxes.get(host);
   if (
     cached &&
@@ -304,7 +329,7 @@ function intercomBoxFor(
   ) {
     return cached.component;
   }
-  const component = renderIntercomMessage(details, expanded, theme);
+  const component = intercomBox(details, expanded, theme);
   if (!component) {
     intercomBoxes.delete(host);
     return undefined;
@@ -341,11 +366,12 @@ export function interceptIntercomMessages(
         child._expanded === true,
         theme,
       );
-      if (!box) return originalRender.call(child, width);
+      const lines = box?.renderFrame(width);
+      if (!lines) return originalRender.call(child, width);
       // Pi's CustomMessageComponent renders a Spacer(1) ahead of the box.
       // The swap bypasses the host's own render, so reproduce that blank
       // line to keep the frame separated from the entry above it.
-      return ["", ...box.render(width)];
+      return ["", ...lines];
     };
     restores.push(() => {
       if (ownRender) Object.defineProperty(child, "render", ownRender);
