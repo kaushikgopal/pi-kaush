@@ -1121,6 +1121,37 @@ describe("native transcript adapters", () => {
     }
   });
 
+  test("releases a TUI layout binding after a duplicate start", () => {
+    const previous: EditorFactory = () => new TestEditor();
+    const harness = createHarness(previous);
+    activeHarnesses.push(harness);
+    const hooks = chatContainerHooks();
+    const before = [...hooks];
+    const peerHook = () => undefined;
+    hooks.add(peerHook);
+    const baseline = [...hooks];
+    try {
+      harness.fire("session_start");
+      const firstHooks = [...hooks];
+      const firstFactory = harness.factory;
+      harness.fire("session_start");
+      const repeatedHooks = [...hooks];
+      const repeatedFactory = harness.factory;
+      harness.fire("session_shutdown");
+      activeHarnesses.pop();
+
+      expect.soft(repeatedHooks).toEqual(firstHooks);
+      expect.soft(repeatedFactory).toBe(firstFactory);
+      expect.soft([...hooks]).toEqual(baseline);
+      expect.soft(harness.factory).toBe(previous);
+    } finally {
+      // A leaked hook must not affect later tests.
+      for (const hook of hooks) {
+        if (!before.includes(hook)) hooks.delete(hook);
+      }
+    }
+  });
+
   test("leaves tool execution rows byte-identical to Pi's own rendering", () => {
     const harness = createHarness(() => new TestEditor());
     activeHarnesses.push(harness);

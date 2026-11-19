@@ -2,6 +2,7 @@ import {
   AssistantMessageComponent,
   CustomEditor,
   type ExtensionAPI,
+  type ExtensionUIContext,
   type KeybindingsManager,
   type MessageRenderer,
   type Theme,
@@ -54,6 +55,12 @@ type EditorFactory = (
   theme: EditorTheme,
   keybindings: KeybindingsManager,
 ) => EditorComponent;
+
+type EditorRegistration = {
+  factory: EditorFactory;
+  previous: EditorFactory | undefined;
+  boundUi?: ExtensionUIContext;
+};
 
 type ThemeGetter = () => Theme | undefined;
 
@@ -552,18 +559,16 @@ export default function contentLayout(pi: ExtensionAPI): void {
   let statusLoaderPatch: RenderPatchState | undefined;
   let intercomMessageHook: ChatContainerHook | undefined;
   let steeringMessagePatch: RenderPatchState | undefined;
-  let editorRegistration:
-    | {
-        factory: EditorFactory;
-        previous: EditorFactory | undefined;
-      }
-    | undefined;
+  let editorRegistration: EditorRegistration | undefined;
 
   const getTheme = () => activeTheme;
 
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
-    activeTheme = ctx.ui.theme;
+    const ui = ctx.ui;
+    activeTheme = ui.theme;
+    // Overlapping Pi reloads can start the same TUI binding twice.
+    const alreadyBound = editorRegistration?.boundUi === ui;
 
     const assistantPrototype =
       AssistantMessageComponent.prototype as unknown as PatchableRenderPrototype;
@@ -586,9 +591,11 @@ export default function contentLayout(pi: ExtensionAPI): void {
     const hostContainerPrototype = Object.getPrototypeOf(
       AssistantMessageComponent.prototype,
     ) as PatchableRenderPrototype;
-    intercomMessageHook = (_container, children) =>
-      interceptIntercomMessages(children, getTheme(), renderIntercom);
-    chatContainerHooks().add(intercomMessageHook);
+    if (!alreadyBound) {
+      intercomMessageHook = (_container, children) =>
+        interceptIntercomMessages(children, getTheme(), renderIntercom);
+      chatContainerHooks().add(intercomMessageHook);
+    }
     systemTextHookOwners.add(owner);
     chatContainerHooks().add(systemTextHook);
     systemContainerPatch = installRenderPatch(
@@ -614,15 +621,19 @@ export default function contentLayout(pi: ExtensionAPI): void {
       steeringMessageDecorator,
     );
 
-    const previous = ctx.ui.getEditorComponent() as EditorFactory | undefined;
+    if (alreadyBound) return;
+    const previous = ui.getEditorComponent() as EditorFactory | undefined;
     const factory: EditorFactory = (tui, editorTheme, keybindings) => {
       const editor = previous
         ? previous(tui, editorTheme, keybindings)
         : new CustomEditor(tui, editorTheme, keybindings);
       return decorateEditor(editor);
     };
-    editorRegistration = { factory, previous };
-    ctx.ui.setEditorComponent(factory);
+    // Pi can publish the factory before calling it; keep the undo even if it throws.
+    const registration: EditorRegistration = { factory, previous };
+    editorRegistration = registration;
+    ui.setEditorComponent(factory);
+    registration.boundUi = ui;
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
