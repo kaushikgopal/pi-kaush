@@ -14,6 +14,7 @@ import {
   stripTerminalSequences,
   Text,
   TruncatedText,
+  truncateToWidth,
   type TUI,
   visibleWidth,
 } from "@earendil-works/pi-tui";
@@ -482,7 +483,19 @@ function userDecorator(
   const bodyWidth = width - inset * 2 - 1;
   if (inset === 0 || bodyWidth < 1) return original.call(row, width);
   // Reserve the shell's one left and two right padding columns before wrapping.
-  const lines = original.call(row, Math.max(1, bodyWidth - 3));
+  const wrapWidth = Math.max(1, bodyWidth - 3);
+  const lines = original.call(row, wrapWidth);
+  // Pi can emit native padding beyond its wrap width. In a one-cell body,
+  // even the shell's own left padding leaves no room for the native text.
+  const textWidth = Math.min(wrapWidth, bodyWidth - 1);
+  if (
+    !lines.some((line) =>
+      stripTerminalSequences(truncateToWidth(line, textWidth, "")).trim(),
+    ) &&
+    lines.some((line) => stripTerminalSequences(line).trim())
+  ) {
+    return original.call(row, width);
+  }
   return renderSubmittedUserLines(lines, width, theme, inset, memo);
 }
 

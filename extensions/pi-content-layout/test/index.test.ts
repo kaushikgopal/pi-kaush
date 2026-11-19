@@ -325,6 +325,24 @@ describe("editor factory composition", () => {
 });
 
 describe("native transcript adapters", () => {
+  test.each([
+    [9, undefined, ["         ", " ABC     ", "         "]],
+    [6, 0, ["      ", "ABC   ", "      "]],
+  ] as const)(
+    "keeps a submitted prompt readable when the rail cannot fit text (width %i, output padding %s)",
+    (width, outputPad, expected) => {
+      const user = new UserMessageComponent("ABC", undefined, outputPad);
+      const native = user.render(width);
+      const harness = createHarness();
+      activeHarnesses.push(harness);
+      harness.fire("session_start");
+
+      const lines = user.render(width);
+      expect(lines.map(stripControls)).toEqual(expected);
+      expect(lines).toEqual(native);
+    },
+  );
+
   test("preserves every submitted character across native wrap boundaries", () => {
     const user = new UserMessageComponent(
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
