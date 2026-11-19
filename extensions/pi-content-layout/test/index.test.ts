@@ -328,6 +328,8 @@ describe("native transcript adapters", () => {
   test.each([
     [9, undefined, ["         ", " ABC     ", "         "]],
     [6, 0, ["      ", "ABC   ", "      "]],
+    [5, 0, ["     ", "ABC  ", "     "]],
+    [4, 0, ["    ", "ABC ", "    "]],
   ] as const)(
     "keeps a submitted prompt readable when the rail cannot fit text (width %i, output padding %s)",
     (width, outputPad, expected) => {
