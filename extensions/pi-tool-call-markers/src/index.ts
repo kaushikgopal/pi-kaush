@@ -1684,12 +1684,26 @@ function installGroupingPatch(
           state.presentation,
         );
         // The grouping path bypasses the native render that refreshes the
-        // container's mouse-layout cache. Publish the drawn accounting so
-        // click-to-expand (Pi routes by per-child line heights) keeps landing
-        // on the row that actually owns the line, including grouped members.
-        (this as { mouseLayout?: unknown }).mouseLayout = {
+        // container's click-routing cache, so a click would be routed by the
+        // layout from before the first tool row. Publish the drawn accounting
+        // so click-to-expand keeps landing on the row that actually owns the
+        // line, including grouped members and the messages below them. Pi
+        // 1.6 reads `childLines`, each child with the lines it drew; older
+        // hosts read `mouseLayout`, each child with its height. Both are
+        // pi-tui Container internals, so a rename there breaks clicks quietly.
+        const host = this as { mouseLayout?: unknown; childLines?: unknown };
+        host.mouseLayout = { width, children: drawn.heights };
+        const parts: string[][] = [];
+        let drawnLine = 0;
+        for (const { height } of drawn.heights) {
+          parts.push(drawn.lines.slice(drawnLine, drawnLine + height));
+          drawnLine += height;
+        }
+        host.childLines = {
           width,
-          children: drawn.heights,
+          children: drawn.heights.map(({ component }) => component),
+          parts,
+          lines: drawn.lines,
         };
         return drawn.lines;
       } catch {

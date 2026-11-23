@@ -1289,6 +1289,106 @@ describe("tool-call-markers with Pi's real renderer", () => {
     assertClickRoutes("npm run lint", "lint passed", "tests passed");
   });
 
+  test("routes a click on a thinking row below collapsed tool rows to its toggle", () => {
+    const chat = new Container();
+    chat.addChild(
+      new AssistantMessageComponent({
+        role: "assistant",
+        content: [{ type: "text", text: "Running the commands." }],
+        stopReason: "stop",
+      } as never),
+    );
+    const width = 60;
+    // Pi draws the transcript before the first tool row exists, so the
+    // container already holds a click layout from its native render.
+    chat.render(width);
+
+    const first = createBashRow("npm test");
+    const second = createBashRow("npm run lint");
+    chat.addChild(first);
+    chat.addChild(second);
+    settle(first, "tests passed");
+    settle(second, "lint passed");
+    chat.addChild(
+      new AssistantMessageComponent(
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "weigh the factors" },
+            { type: "text", text: "7, 11, 13" },
+          ],
+          stopReason: "stop",
+        } as never,
+        true,
+      ),
+    );
+
+    type Click = Parameters<Container["handleMouse"]>[0];
+    const clickThought = (route: (event: Click) => unknown) => {
+      const lines = chat.render(width);
+      const y = lines.findIndex((line) =>
+        line.replace(ANSI_RE, "").includes("▏* Thought"),
+      );
+      expect(y).toBeGreaterThan(0);
+      route({
+        type: "click",
+        button: "left",
+        x: 5,
+        y,
+        screenX: 5,
+        screenY: y,
+        width,
+        height: lines.length,
+        shift: false,
+        alt: false,
+        ctrl: false,
+      } as Click);
+    };
+    // Pi 1.6 routes a container click through `childLines`, each child with
+    // the lines it drew, where the pinned Pi reads `mouseLayout`. Walk that
+    // cache the way pi-tui 1.6's Container.handleMouse does.
+    const routeByChildLines = (event: Click) => {
+      const layout = (
+        chat as unknown as {
+          childLines?: {
+            width: number;
+            children: Array<{ handleMouse?(event: Click): unknown }>;
+            parts: string[][];
+            lines: string[];
+          };
+        }
+      ).childLines;
+      expect(layout?.width).toBe(width);
+      expect(layout?.lines).toEqual(layout?.parts.flat());
+      let childY = 0;
+      for (const [index, child] of (layout?.children ?? []).entries()) {
+        const height = layout?.parts[index]?.length ?? 0;
+        if (event.y >= childY && event.y < childY + height) {
+          return child.handleMouse?.({ ...event, y: event.y - childY, height });
+        }
+        childY += height;
+      }
+      return undefined;
+    };
+
+    expect(renderPlain(chat, width)).not.toContain("weigh the factors");
+    clickThought(routeByChildLines);
+    const revealed = renderPlain(chat, width);
+    expect(revealed).toContain("weigh the factors");
+    expect(revealed).not.toContain("▏* Thought");
+    expect(revealed).not.toContain("FULL");
+
+    // Hide it again, then reveal through the pinned host's own routing.
+    (
+      chat.children.at(-1) as unknown as {
+        setHideThinkingBlock(hide: boolean): void;
+      }
+    ).setHideThinkingBlock(true);
+    expect(renderPlain(chat, width)).not.toContain("weigh the factors");
+    clickThought((event) => chat.handleMouse(event));
+    expect(renderPlain(chat, width)).toContain("weigh the factors");
+  });
+
   test("runs chat container hooks during grouped renders and restores after", () => {
     const chat = new Container();
     const first = createBashRow("npm test");

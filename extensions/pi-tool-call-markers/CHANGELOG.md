@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fix clicks that opened nothing on Pi 1.6 once a transcript has collapsed
+  tool calls. A click on a `▏* Thought` label below the tool rows did not
+  reveal the thinking, and a click on a collapsed tool row did not expand
+  it. Pi 1.6 routes clicks by a new per-row layout, and the grouped render
+  refreshed only the older one, so Pi kept the layout from before the first
+  tool row. Both layouts are refreshed now, so older Pi versions keep
+  working.
+
 - Add a blank line between a collapsed tool-call header and image-result
   text, including codemode’s “Script completed” status. Keep image-only
   spacing, the two-column inset, and native expanded rendering unchanged.
