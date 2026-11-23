@@ -13,6 +13,9 @@
 // The thin rail shares the submitted prompt bar's left edge.
 export const COLLAPSED_RAIL = "▏";
 
+// Columns between the transcript edge and a collapsed row's rail.
+export const OUTER_INSET = 2;
+
 // Faint keeps the rail quieter than the label, even on failed rows.
 export function withFaintCollapsedRail(
   style: (rail: string) => string,

@@ -1289,6 +1289,56 @@ describe("tool-call-markers with Pi's real renderer", () => {
     assertClickRoutes("npm run lint", "lint passed", "tests passed");
   });
 
+  test("draws the thinking rail on the collapsed tool-row rail column", () => {
+    const chat = new Container();
+    const first = createBashRow("npm test");
+    const second = createBashRow("npm run lint");
+    chat.addChild(first);
+    chat.addChild(second);
+    settle(first, "tests passed");
+    settle(second, "lint passed");
+    chat.addChild(
+      new AssistantMessageComponent(
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "weigh the factors" },
+            { type: "text", text: "7, 11, 13" },
+          ],
+          stopReason: "stop",
+        } as never,
+        true,
+      ),
+    );
+    const live = new AssistantMessageComponent(undefined, true);
+    (
+      live.updateContent as unknown as (m: unknown, streaming?: boolean) => void
+    ).call(
+      live,
+      { role: "assistant", content: [{ type: "thinking", thinking: "more" }] },
+      true,
+    );
+    chat.addChild(live);
+
+    const lines = renderRawLines(chat, 60);
+    const column = (text: string) =>
+      lines.find((line) => line.includes(text))?.indexOf("▏");
+    expect(column("npm test")).toBe(2);
+    expect(column("* Thought")).toBe(2);
+    expect(column("Thinking…")).toBe(2);
+    // Answer text keeps Pi's own padding.
+    expect(lines).toContain(" 7, 11, 13");
+
+    // A label that keeps Pi's own styling still carries the rail.
+    vi.stubEnv("PI_TOOL_CALL_MARKERS_THOUGHT_COLOR", "inherit");
+    try {
+      chat.invalidate();
+      expect(renderRawLines(chat, 60)).toContain("  ▏* Thought");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   test("runs chat container hooks during grouped renders and restores after", () => {
     const chat = new Container();
     const first = createBashRow("npm test");
@@ -3407,6 +3457,50 @@ describe("composition with pi-content-layout", () => {
       fireShutdown();
     }
   });
+
+  test.each([
+    ["markers", false],
+    ["content-layout", true],
+  ])(
+    "keeps the thinking rail on the tool-row rail column when %s installs first",
+    (_name, layoutFirst) => {
+      const { fireShutdown } = installBoth(layoutFirst);
+      const shutdowns: PiHandler[] = [];
+      registerThinkingMarkers({
+        on(event: string, handler: PiHandler) {
+          if (event === "session_start") {
+            handler({}, { mode: "tui", ui: { theme: extensionTheme } });
+          }
+          if (event === "session_shutdown") shutdowns.push(handler);
+        },
+        getThinkingLevel: () => "medium",
+      } as unknown as ExtensionAPI);
+      try {
+        const chat = buildTranscript();
+        chat.addChild(
+          new AssistantMessageComponent(
+            {
+              role: "assistant",
+              content: [
+                { type: "thinking", thinking: "weigh the factors" },
+                { type: "text", text: "7, 11, 13" },
+              ],
+              stopReason: "stop",
+            } as never,
+            true,
+          ),
+        );
+        const lines = renderRawLines(chat);
+        expect(lines).toContain("  ▏$ npm test → done");
+        // pi-content-layout already insets the whole message to that column.
+        expect(lines).toContain("  ▏* Thought");
+        expect(lines).toContain("  7, 11, 13");
+      } finally {
+        for (const handler of shutdowns) handler({}, {});
+        fireShutdown();
+      }
+    },
+  );
 
   test("replaces an old group renderer restored by another extension during reload", () => {
     const previousRender = Container.prototype.render;
