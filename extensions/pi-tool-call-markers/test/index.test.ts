@@ -1477,9 +1477,8 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(
-      /^  ▏   subagents: chain \(2 steps\) \[user level\]/,
-    );
+    expect(lines[0]).toMatch(/^  ▏🏭 chain \(2 steps\) \[user level\]/);
+    expect(lines[0]).not.toContain("subagents:");
     expect(lines[0]).toContain("→ done");
     expect(lines[1]).toBe("  ▏👻 1. [fast][reviewer] Analyze the change.");
     expect(lines[2]).toBe("  ▏👻 2. [tester] Use and validate it.");
@@ -1506,12 +1505,12 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(5);
-    expect(lines[0]).toContain(
-      "▏   subagents: parallel (4 tasks) [user level]",
-    );
+    expect(lines[0]).toContain("▏🏭 parallel (4 tasks) [user level]");
+    expect(lines[0]).not.toContain("subagents:");
+    expect(lines[0]).toContain("→ done");
     expect(lines[1]).toBe("  ▏👻 [alpha] First task.");
     expect(lines[3]).toBe("  ▏👻 [gamma] Third task.");
-    expect(lines[4]).toBe("     ... +1 more");
+    expect(lines[4]).toBe("        ... +1 more");
   });
 
   test("hides a profile badge when a parallel task overrides its model", () => {

@@ -76,12 +76,12 @@ native script, nested call status, and result details.
 A recognized `subagent` call renders as an unboxed plan in the shared tool aesthetic, using the same `▏` tool-call rail:
 
 ```text
-  ▏  subagent chain (3 steps) [repo-review]
-     1. 🐝 bee [workhorse] Challenge the compatibility conclusion…
-     2. 🐝 bee …
+  ▏🏭 chain (3 steps) [repo-review]
+  ▏👻 1. [workhorse][bee] Challenge the compatibility conclusion…
+  ▏👻 2. [bee] …
 ```
 
-Single calls stay on one `▏  [<emoji>] [<profile>][<agent>] <task preview>` row — no tool label. Chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers), with each step ordered emoji, profile badge, name badge. Agent display names (emoji + name) are scraped from the native plan component — including the single-call heading — with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
+Single calls stay on one `▏[<emoji>] [<profile>][<agent>] <task preview>` row; they have no tool label. Parallel and chain calls use `🏭` in the glyph slot, then show the plan kind, count, scope, and outcome. Chain steps are numbered; parallel tasks are not. Each step shows its emoji, profile badge, name badge, and task preview. Agent display names (emoji + name) are scraped from the native plan component — including the single-call heading — with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
 
 Assigned agent emojis always take priority. Without one, non-interactive runs use 👻; interactive launches and worker controls (`list`, `status`, `send`, `wait`, `stop`, and `resume`) use 👾. Profiles and explicit model overrides do not affect the fallback. These defaults also cover generic fallback rows such as `subagent 👾 ... [user]`.
 

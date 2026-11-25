@@ -1350,7 +1350,7 @@ function renderSubagentPlan(
   const marker = collapsedAnchor(
     theme,
     plan.kind === "single" ? nameColor : color,
-    plan.kind === "single" ? firstIdentity.emoji : undefined,
+    plan.kind === "single" ? firstIdentity.emoji : "🏭",
   );
   const budget = Math.max(1, width - visibleWidth(marker));
   const progress = subagentProgressText(row);
@@ -1372,10 +1372,7 @@ function renderSubagentPlan(
       : `parallel (${plan.steps.length} tasks)`;
   const lines = [
     headline(
-      " " +
-        fgCollapsed(theme, failed ? "error" : "toolTitle", "subagents:", true) +
-        " " +
-        fgCollapsed(theme, failed ? "error" : "toolOutput", kindLabel) +
+      fgCollapsed(theme, failed ? "error" : "toolOutput", kindLabel) +
         fgCollapsed(
           theme,
           failed ? "error" : "toolOutput",
@@ -1383,9 +1380,7 @@ function renderSubagentPlan(
         ),
     ),
   ];
-  const stepIndent = " ".repeat(
-    visibleWidth(COLLAPSED_RAIL + SUBAGENT_LABEL_GAP),
-  );
+  const stepIndent = " ".repeat(OUTER_INSET + visibleWidth(marker));
   const shown = plan.steps.slice(0, 3);
   for (let index = 0; index < shown.length; index++) {
     const step = shown[index]!;
