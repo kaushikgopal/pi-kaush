@@ -83,7 +83,7 @@ A recognized `subagent` call renders as an unboxed plan in the shared tool aesth
 
 Single calls stay on one `▏  [<emoji>] [<profile>][<agent>] <task preview>` row — no tool label. Chain calls get a heading with the kind, count, and scope followed by numbered steps (parallel tasks list without numbers), with each step ordered emoji, profile badge, name badge. Agent display names (emoji + name) are scraped from the native plan component — including the single-call heading — with an args fallback, and render in `accent`; everything else stays muted, and failed subagents go full red. Subagents never join ordinary tool groups.
 
-Assigned agent emojis take priority. Without one, calls use 👾 for non-interactive runs or 🤖 for interactive launches and worker controls (`list`, `status`, `send`, `wait`, `stop`, and `resume`). Tasks using the `coder` profile default to 🧑‍💻 in either mode. An explicit model override disables that profile default, just as it hides the profile badge. These defaults also cover generic fallback rows such as `subagent 🤖 ... [user]`.
+Assigned agent emojis always take priority. Without one, non-interactive runs use 👻; interactive launches and worker controls (`list`, `status`, `send`, `wait`, `stop`, and `resume`) use 👾. Profiles and explicit model overrides do not affect the fallback. These defaults also cover generic fallback rows such as `subagent 👾 ... [user]`.
 
 While a subagent runs, the plan headline's tail shows live progress from the streamed result details — `→ 1 turn · provider/model` in the warning tone — and a settled call keeps the same `→ N turns · provider/model` summary in muted (turns aggregate across tasks; the model shows only when every task used the same one).
 

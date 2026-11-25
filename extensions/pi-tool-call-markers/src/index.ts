@@ -1107,11 +1107,7 @@ function subagentDisplayProfile(
   return profile.trim() || undefined;
 }
 
-function defaultSubagentEmoji(
-  action: unknown,
-  profile: string | undefined,
-): string {
-  if (profile === "coder") return "🧑‍💻";
+function defaultSubagentEmoji(action: unknown): string {
   return typeof action === "string" &&
     [
       "interactive",
@@ -1122,8 +1118,8 @@ function defaultSubagentEmoji(
       "stop",
       "resume",
     ].includes(action)
-    ? "🤖"
-    : "👾";
+    ? "👾"
+    : "👻";
 }
 
 // Match a whole icon token, including joined emoji, flags, and keycaps.
@@ -1146,9 +1142,7 @@ function subagentFallbackLabel(args: unknown, summary: string): string {
     ? /[^\x00-\x7f]/u.test(icon)
     : !startsWithAgent(summary) && SUBAGENT_EMOJI_TOKEN.test(icon);
   const action = input?.action;
-  const prefix = assigned
-    ? ""
-    : `${defaultSubagentEmoji(action, input && subagentDisplayProfile(input, action))} `;
+  const prefix = assigned ? "" : `${defaultSubagentEmoji(action)} `;
   return `subagent ${prefix}${summary}`.trimEnd();
 }
 
@@ -1318,8 +1312,8 @@ function subagentPlanOutcome(
   return theme.fg("warning", "…");
 }
 
-// Subagents use the collapsed rail with no separate glyph. A single call
-// starts with its agent identity; a multi-step plan starts with a heading.
+// Single subagents use the agent emoji in the glyph slot. Plans leave that
+// slot empty for the heading and align each agent emoji with the slot below.
 // Agent identities use accent, and failures use error colors.
 function renderSubagentPlan(
   row: ToolExecutionRow,
@@ -1338,22 +1332,26 @@ function renderSubagentPlan(
   const displayEmojis = scrapeSubagentEmojis(row, plan.kind);
   // Agent/profile/task values are model-supplied; sanitize them like every
   // other collapsed-row text so control bytes cannot reach the terminal.
-  // Identity order: emoji, then the profile and agent-name badges.
   const identityOf = (step: SubagentStep) => {
     const emoji = displayEmojis.get(step.agent);
     const accentPart = (text: string) => fgCollapsed(theme, nameColor, text);
-    const fallbackEmoji = defaultSubagentEmoji(action, step.profile);
-    const emojiPart = `${accentPart(emoji || fallbackEmoji)} `;
-    const profilePart = step.profile
-      ? accentPart(`[${sanitizeInline(step.profile)}]`)
-      : "";
-    return `${emojiPart}${profilePart}${accentPart(`[${sanitizeInline(step.agent)}]`)}`;
+    return {
+      emoji: sanitizeInline(emoji || defaultSubagentEmoji(action)),
+      label:
+        (step.profile ? accentPart(`[${sanitizeInline(step.profile)}]`) : "") +
+        accentPart(`[${sanitizeInline(step.agent)}]`),
+    };
   };
   const detailColor = failed ? "error" : "toolOutput";
   const previewOf = (step: SubagentStep) =>
     fgCollapsed(theme, detailColor, ` ${subagentStepPreview(step.task)}`);
 
-  const marker = collapsedAnchor(theme, color, undefined);
+  const firstIdentity = identityOf(plan.steps[0]);
+  const marker = collapsedAnchor(
+    theme,
+    plan.kind === "single" ? nameColor : color,
+    plan.kind === "single" ? firstIdentity.emoji : undefined,
+  );
   const budget = Math.max(1, width - visibleWidth(marker));
   const progress = subagentProgressText(row);
   const outcome = subagentPlanOutcome(row, failed, progress, budget, theme);
@@ -1365,7 +1363,7 @@ function renderSubagentPlan(
 
   if (plan.kind === "single") {
     const step = plan.steps[0];
-    return [headline(identityOf(step) + previewOf(step))];
+    return [headline(firstIdentity.label + previewOf(step))];
   }
 
   const kindLabel =
@@ -1374,10 +1372,15 @@ function renderSubagentPlan(
       : `parallel (${plan.steps.length} tasks)`;
   const lines = [
     headline(
-      fgCollapsed(theme, failed ? "error" : "toolTitle", "subagent", true) +
+      " " +
+        fgCollapsed(theme, failed ? "error" : "toolTitle", "subagents:", true) +
         " " +
         fgCollapsed(theme, failed ? "error" : "toolOutput", kindLabel) +
-        fgCollapsed(theme, failed ? "error" : "toolOutput", ` [${plan.scope}]`),
+        fgCollapsed(
+          theme,
+          failed ? "error" : "toolOutput",
+          ` [${plan.scope} level]`,
+        ),
     ),
   ];
   const stepIndent = " ".repeat(
@@ -1386,11 +1389,13 @@ function renderSubagentPlan(
   const shown = plan.steps.slice(0, 3);
   for (let index = 0; index < shown.length; index++) {
     const step = shown[index]!;
+    const identity = identityOf(step);
     const number =
       plan.kind === "chain"
         ? `${fgCollapsed(theme, color, `${index + 1}.`)} `
         : "";
-    lines.push(`${stepIndent}${number}${identityOf(step)}${previewOf(step)}`);
+    const stepAnchor = collapsedAnchor(theme, nameColor, identity.emoji);
+    lines.push(`${stepAnchor}${number}${identity.label}${previewOf(step)}`);
   }
   if (plan.steps.length > shown.length) {
     lines.push(

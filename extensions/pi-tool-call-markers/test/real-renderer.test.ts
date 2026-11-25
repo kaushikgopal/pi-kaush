@@ -449,20 +449,20 @@ describe("tool-call-markers with Pi's real renderer", () => {
     {
       action: "run",
       profile: undefined,
-      identity: "👾 [lucien]",
-      narrow: "  ▏  👾 [l… → done",
+      identity: "👻 [lucien]",
+      narrow: "  ▏👻 [luc… → done",
     },
     {
       action: "interactive",
       profile: undefined,
-      identity: "🤖 [lucien]",
-      narrow: "  ▏  🤖 [l… → done",
+      identity: "👾 [lucien]",
+      narrow: "  ▏👾 [luc… → done",
     },
     {
       action: "interactive",
       profile: "coder",
-      identity: "🧑‍💻 [coder][lucien]",
-      narrow: "  ▏  🧑‍💻 [c… → done",
+      identity: "👾 [coder][lucien]",
+      narrow: "  ▏👾 [cod… → done",
     },
   ])(
     "keeps default emoji $identity width-safe and preserves expansion",
@@ -474,10 +474,10 @@ describe("tool-call-markers with Pi's real renderer", () => {
       );
       const chat = new Container();
       chat.addChild(row);
-      expect(renderPlain(chat)).toBe(`  ▏  ${identity} Inspect it. …`);
+      expect(renderPlain(chat)).toBe(`  ▏${identity} Inspect it. …`);
 
       settle(row, "child result");
-      expect(renderPlain(chat)).toBe(`  ▏  ${identity} Inspect it. → done`);
+      expect(renderPlain(chat)).toBe(`  ▏${identity} Inspect it. → done`);
       for (const width of [8, 12, 16, 20, 40, 100]) {
         const lines = chat.render(width);
         expect(
@@ -501,7 +501,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
 
   test.each([
     ["assigned", "🧪 tester", "🧪 [tester]"],
-    ["default", "tester", "🤖 [tester]"],
+    ["default", "tester", "👾 [tester]"],
   ])(
     "keeps the %s single-call emoji when the task starts with an emoji and the agent name",
     (_assignment, displayName, identity) => {
@@ -511,7 +511,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
       chat.addChild(row);
 
       expect(renderPlain(chat)).toBe(
-        `  ▏  ${identity} 🐈 tester is an example → done`,
+        `  ▏${identity} 🐈 tester is an example → done`,
       );
     },
   );
@@ -552,7 +552,7 @@ describe("tool-call-markers with Pi's real renderer", () => {
         chat.addChild(sibling);
         const neighbor = "\n  ▏$ neighbor → done";
         const head = isSubagent
-          ? "  ▏  👾 [bee] Inspect image."
+          ? "  ▏👻 [bee] Inspect image."
           : shell === "default"
             ? "  ▏$ render image"
             : '  ▏* {"query":"preview"}';
@@ -3137,7 +3137,7 @@ describe("lifecycle hardening", () => {
         chat.addChild(row);
         settle(row, "child result");
         const expected =
-          "  ▏  🤖 [tester] Review it. → done" +
+          "  ▏👾 [tester] Review it. → done" +
           (placement === "buried" ? "\nouter decoration" : "");
         expect(renderPlain(chat)).toBe(expected);
         expect(renderPlain(chat)).toBe(expected);

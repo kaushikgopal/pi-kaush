@@ -1477,10 +1477,12 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^  ▏  subagent chain \(2 steps\) \[user\]/);
+    expect(lines[0]).toMatch(
+      /^  ▏   subagents: chain \(2 steps\) \[user level\]/,
+    );
     expect(lines[0]).toContain("→ done");
-    expect(lines[1]).toBe("     1. 👾 [fast][reviewer] Analyze the change.");
-    expect(lines[2]).toBe("     2. 👾 [tester] Use and validate it.");
+    expect(lines[1]).toBe("  ▏👻 1. [fast][reviewer] Analyze the change.");
+    expect(lines[2]).toBe("  ▏👻 2. [tester] Use and validate it.");
     expect(lines.join("\n")).not.toContain("▌");
     expect(lines.join("\n")).not.toContain("view subagents");
   });
@@ -1504,9 +1506,11 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(5);
-    expect(lines[0]).toContain("▏  subagent parallel (4 tasks) [user]");
-    expect(lines[1]).toBe("     👾 [alpha] First task.");
-    expect(lines[3]).toBe("     👾 [gamma] Third task.");
+    expect(lines[0]).toContain(
+      "▏   subagents: parallel (4 tasks) [user level]",
+    );
+    expect(lines[1]).toBe("  ▏👻 [alpha] First task.");
+    expect(lines[3]).toBe("  ▏👻 [gamma] Third task.");
     expect(lines[4]).toBe("     ... +1 more");
   });
 
@@ -1531,8 +1535,8 @@ describe("tool-call-markers grouping", () => {
       .render(100)
       .map(stripAnsi)
       .filter((line) => line.trim());
-    expect(lines[1]).toBe("     👾 [alpha] First task.");
-    expect(lines[2]).toBe("     👾 [thorough][beta] Second task.");
+    expect(lines[1]).toBe("  ▏👻 [alpha] First task.");
+    expect(lines[2]).toBe("  ▏👻 [thorough][beta] Second task.");
   });
 
   test("renders a single subagent as a one-line tool row", () => {
@@ -1547,7 +1551,7 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("▏  👾 [reviewer] Inspect the renderer.");
+    expect(lines[0]).toContain("▏👻 [reviewer] Inspect the renderer.");
     expect(lines[0]).toContain("→ done");
   });
 
@@ -1573,8 +1577,8 @@ describe("tool-call-markers grouping", () => {
       .render(100)
       .map(stripAnsi)
       .filter((line) => line.trim());
-    expect(lines[1]).toBe("     1. 🏃 [fast][reviewer] Analyze the change.");
-    expect(lines[2]).toBe("     2. 🐝 [tester] Validate it.");
+    expect(lines[1]).toBe("  ▏🏃 1. [fast][reviewer] Analyze the change.");
+    expect(lines[2]).toBe("  ▏🐝 2. [tester] Validate it.");
   });
 
   test("shows single-call emoji and profile badges in emoji-profile-name order", () => {
@@ -1592,7 +1596,7 @@ describe("tool-call-markers grouping", () => {
       .map(stripAnsi)
       .filter((line) => line.trim());
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain("▏  🤖 [coder][c3po] Implement the fix.");
+    expect(lines[0]).toContain("▏🤖 [coder][c3po] Implement the fix.");
   });
 
   test.each([
@@ -1600,25 +1604,25 @@ describe("tool-call-markers grouping", () => {
       action: undefined,
       profile: undefined,
       model: undefined,
-      identity: "👾 [lucien]",
+      identity: "👻 [lucien]",
     },
     {
       action: "run",
       profile: "coder",
       model: undefined,
-      identity: "🧑‍💻 [coder][lucien]",
+      identity: "👻 [coder][lucien]",
     },
     {
       action: "interactive",
       profile: "coder",
       model: undefined,
-      identity: "🧑‍💻 [coder][lucien]",
+      identity: "👾 [coder][lucien]",
     },
     {
       action: "interactive",
       profile: "coder",
       model: "provider/model",
-      identity: "🤖 [lucien]",
+      identity: "👾 [lucien]",
     },
   ])(
     "defaults plain-named single calls to $identity ($action)",
@@ -1643,7 +1647,9 @@ describe("tool-call-markers grouping", () => {
         .map(stripAnsi)
         .filter((line) => line.trim());
       expect(lines).toHaveLength(1);
-      expect(lines[0]).toContain(`▏  ${identity} Consolidate the notes`);
+      expect(lines[0]).toContain(
+        `▏${identity.split(" ")[0]} ${identity.slice(identity.indexOf(" ") + 1)} Consolidate the notes`,
+      );
       expect(lines[0]).not.toContain("[ ");
     },
   );
@@ -1652,13 +1658,13 @@ describe("tool-call-markers grouping", () => {
       "omitted action and empty model",
       { profile: "coder", model: "" },
       "lucien",
-      "🧑‍💻 [coder][lucien]",
+      "👻 [coder][lucien]",
     ],
     [
       "interactive and whitespace model",
       { action: "interactive", profile: " coder ", model: " \t " },
       "lucien",
-      "🧑‍💻 [coder][lucien]",
+      "👾 [coder][lucien]",
     ],
     [
       "run and blank model with an assigned emoji",
@@ -1678,14 +1684,16 @@ describe("tool-call-markers grouping", () => {
       );
       chat.addChild(row);
 
-      expect(renderPlain(chat)).toBe(`  ▏  ${identity} Inspect it. → done`);
+      expect(renderPlain(chat)).toBe(
+        `  ▏${identity.split(" ")[0]} ${identity.slice(identity.indexOf(" ") + 1)} Inspect it. → done`,
+      );
     },
   );
   test.each([
     ["empty", "", "lucien [coder] [user]"],
     ["whitespace-only", " \t ", "lucien [user]"],
   ])(
-    "keeps the coder default in an interactive fallback when the model is %s",
+    "keeps the interactive fallback independent of profile and model when the model is %s",
     (_case, model, heading) => {
       const chat = new MockContainer();
       const row = new MockToolExecutionComponent("subagent", "delegation");
@@ -1700,7 +1708,7 @@ describe("tool-call-markers grouping", () => {
       row.callRendererComponent = new MockText(`subagent ${heading}\n  ...`);
       chat.addChild(row);
 
-      expect(renderPlain(chat)).toBe(`  ▏  subagent 🧑‍💻 ${heading} · ...`);
+      expect(renderPlain(chat)).toBe(`  ▏  subagent 👾 ${heading} · ...`);
     },
   );
   test("uses per-task defaults in an interactive batch without replacing assigned emojis", () => {
@@ -1725,14 +1733,14 @@ describe("tool-call-markers grouping", () => {
 
     const lines = renderRawLines(chat).filter((line) => line.trim());
     expect(lines.slice(1)).toEqual([
-      "     🤖 [reviewer] Review it.",
-      "     🧑‍💻 [coder][builder] Build it.",
-      "     🧪 [coder][tester] Test it.",
+      "  ▏👾 [reviewer] Review it.",
+      "  ▏👾 [coder][builder] Build it.",
+      "  ▏🧪 [coder][tester] Test it.",
     ]);
   });
 
   test.each(["list", "status", "send", "wait", "stop", "resume"])(
-    "defaults generic interactive %s calls to the robot emoji",
+    "defaults generic interactive %s calls to 👾",
     (action) => {
       const chat = new MockContainer();
       const row = new MockToolExecutionComponent("subagent", "control");
@@ -1742,19 +1750,19 @@ describe("tool-call-markers grouping", () => {
       chat.addChild(row);
 
       const output = renderPlain(chat);
-      expect(output).toBe("  ▏  subagent 🤖 ... [user] · ...");
+      expect(output).toBe("  ▏  subagent 👾 ... [user] · ...");
     },
   );
   test.each([
     {
       args: { action: "interactive", agent: "réviseur" },
       heading: "réviseur [user]",
-      label: "🤖 réviseur [user]",
+      label: "👾 réviseur [user]",
     },
     {
       args: { action: "interactive", agent: "réviseur", profile: "coder" },
       heading: "réviseur [coder] [user]",
-      label: "🧑‍💻 réviseur [coder] [user]",
+      label: "👾 réviseur [coder] [user]",
     },
     {
       args: {
@@ -1764,17 +1772,17 @@ describe("tool-call-markers grouping", () => {
         model: "provider/model",
       },
       heading: "réviseur [user]",
-      label: "🤖 réviseur [user]",
+      label: "👾 réviseur [user]",
     },
     {
       args: { action: "interactive", agent: "🧪 réviseur" },
       heading: "🧪 réviseur [user]",
-      label: "🤖 🧪 réviseur [user]",
+      label: "👾 🧪 réviseur [user]",
     },
     {
       args: { action: "list" },
       heading: "• workers [user]",
-      label: "🤖 • workers [user]",
+      label: "👾 • workers [user]",
     },
   ])(
     "uses the fallback default without an assigned emoji: $heading",
@@ -1812,7 +1820,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain("▏  👾 [reviewer] Inspect the live result.");
+    expect(output).toContain("▏👻 [reviewer] Inspect the live result.");
     expect(output).toMatch(/Inspect the live result\. …$/);
     expect(output).not.toContain("→");
     expect(output).not.toContain("→ done");
@@ -1828,7 +1836,7 @@ describe("tool-call-markers grouping", () => {
     chat.addChild(row);
 
     const output = renderPlain(chat);
-    expect(output).toContain("▏  👾 [reviewer] Inspect the image result.");
+    expect(output).toContain("▏👻 [reviewer] Inspect the image result.");
     expect(output).toContain("…");
     expect(output).not.toContain("→ done");
   });
@@ -1857,7 +1865,7 @@ describe("tool-call-markers grouping", () => {
 
     const output = renderPlain(chat);
     expect(output).toContain(
-      "▏  👾 [reviewer] Inspect the live result. → 1 turn · instacart-openai/gpt-5.6-luna",
+      "▏👻 [reviewer] Inspect the live result. → 1 turn · instacart-openai/gpt-5.6-luna",
     );
     expect(output).not.toContain("→ done");
   });
@@ -1922,7 +1930,7 @@ describe("tool-call-markers grouping", () => {
     }
 
     const output = renderPlain(chat);
-    expect(output.match(/▏  👾 \[/g)).toHaveLength(2);
+    expect(output.match(/▏👻 \[/g)).toHaveLength(2);
     expect(output).not.toContain("▌");
   });
 
@@ -1944,7 +1952,7 @@ describe("tool-call-markers grouping", () => {
     // Saved tool calls can contain null despite the live component's record type.
     Object.assign(restored, { args: null });
     restoredChat.addChild(restored);
-    expect(renderPlain(restoredChat)).toBe("  ▏  subagent 👾 ... [user]");
+    expect(renderPlain(restoredChat)).toBe("  ▏  subagent 👻 ... [user]");
 
     const narrowChat = new MockContainer();
     const narrow = new MockToolExecutionComponent("subagent", "x");
@@ -1967,8 +1975,8 @@ describe("tool-call-markers grouping", () => {
 
     const planLines = narrowChat.render(16).map(stripAnsi);
     expect(planLines).toHaveLength(4);
-    expect(planLines[2]).toContain("1. 👾 [fa");
-    expect(planLines[3]).toContain("2. 👾 [te");
+    expect(planLines[2]?.length).toBeLessThanOrEqual(16);
+    expect(planLines[3]?.length).toBeLessThanOrEqual(16);
     expect(planLines.some((line) => line.includes("▏"))).toBe(true);
     expect(planLines.join("\n")).not.toContain("▌");
     expect(planLines.every((line) => line.length <= 16)).toBe(true);
@@ -2025,8 +2033,8 @@ describe("tool-call-markers grouping", () => {
         const colors = new Set(
           [...line.matchAll(/<(\w+)>/g)].map((match) => match[1]),
         );
-        expect([...colors]).toEqual(["error"]);
-        expect(line).toContain("<error>👾</error>");
+        expect([...colors]).toEqual(["muted", "error"]);
+        expect(line).toContain("<error>👻</error>");
       }
     } finally {
       for (const handler of sessionHandlers) {
