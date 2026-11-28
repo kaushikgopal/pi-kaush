@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Line the thinking label's rail up with the collapsed tool-call rails. The
+  label sat one column to the left of the tool rows when this package ran
+  without `pi-content-layout`. The live `▏⠋ Thinking…` label takes the same
+  column, and answer text keeps Pi's own padding.
+
 - Add a blank line between a collapsed tool-call header and image-result
   text, including codemode’s “Script completed” status. Keep image-only
   spacing, the two-column inset, and native expanded rendering unchanged.

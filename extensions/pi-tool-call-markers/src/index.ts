@@ -24,13 +24,13 @@ import {
 import {
   COLLAPSED_RAIL,
   fgCollapsed,
+  OUTER_INSET,
   paletteSample,
   withFaintCollapsedRail,
 } from "./muted.ts";
 import { isQuestionToolCall, renderQuestionBlock } from "./question-block.ts";
 import { sanitizeInline } from "./sanitize.ts";
 
-const OUTER_INSET = 2;
 // Glyphless rows leave room for the glyph and its trailing space.
 const SUBAGENT_LABEL_GAP = "  ";
 // Collapsed rows anchor with a glyph instead of repeating the tool name;

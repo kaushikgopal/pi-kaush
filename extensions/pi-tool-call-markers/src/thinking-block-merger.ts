@@ -4,6 +4,7 @@ import { infoVisibilityHidden } from "./info-visibility-state.ts";
 import {
   COLLAPSED_RAIL,
   collapsedThinkingAnsi,
+  OUTER_INSET,
   withFaintCollapsedRail,
 } from "./muted.ts";
 
@@ -178,6 +179,7 @@ type AssistantMessageRow = {
 
 type TextLikeChild = {
   text?: unknown;
+  paddingX?: unknown;
   setText?(text: string): void;
   render?(width: number): string[];
 };
@@ -267,6 +269,23 @@ function plainText(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
+// pi-content-layout marks the assistant row it insets with this key. That
+// inset already puts the label on the collapsed tool rows' rail column.
+const CONTENT_LAYOUT_ASSISTANT_PATCH = Symbol.for(
+  "kg.pi.contentLayout.assistantRender.v1",
+);
+
+// Pi pads the label like answer text, one column short of the collapsed tool
+// rows. Widen the label's own padding so the rails share a column and the
+// answer text stays where Pi put it. `paddingX` is a pi-tui Text internal.
+function anchorOnToolRail(node: TextLikeChild): void {
+  if (typeof node.paddingX !== "number" || node.paddingX >= OUTER_INSET) return;
+  if (CONTENT_LAYOUT_ASSISTANT_PATCH in AssistantMessageComponent.prototype) {
+    return;
+  }
+  node.paddingX = OUTER_INSET;
+}
+
 // A live label re-reads the clock whenever the TUI draws it, so the spinner
 // steps with the redraws Pi's working indicator already drives instead of
 // freezing between bursty thinking deltas. Pi rebuilds the label node on
@@ -309,8 +328,10 @@ function restyleHiddenThinkingLabel(
     return;
   }
   const label = row.hiddenThinkingLabel;
-  if (!stylesThinkingLabels()) return;
   const labels = hiddenLabelNodes(row, plainText(label));
+  // The rail keeps its column even when the label keeps Pi's own styling.
+  for (const { node } of labels) anchorOnToolRail(node);
+  if (!stylesThinkingLabels()) return;
   const hasToolCalls =
     Array.isArray(message.content) &&
     message.content.some(
